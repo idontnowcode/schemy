@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Generated KiCad outputs (regenerate with `aics generate`)
+projects/*/outputs/
+*.kicad_sch-bak
+*.kicad_prl
+fp-info-cache
+_autosave-*
+\#auto_saved_files#
+
+# Node / Electron (later phases)
+node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,206 @@
+"""Read symbol definitions and pin geometry from installed KiCad libraries.
+
+Pin numbers, names and positions always come from the real ``.kicad_sym``
+file; nothing about a symbol is assumed. The parsed symbol is also what gets
+embedded into the generated schematic's ``lib_symbols`` cache.
+
+PoC limits (reported as errors, never silently ignored):
+- derived symbols (``extends``) and multi-unit symbols are not supported;
+- only the KiCad 6+ single-file ``.kicad_sym`` library format is read
+  (KiCad 10 ``.kicad_symdir`` directories are not).
+"""
+
+from __future__ import annotations
+
+import os
+import platform
+import re
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+
+from . import sexpr
+from .sexpr import child, children, head, unquote
+
+
+class SymbolLibraryError(LookupError):
+    pass
+
+
+@dataclass(frozen=True)
+class LibPin:
+    number: str
+    name: str
+    electrical_type: str
+    x: float
+    """Connection point in library coordinates (mm, Y axis points up)."""
+    y: float
+    angle: int
+    """Direction from the connection point towards the symbol body (degrees, CCW)."""
+    length: float
+    unit: int
+    body_style: int
+
+
+@dataclass(frozen=True)
+class LibField:
+    name: str
+    value: str
+    x: float
+    y: float
+    angle: float
+    hidden: bool
+    effects: list | None
+
+
+@dataclass(frozen=True)
+class LibSymbol:
+    lib_id: str
+    node: list
+    pins: tuple[LibPin, ...]
+    fields: tuple[LibField, ...]
+    source_file: Path
+
+    def pin(self, number: str) -> LibPin | None:
+        for p in self.pins:
+            if p.number == number:
+                return p
+        return None
+
+    def field(self, name: str) -> LibField | None:
+        for f in self.fields:
+            if f.name == name:
+                return f
+        return None
+
+    def embedded_node(self) -> list:
+        """Copy of the definition named ``<nickname>:<symbol>`` for ``lib_symbols``."""
+        node = sexpr.deepcopy(self.node)
+        node[1] = sexpr.q(self.lib_id)
+        return node
+
+
+_UNIT_RE = re.compile(r"^(?P<base>.+)_(?P<unit>\d+)_(?P<style>\d+)$")
+
+
+def _parse_symbol(lib_id: str, node: list, source: Path) -> LibSymbol:
+    name = unquote(node[1])
+    if child(node, "extends") is not None:
+        raise SymbolLibraryError(
+            f"{lib_id}: derived symbols ('extends') are not supported by the PoC generator"
+        )
+
+    pins: list[LibPin] = []
+    units: set[int] = set()
+    for sub in children(node, "symbol"):
+        m = _UNIT_RE.match(unquote(sub[1]))
+        if not m or m.group("base") != name:
+            raise SymbolLibraryError(f"{lib_id}: unexpected sub-symbol name {sub[1]}")
+        unit, style = int(m.group("unit")), int(m.group("style"))
+        if unit:
+            units.add(unit)
+        for pin in children(sub, "pin"):
+            at = child(pin, "at")
+            length = child(pin, "length")
+            pins.append(
+                LibPin(
+                    number=unquote(child(pin, "number")[1]),
+                    name=unquote(child(pin, "name")[1]),
+                    electrical_type=pin[1],
+                    x=float(at[1]),
+                    y=float(at[2]),
+                    angle=int(float(at[3])) % 360 if len(at) > 3 else 0,
+                    length=float(length[1]) if length else 0.0,
+                    unit=unit,
+                    body_style=style,
+                )
+            )
+    if len(units) > 1:
+        raise SymbolLibraryError(f"{lib_id}: multi-unit symbols are not supported by the PoC generator")
+
+    fields: list[LibField] = []
+    for prop in children(node, "property"):
+        at = child(prop, "at")
+        hide = child(prop, "hide")
+        fields.append(
+            LibField(
+                name=unquote(prop[1]),
+                value=unquote(prop[2]),
+                x=float(at[1]),
+                y=float(at[2]),
+                angle=float(at[3]) if len(at) > 3 else 0.0,
+                hidden=bool(hide and hide[1:] == ["yes"]),
+                effects=child(prop, "effects"),
+            )
+        )
+    # De Morgan alternates (body style 2) duplicate the normal pins; keep style 1.
+    pins = [p for p in pins if p.body_style in (0, 1)]
+    return LibSymbol(lib_id, node, tuple(pins), tuple(fields), source)
+
+
+def default_symbol_dirs() -> list[Path]:
+    """Candidate KiCad 10 symbol directories for this machine (may not exist)."""
+    dirs: list[Path] = []
+    for var in ("KICAD10_SYMBOL_DIR", "KICAD_SYMBOL_DIR"):
+        if os.environ.get(var):
+            dirs.append(Path(os.environ[var]))
+    system = platform.system()
+    if system == "Windows":
+        pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+        dirs.append(Path(pf) / "KiCad" / "10.0" / "share" / "kicad" / "symbols")
+    elif system == "Darwin":
+        dirs.append(Path("/Applications/KiCad/KiCad.app/Contents/SharedSupport/symbols"))
+    else:
+        dirs += [Path("/usr/share/kicad/symbols"), Path("/usr/local/share/kicad/symbols")]
+    return dirs
+
+
+class SymbolLibrary:
+    """Looks up ``<nickname>:<symbol>`` in ``<dir>/<nickname>.kicad_sym``."""
+
+    def __init__(self, search_dirs: Iterable[Path | str]):
+        self.search_dirs: Sequence[Path] = [Path(d) for d in search_dirs]
+        self._files: dict[str, tuple[Path, dict[str, list], list]] = {}
+        self._symbols: dict[str, LibSymbol] = {}
+
+    @classmethod
+    def default(cls) -> "SymbolLibrary":
+        return cls([d for d in default_symbol_dirs() if d.is_dir()])
+
+    def _load_file(self, nickname: str) -> tuple[Path, dict[str, list], list]:
+        if nickname not in self._files:
+            for d in self.search_dirs:
+                path = d / f"{nickname}.kicad_sym"
+                if path.is_file():
+                    root = sexpr.parse(path.read_text(encoding="utf-8"))
+                    if head(root) != "kicad_symbol_lib":
+                        raise SymbolLibraryError(f"{path} is not a KiCad symbol library")
+                    table = {unquote(s[1]): s for s in children(root, "symbol")}
+                    header = [n for n in root[1:] if head(n) in ("version", "generator_version")]
+                    self._files[nickname] = (path, table, header)
+                    break
+            else:
+                searched = ", ".join(str(d) for d in self.search_dirs) or "(none)"
+                raise SymbolLibraryError(
+                    f"symbol library '{nickname}.kicad_sym' not found; searched: {searched}"
+                )
+        return self._files[nickname]
+
+    def get(self, lib_id: str) -> LibSymbol:
+        if lib_id not in self._symbols:
+            nickname, _, name = lib_id.partition(":")
+            if not nickname or not name:
+                raise SymbolLibraryError(f"invalid lib_id '{lib_id}'")
+            path, table, _ = self._load_file(nickname)
+            if name not in table:
+                raise SymbolLibraryError(f"symbol '{name}' not found in {path}")
+            self._symbols[lib_id] = _parse_symbol(lib_id, table[name], path)
+        return self._symbols[lib_id]
+
+    def provenance(self, nickname: str) -> dict[str, str]:
+        """Path and format version of a library file, for recording where a symbol came from."""
+        path, _, header = self._load_file(nickname)
+        info = {"path": str(path)}
+        for node in header:
+            info[node[0]] = unquote(node[1])
+        return info

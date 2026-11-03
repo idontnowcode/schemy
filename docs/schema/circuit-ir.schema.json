@@ -1,0 +1,339 @@
+{
+  "$defs": {
+    "Component": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "reference": {
+          "pattern": "^[A-Z]+[0-9]+$",
+          "title": "Reference",
+          "type": "string"
+        },
+        "value": {
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        },
+        "symbol_id": {
+          "description": "KiCad symbol, e.g. 'Device:R'.",
+          "pattern": "^[A-Za-z0-9_.\\-]+:[^:\\s]+$",
+          "title": "Symbol Id",
+          "type": "string"
+        },
+        "footprint_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "KiCad footprint, e.g. 'Resistor_SMD:R_0603_1608Metric'.",
+          "title": "Footprint Id"
+        },
+        "manufacturer_part_number": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manufacturer Part Number"
+        },
+        "pins": {
+          "items": {
+            "$ref": "#/$defs/Pin"
+          },
+          "minItems": 1,
+          "title": "Pins",
+          "type": "array"
+        },
+        "pin_map_evidence": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        }
+      },
+      "required": [
+        "id",
+        "reference",
+        "value",
+        "symbol_id",
+        "pins"
+      ],
+      "title": "Component",
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "description": "Where a pin map or rating came from.",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/VerificationStatus",
+          "default": "unverified"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Datasheet, library, or review reference.",
+          "title": "Source"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        }
+      },
+      "title": "Evidence",
+      "type": "object"
+    },
+    "Net": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_+\\-]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/NetNode"
+          },
+          "minItems": 1,
+          "title": "Nodes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "nodes"
+      ],
+      "title": "Net",
+      "type": "object"
+    },
+    "NetNode": {
+      "additionalProperties": false,
+      "properties": {
+        "component_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Component Id",
+          "type": "string"
+        },
+        "pin": {
+          "maxLength": 16,
+          "minLength": 1,
+          "title": "Pin",
+          "type": "string"
+        }
+      },
+      "required": [
+        "component_id",
+        "pin"
+      ],
+      "title": "NetNode",
+      "type": "object"
+    },
+    "Pin": {
+      "additionalProperties": false,
+      "description": "A physical pin of a component, keyed by the symbol's pin number.",
+      "properties": {
+        "number": {
+          "maxLength": 16,
+          "minLength": 1,
+          "title": "Number",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Expected pin name in the KiCad symbol (evidence only; checked against the library, never used for connectivity).",
+          "title": "Name"
+        }
+      },
+      "required": [
+        "number"
+      ],
+      "title": "Pin",
+      "type": "object"
+    },
+    "Placement": {
+      "additionalProperties": false,
+      "description": "Schematic position of a symbol origin, in millimetres (KiCad sheet coords).",
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "rotation": {
+          "default": 0,
+          "description": "Counter-clockwise degrees: 0/90/180/270.",
+          "title": "Rotation",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "title": "Placement",
+      "type": "object"
+    },
+    "Validation": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/VerificationStatus",
+          "default": "unverified"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        }
+      },
+      "title": "Validation",
+      "type": "object"
+    },
+    "VerificationStatus": {
+      "description": "Plan FR-11: unverified / needs review / verified (by an engineer).",
+      "enum": [
+        "unverified",
+        "needs_review",
+        "verified"
+      ],
+      "title": "VerificationStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "project_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "title": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Title"
+    },
+    "components": {
+      "items": {
+        "$ref": "#/$defs/Component"
+      },
+      "minItems": 1,
+      "title": "Components",
+      "type": "array"
+    },
+    "nets": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Net"
+      },
+      "title": "Nets",
+      "type": "array"
+    },
+    "layout": {
+      "description": "Optional placement per component id; kept apart from connectivity.",
+      "patternProperties": {
+        "^[a-z0-9][a-z0-9._-]*$": {
+          "$ref": "#/$defs/Placement"
+        }
+      },
+      "propertyNames": {
+        "maxLength": 64,
+        "minLength": 1
+      },
+      "title": "Layout",
+      "type": "object"
+    },
+    "validation": {
+      "$ref": "#/$defs/Validation"
+    }
+  },
+  "required": [
+    "project_id",
+    "components"
+  ],
+  "title": "CircuitIR",
+  "type": "object"
+}

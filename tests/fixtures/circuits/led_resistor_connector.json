@@ -1,0 +1,89 @@
+{
+  "schema_version": "0.1.0",
+  "project_id": "led-resistor-connector",
+  "title": "LED + series resistor + 2-pin connector (Phase 0 PoC)",
+  "components": [
+    {
+      "id": "conn-001",
+      "reference": "J1",
+      "value": "Conn_01x02",
+      "symbol_id": "Connector_Generic:Conn_01x02",
+      "footprint_id": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+      "pins": [
+        { "number": "1", "name": "Pin_1" },
+        { "number": "2", "name": "Pin_2" }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 10.0.8 symbol library Connector_Generic:Conn_01x02"
+      },
+      "description": "Power input: pin 1 = VIN, pin 2 = GND"
+    },
+    {
+      "id": "res-001",
+      "reference": "R1",
+      "value": "330",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "pins": [
+        { "number": "1" },
+        { "number": "2" }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 10.0.8 symbol library Device:R"
+      },
+      "description": "LED current-limiting resistor (value not engineering-checked)"
+    },
+    {
+      "id": "led-001",
+      "reference": "D1",
+      "value": "LED",
+      "symbol_id": "Device:LED",
+      "footprint_id": "LED_SMD:LED_0603_1608Metric",
+      "pins": [
+        { "number": "1", "name": "K" },
+        { "number": "2", "name": "A" }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 10.0.8 symbol library Device:LED (pin 1 = K, pin 2 = A)"
+      }
+    }
+  ],
+  "nets": [
+    {
+      "id": "net-vin",
+      "name": "VIN",
+      "nodes": [
+        { "component_id": "conn-001", "pin": "1" },
+        { "component_id": "res-001", "pin": "1" }
+      ]
+    },
+    {
+      "id": "net-led-a",
+      "name": "LED_A",
+      "nodes": [
+        { "component_id": "res-001", "pin": "2" },
+        { "component_id": "led-001", "pin": "2" }
+      ]
+    },
+    {
+      "id": "net-gnd",
+      "name": "GND",
+      "nodes": [
+        { "component_id": "led-001", "pin": "1" },
+        { "component_id": "conn-001", "pin": "2" }
+      ]
+    }
+  ],
+  "layout": {
+    "conn-001": { "x": 63.5, "y": 81.28, "rotation": 180 },
+    "res-001": { "x": 88.9, "y": 76.2, "rotation": 0 },
+    "led-001": { "x": 88.9, "y": 104.14, "rotation": 90 }
+  },
+  "validation": {
+    "status": "unverified",
+    "notes": "Test fixture for the generator. Not an engineering-reviewed design."
+  }
+}
