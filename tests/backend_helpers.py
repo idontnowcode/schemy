@@ -38,13 +38,13 @@ def new_project(client: TestClient, name: str = "LED Demo") -> str:
 
 
 def save_ir(client: TestClient, project_id: str, ir: dict | None = None) -> dict:
-    r = client.put(f"/api/projects/{project_id}/circuit", json=ir or led_ir())
+    r = client.put(f"/api/projects/{project_id}/boards/a/circuit", json=ir or led_ir())
     assert r.status_code == 200, r.text
     return r.json()
 
 
 def run_export(client: TestClient, project_id: str, force: bool = False) -> dict:
-    r = client.post(f"/api/projects/{project_id}/exports", json={"force": force})
+    r = client.post(f"/api/projects/{project_id}/boards/a/exports", json={"force": force})
     assert r.status_code == 202, r.text
     job = client.app.state.jobs.wait(r.json()["id"], timeout=300)
     return job.model_dump()

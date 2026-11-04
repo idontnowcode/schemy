@@ -6,7 +6,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-PROJECT_FILE_VERSION = 1
+PROJECT_FILE_VERSION = 2
+"""2: boards live in boards/<id>/ (version 1 kept one circuit at the project root)."""
+BOARD_FILE_VERSION = 1
 
 
 class _Model(BaseModel):
@@ -22,12 +24,30 @@ class ProjectFile(_Model):
     description: str = ""
     created_at: str
     updated_at: str
+    boards: list[str] = Field(default_factory=list, description="Board ids in display order")
+
+
+class BoardFile(_Model):
+    """projects/<id>/boards/<board>/board.json — one board = one circuit = one KiCad project."""
+
+    schema_version: int = BOARD_FILE_VERSION
+    id: str
+    name: str
+    description: str = ""
+    created_at: str
+    updated_at: str
     current_revision: int | None = None
+
+
+class BoardSummary(BoardFile):
+    path: str
+    kicad_project: str
 
 
 class ProjectSummary(ProjectFile):
     path: str
     last_opened_at: str | None = None
+    board_list: list[BoardSummary] = []
 
 
 class ProjectCreate(_Model):
@@ -61,8 +81,19 @@ class RevisionInfo(_Model):
     net_count: int
 
 
+class BoardCreate(_Model):
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=2000)
+
+
+class BoardUpdate(_Model):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=2000)
+
+
 class AppSettings(_Model):
     last_project_id: str | None = None
+    last_board_id: str | None = None
     last_tab: str | None = Field(default=None, max_length=40)
 
 
@@ -97,18 +128,30 @@ class AutomatedCheck(_Model):
     netlist_diff: str | None = None
 
 
-class Manifest(_Model):
-    """projects/<id>/outputs/manifest.json"""
+class PageOutput(_Model):
+    number: int
+    sheet_id: str
+    name: str
+    schematic: str
+    svg: str | None = None
+    paper: str
+    bbox_mm: list[float] | None = None
+    """Drawing extent (x, y, w, h) the UI uses to crop the SVG preview; the files are not modified."""
 
-    schema_version: int = 1
+
+class Manifest(_Model):
+    """projects/<id>/boards/<board>/outputs/manifest.json"""
+
+    schema_version: int = 2
     project_id: str
+    board_id: str
+    kicad_project: str
     source_revision: int
     generated_at: str
     generator: str
     automated_check: AutomatedCheck
     warnings: list[dict] = []
-    preview_bbox_mm: list[float] | None = None
-    """Drawing extent (x, y, w, h) used by the UI to crop the SVG preview; files are not modified."""
+    pages: list[PageOutput] = []
     artifacts: list[Artifact]
 
 
@@ -118,6 +161,7 @@ JobStatus = Literal["queued", "running", "succeeded", "failed"]
 class Job(_Model):
     id: str
     project_id: str
+    board_id: str | None = None
     kind: str
     status: JobStatus
     created_at: str

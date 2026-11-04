@@ -52,18 +52,18 @@ def build_inventory_router(store: ProjectStore, inventory: InventoryStore) -> AP
     def delete_inventory():
         return {"deleted": inventory.delete()}
 
-    def _require(project_id: str):
-        store.get_project(project_id)
-        circuit, revision = store.get_circuit(project_id)
+    def _require(project_id: str, board_id: str):
+        store.get_board(project_id, board_id)
+        circuit, revision = store.get_circuit(project_id, board_id)
         if circuit is None:
-            raise ApiError(409, "NO_CIRCUIT", "This project has no saved Circuit IR yet.",
+            raise ApiError(409, "NO_CIRCUIT", "This board has no saved Circuit IR yet.",
                            recovery_hint="Save a Circuit IR first.")
         inv = inventory.get()
         return circuit, revision, inv
 
-    @router.get("/projects/{project_id}/inventory-match")
-    def inventory_match(project_id: str, boards: int = Query(default=1, ge=1, le=100_000)):
-        circuit, revision, inv = _require(project_id)
+    @router.get("/projects/{project_id}/boards/{board_id}/inventory-match")
+    def inventory_match(project_id: str, board_id: str, boards: int = Query(default=1, ge=1, le=100_000)):
+        circuit, revision, inv = _require(project_id, board_id)
         if inv is None:
             return {"available": False, "revision": revision, "boards": boards, "summary": None, "lines": []}
         lines = match_inventory(circuit, inv, boards=boards)
@@ -77,9 +77,9 @@ def build_inventory_router(store: ProjectStore, inventory: InventoryStore) -> AP
             "lines": [line.to_dict() for line in lines],
         }
 
-    @router.post("/projects/{project_id}/inventory-apply")
-    def inventory_apply(project_id: str, body: InventoryApplyRequest):
-        circuit, _, inv = _require(project_id)
+    @router.post("/projects/{project_id}/boards/{board_id}/inventory-apply")
+    def inventory_apply(project_id: str, board_id: str, body: InventoryApplyRequest):
+        circuit, _, inv = _require(project_id, board_id)
         if inv is None:
             raise ApiError(409, "NO_INVENTORY", "보유 자재 목록이 없습니다.",
                            recovery_hint="보유 자재 화면에서 자재 목록 파일을 먼저 올리세요.")
@@ -88,11 +88,11 @@ def build_inventory_router(store: ProjectStore, inventory: InventoryStore) -> AP
         except InventoryApplyError as exc:
             raise ApiError(422, "INVALID_CHOICE", str(exc)) from exc
         if not changes:
-            _, revision = store.get_circuit(project_id)
-            return {"revision": store.get_revision_info(project_id, revision) if revision else None,
+            _, revision = store.get_circuit(project_id, board_id)
+            return {"revision": store.get_revision_info(project_id, board_id, revision) if revision else None,
                     "created": False, "changes": []}
         note = f"보유 자재 적용: {len({c.component_id for c in changes})}개 부품"
-        info, created = store.save_circuit(project_id, updated, source="inventory", note=note)
+        info, created = store.save_circuit(project_id, board_id, updated, source="inventory", note=note)
         return {"revision": info, "created": created, "changes": [c.to_dict() for c in changes]}
 
     return router

@@ -26,11 +26,14 @@ def test_create_project_lays_out_folder(tmp_path):
     assert r.status_code == 201
     p = r.json()
     assert p["id"] == "stm32-can-controller"
-    assert p["current_revision"] is None
+    assert p["boards"] == ["a"]
+    board = p["board_list"][0]
+    assert (board["id"], board["name"], board["current_revision"]) == ("a", "보드 A", None)
+    assert board["kicad_project"] == "stm32-can-controller-a"
     folder = tmp_path / "projects" / p["id"]
-    for name in ("project.json", "requirements.md", "design_notes.md"):
+    for name in ("project.json", "requirements.md", "design_notes.md", "boards/a/board.json"):
         assert (folder / name).is_file()
-    for name in ("datasheets", "revisions", "outputs"):
+    for name in ("datasheets", "boards/a/revisions", "boards/a/outputs", "boards/a/imports"):
         assert (folder / name).is_dir()
     meta = json.loads((folder / "project.json").read_text(encoding="utf-8"))
     assert meta["name"] == "STM32 CAN Controller"
@@ -99,16 +102,17 @@ def test_restart_restores_projects_settings_and_circuit(tmp_path):
     save_ir(first, pid)
     first.put(f"/api/projects/{pid}/requirements", json={"text": "# R\n\n5V input\n"})
     first.post(f"/api/projects/{pid}/open")
-    first.put("/api/settings", json={"last_project_id": pid, "last_tab": "schematic"})
-    before = first.get(f"/api/projects/{pid}/circuit").json()
+    first.put("/api/settings", json={"last_project_id": pid, "last_board_id": "a", "last_tab": "schematic"})
+    before = first.get(f"/api/projects/{pid}/boards/a/circuit").json()
     first.close()
 
     second = make_client(tmp_path)  # a new app instance on the same workspace = app restart
     assert [p["id"] for p in second.get("/api/projects").json()] == [pid]
-    assert second.get("/api/settings").json() == {"last_project_id": pid, "last_tab": "schematic"}
-    assert second.get(f"/api/projects/{pid}/circuit").json() == before
+    assert second.get("/api/settings").json() == {"last_project_id": pid, "last_board_id": "a",
+                                                  "last_tab": "schematic"}
+    assert second.get(f"/api/projects/{pid}/boards/a/circuit").json() == before
     assert second.get(f"/api/projects/{pid}/requirements").json()["text"] == "# R\n\n5V input\n"
-    assert second.get(f"/api/projects/{pid}").json()["current_revision"] == 1
+    assert second.get(f"/api/projects/{pid}/boards/a").json()["current_revision"] == 1
 
 
 def test_index_is_rebuilt_from_folders(tmp_path):
@@ -119,7 +123,7 @@ def test_index_is_rebuilt_from_folders(tmp_path):
     (tmp_path / "index.sqlite").unlink()
     again = make_client(tmp_path)
     assert [p["id"] for p in again.get("/api/projects").json()] == [pid]
-    assert again.get(f"/api/projects/{pid}/circuit").json()["revision"] == 1
+    assert again.get(f"/api/projects/{pid}/boards/a/circuit").json()["revision"] == 1
 
 
 def test_system_reports_environment(tmp_path):
@@ -134,3 +138,79 @@ def test_examples_are_offered(tmp_path):
     led = next(e for e in examples if e["id"] == "led-resistor-connector")
     assert led["title"].startswith("LED + series resistor")
     assert CircuitIR.model_validate(led["circuit"]) == CircuitIR.model_validate(led_ir())
+
+
+
+# --- boards -------------------------------------------------------------------------
+
+def test_boards_crud(tmp_path):
+    client = make_client(tmp_path)
+    pid = new_project(client)
+    r = client.post(f"/api/projects/{pid}/boards", json={"name": "Board B"})
+    assert r.status_code == 201
+    assert r.json()["id"] == "board-b"
+    assert client.post(f"/api/projects/{pid}/boards", json={"name": "보드 C"}).json()["id"] == "c"
+    assert client.post(f"/api/projects/{pid}/boards", json={"name": "전원"}).json()["id"] == "board"
+    assert [b["id"] for b in client.get(f"/api/projects/{pid}/boards").json()] == ["a", "board-b", "c", "board"]
+    assert client.patch(f"/api/projects/{pid}/boards/board", json={"name": "전원 보드"}).json()["name"] == "전원 보드"
+
+    r = client.delete(f"/api/projects/{pid}/boards/board-b")
+    assert r.status_code == 200 and ".trash" in r.json()["moved_to"]
+    assert client.get(f"/api/projects/{pid}").json()["boards"] == ["a", "c", "board"]
+    client.delete(f"/api/projects/{pid}/boards/board")
+    client.delete(f"/api/projects/{pid}/boards/c")
+    r = client.delete(f"/api/projects/{pid}/boards/a")
+    assert r.status_code == 409 and r.json()["error_code"] == "LAST_BOARD"
+    assert client.get(f"/api/projects/{pid}/boards/zzz").json()["error_code"] == "BOARD_NOT_FOUND"
+
+
+def test_boards_are_independent(tmp_path):
+    client = make_client(tmp_path)
+    pid = new_project(client)
+    client.post(f"/api/projects/{pid}/boards", json={"name": "B"})
+    save_ir(client, pid)
+    assert client.get(f"/api/projects/{pid}/boards/b/circuit").json() == {"circuit": None, "revision": None}
+    ir = led_ir()
+    ir["components"][1]["value"] = "1k"
+    r = client.put(f"/api/projects/{pid}/boards/b/circuit", json=ir)
+    assert r.json()["revision"]["revision"] == 1
+    assert client.get(f"/api/projects/{pid}/boards/a/circuit").json()["circuit"]["components"][1]["value"] == "330"
+
+
+def test_open_remembers_the_board(tmp_path):
+    client = make_client(tmp_path)
+    pid = new_project(client)
+    client.post(f"/api/projects/{pid}/boards", json={"name": "B"})
+    client.post(f"/api/projects/{pid}/open")
+    assert client.get("/api/settings").json()["last_board_id"] == "a"
+    client.put("/api/settings", json={"last_project_id": pid, "last_board_id": "b", "last_tab": "circuit"})
+    client.post(f"/api/projects/{pid}/open")
+    assert client.get("/api/settings").json()["last_board_id"] == "b"
+
+
+def test_phase1_project_is_moved_into_board_a(tmp_path):
+    """A project written by the Phase 1 app (circuit at the project root) opens as board A."""
+    folder = tmp_path / "projects" / "old"
+    (folder / "revisions").mkdir(parents=True)
+    (folder / "outputs").mkdir()
+    (folder / "datasheets").mkdir()
+    (folder / "requirements.md").write_text("# R\n", encoding="utf-8")
+    ir = json.dumps(led_ir() | {"project_id": "old"})
+    (folder / "circuit.json").write_text(ir, encoding="utf-8")
+    (folder / "revisions" / "0001.circuit.json").write_text(ir, encoding="utf-8")
+    (folder / "revisions" / "0001.meta.json").write_text(json.dumps({
+        "revision": 1, "created_at": "2026-11-04T10:00:00+09:00", "source": "user_edit", "checksum": "x",
+        "parent": None, "restored_from": None, "note": None, "component_count": 3, "net_count": 3}),
+        encoding="utf-8")
+    (folder / "project.json").write_text(json.dumps({
+        "schema_version": 1, "id": "old", "name": "Old", "description": "", "created_at": "2026-11-04T10:00:00+09:00",
+        "updated_at": "2026-11-04T10:00:00+09:00", "current_revision": 1}), encoding="utf-8")
+
+    client = make_client(tmp_path)
+    project = client.get("/api/projects/old").json()
+    assert project["schema_version"] == 2 and project["boards"] == ["a"]
+    assert project["board_list"][0]["current_revision"] == 1
+    assert client.get("/api/projects/old/boards/a/circuit").json()["revision"] == 1
+    assert not (folder / "circuit.json").exists()
+    assert (folder / "boards" / "a" / "revisions" / "0001.meta.json").is_file()
+    assert client.get("/api/projects/old/requirements").json()["text"] == "# R\n"

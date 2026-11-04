@@ -20,9 +20,9 @@ class JobRunner:
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="aics-job")
         self._futures: dict[str, Future] = {}
 
-    def submit(self, project_id: str, kind: str, fn: Callable[[str], dict]) -> Job:
+    def submit(self, project_id: str, kind: str, fn: Callable[[str], dict], board_id: str | None = None) -> Job:
         """Queue ``fn(job_id)``; its return value becomes the job result."""
-        job = self.store.create_job(project_id, kind)
+        job = self.store.create_job(project_id, kind, board_id)
         self._futures[job.id] = self._pool.submit(self._run, job.id, fn)
         return job
 
