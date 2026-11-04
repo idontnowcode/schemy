@@ -64,7 +64,7 @@ class Requirements(_Model):
     text: str = Field(max_length=200_000)
 
 
-RevisionSource = Literal["user_edit", "import", "restore", "inventory"]
+RevisionSource = Literal["user_edit", "import", "restore", "inventory", "proposal"]
 
 
 class RevisionInfo(_Model):
@@ -213,6 +213,21 @@ class DatasheetFetchRequest(_Model):
 
 class DatasheetReviewed(_Model):
     reviewed: bool
+
+
+class ProposalCreate(_Model):
+    title: str = Field(min_length=1, max_length=200)
+    rationale: str | None = Field(default=None, max_length=20_000)
+    ops: list[dict] = Field(min_length=1, max_length=2000, description="circuit_core.patch operations")
+
+
+class ProposalApprove(_Model):
+    accept_failed_checks: bool = False
+    generate: bool = Field(default=True, description="Regenerate the board outputs after saving.")
+
+
+class ProposalReject(_Model):
+    note: str | None = Field(default=None, max_length=2000)
 
 
 class AiSettings(_Model):

@@ -31,9 +31,11 @@ from .errors import ApiError, issue_dict, not_found
 from .exports import external_edit_error, output_path, outputs_status, run_export
 from .inventory_store import InventoryStore
 from .jobs import JobRunner
+from .proposals import ProposalStore
 from .routes_ai import build_ai_router
 from .routes_datasheets import build_datasheet_router
 from .routes_inventory import build_inventory_router
+from .routes_proposals import ProposalService, build_proposal_router
 from .schemas import (
     AppSettings,
     BoardCreate,
@@ -86,6 +88,7 @@ def create_app(settings: Settings) -> FastAPI:
     jobs = JobRunner(store)
     inventory = InventoryStore(settings.workspace)
     datasheets = DatasheetLibrary(settings.workspace)
+    proposals = ProposalStore(store)
     checker = CircuitChecker(settings)
 
     @asynccontextmanager
@@ -100,6 +103,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.settings = settings
     app.state.inventory = inventory
     app.state.datasheets = datasheets
+    app.state.proposals = proposals
     app.state.checker = checker
 
     @lru_cache(maxsize=1)
@@ -362,6 +366,9 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(build_inventory_router(store, inventory))
     app.include_router(build_ai_router(store, jobs, inventory, settings, pin_lookup, datasheets))
     app.include_router(build_datasheet_router(store, jobs, datasheets, settings, checker.library))
+    proposal_service = ProposalService(store, jobs, proposals, datasheets, settings, checker)
+    app.state.proposal_service = proposal_service
+    app.include_router(build_proposal_router(proposal_service))
 
     # --- desktop UI ---------------------------------------------------------------------
 
