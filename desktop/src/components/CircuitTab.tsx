@@ -230,7 +230,7 @@ export function CircuitTab({ projectId, boardId, circuit, revision, onSaved }: P
         </div>
         <div className="muted small">
           {busy ?? (dirty ? "저장되지 않은 변경" : revision ? `revision ${revision}` : "저장된 회로 없음")}
-          {!aiReady && " · PDF 가져오기는 설정에서 AI(Gemini)를 켜면 쓸 수 있습니다. 코파일럿으로 만든 Markdown은 'MD 가져오기'로 바로 넣으세요."}
+          {!aiReady && " · PDF 가져오기는 설정에서 AI(Gemini)를 켜면 쓸 수 있습니다. 코파일럿으로 만든 회로도 Markdown은 「회로도 MD 가져오기」로 바로 넣을 수 있습니다."}
         </div>
         <textarea
           className="editor code"

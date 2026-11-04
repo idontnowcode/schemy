@@ -1,15 +1,22 @@
-# AI Circuit Studio — 앱 개발 기획서 v1.2
+# AI Circuit Studio — 앱 개발 기획서 v1.3
 
 - 작성일: 2026-11-04
 - 목적: Claude Code에서 개발 착수 가능한 PRD + 기술 설계 + 구현 순서
 - 대상: Windows 우선 로컬 데스크톱 앱
-- 상태: v1.2. 실제 부품 선정과 회로 검증은 별도 승인 필요.
+- 상태: v1.3. 실제 부품 선정과 회로 검증은 별도 승인 필요.
 - v1.1 개정 취지: AI EDA Agent의 제한된 도구 실행, 검증-수정 반복, 확장 가능한 PCB/FW 데이터 구조 추가.
 - v1.2 개정 취지: v1.1 검토 결과 반영. 승인 경로 단일화, 상태 3축 분리, Agent 상태 머신 보완, 승인 범위 정의, 격리 작업공간 정의, 단계 순서 정리, Phase 0 결과 반영.
+- v1.3 개정 취지: 사용자 요청 반영. 프로젝트→보드→페이지 구조, PDF 회로도 카피(Markdown 가져오기 + AI 변환 옵션), 보유 자재 우선 사용, AI 공급자 결정(Gemini 기본, 옵션), 제품 비전(하나의 입력 창에서 회로도·아트웍·펌웨어).
 - 변경 원칙: v1.0의 Phase 0 및 기존 MVP 범위를 보존하고 단계적 확장.
 
 ## 1. 제품 목표
 사용자가 자연어로 회로 요구사항을 입력하면 AI가 요구사항을 구조화하고, 설계안과 부품 후보를 제시한다. 사용자가 승인한 설계를 정형 Circuit IR로 저장하고, Markdown 문서와 KiCad 회로도를 생성한다. 변경 제안은 diff를 검토·승인한 후 적용한다.
+
+### 제품 비전 (v1.3)
+궁극적으로는 **하나의 입력 창**에서 회로도, 아트웍(PCB), 펌웨어까지 다룬다. 사용자는 한 곳에 요구사항·변경 요청·질문을 입력하고, 앱이 보드 단위로 회로도(Circuit IR → KiCad), PCB(.kicad_pcb), 펌웨어(MCU 프로젝트)를 제안·생성·검증한다.
+- 단위는 **보드**다. 보드 하나가 회로 하나, KiCad 프로젝트 하나이며, 나중에 그 보드의 PCB와 펌웨어 산출물이 같은 보드 아래에 붙는다(7.1절 아티팩트 모델의 pcb/gerber/firmware).
+- 입력 창은 AI가 제안하고 사람이 승인하는 구조(1.1절)를 그대로 따른다. 회로도·아트웍·펌웨어 모두 같은 승인 게이트와 검증 증거를 거친다.
+- 순서: 회로도(현재) → 변경 흐름·통합 입력 창(Phase 2) → 템플릿(Phase 3) → Agent(Phase 4) → 아트웍·펌웨어(Phase 5). 아트웍·펌웨어는 각 기능의 검증 방법이 정해지기 전에는 출시하지 않는다.
 
 ### 비목표 (초기)
 - 완전 자동 PCB 레이아웃/라우팅
@@ -27,6 +34,9 @@
 - **(v1.2) 상태는 세 축으로 분리한다**(10.1절): 승인 상태, 자동 검사 결과, 엔지니어링 검토 상태. 하나의 값으로 섞어 표시하지 않는다.
 - **(v1.2) 승인 화면의 diff는 코드가 계산한다.** AI가 작성한 변경 설명은 참고 정보일 뿐이며, 승인 근거는 IR에서 결정적으로 계산한 diff와 실행 증거다.
 - **(v1.2) 사용자가 직접 편집한 IR**(Phase 1의 JSON 편집 등)은 사용자 자신의 행위이므로 proposal 없이 저장하되, 저장마다 revision을 남긴다.
+- **(v1.3) 프로젝트 → 보드(A, B, …) → 페이지.** 보드 하나가 Circuit IR 하나, revision 이력 하나, KiCad 프로젝트 하나다. 페이지는 IR 안의 `sheets`로, 그리기 단위일 뿐 연결(Net)은 보드 전체 기준이다.
+- **(v1.3) AI는 선택 기능이다.** 기본은 꺼져 있고, 켜면 Google Gemini API를 쓴다(공급자 교체 가능). 호출 전에 보낼 데이터를 보여주고 확인을 받으며, 키는 OS 보안 저장소에만 둔다.
+- **(v1.3) Phase 2a 전의 AI 결과 승인 방식:** PDF 변환 결과는 편집기에 불러와 사용자가 검토 후 저장하고, 자재 추천은 사용자가 고른 것만 적용한다. 이 두 흐름은 Phase 2a에서 proposal 승인 경로로 옮긴다.
 
 ## 2. 사용자 시나리오
 1. 새 프로젝트 생성: STM32 CAN Controller.
@@ -58,13 +68,20 @@
 | FR-15 | 자동 재검증 루프 | P1 | 제한 횟수 내 수정 제안·재검증·보고 | 4 |
 | FR-16 | 승인 게이트 | P0 | 승인 없는 원본 덮어쓰기·제조 산출물 확정 금지. 승인 경로는 하나 | 2 |
 | FR-17 | PCB/FW 확장용 아티팩트 참조 | P2 | 회로 revision과 결과 파일 연결 | 1(스키마), 5 |
+| FR-18 | 여러 보드·여러 페이지 | P0 | 프로젝트에 보드 여러 개, 보드마다 페이지 여러 장. 페이지를 나눠도 Netlist 동일 | 1.5 ✅ |
+| FR-19 | PDF 회로도 카피 1단계: 회로도 MD 가져오기 | P0 | 코파일럿 등이 만든 "회로도 MD v0.1"을 IR로 변환, 라이브러리 핀 대조, 불확실 항목은 검토 필요 | 1.5 ✅ |
+| FR-20 | PDF 회로도 카피 2단계: AI 변환(옵션) | P1 | Gemini로 PDF → 회로도 MD → 1단계와 같은 가져오기. 전송 확인·실행 기록 | 1.5 ✅ |
+| FR-21 | 보유 자재 우선 사용 | P0 | 자재 목록(CSV/XLSX) 대조: 보유/대체 가능/미보유, 재고 확인, 품번·풋프린트 적용(revision) | 1.5 ✅ |
+| FR-22 | AI 대체 자재 추천(옵션) | P1 | 보유 자재 목록 안에서만 추천, 사용자가 고른 것만 적용 | 1.5 ✅ |
+| FR-23 | 통합 입력 창 | P1 | 하나의 입력 창에서 요구사항·변경 요청 → proposal. 이후 아트웍·펌웨어로 확장 | 2, 5 |
 
 ## 4. 권장 기술 스택
 - Electron + React + TypeScript + Vite: 데스크톱 셸 및 UI.
 - Python 3.12+ + FastAPI + Pydantic v2: 회로 데이터 모델, 검증, 변환 백엔드.
-- LLM API(공급자 미정): 요구사항 구조화, 설계안, 변경 제안. 앱의 LLM 공급자는 교체 가능한 인터페이스로 구현한다. **(v1.2)** 공급자마다 tool calling 형식이 다르므로 Gateway 도구는 자체 Pydantic 스키마로 정의하고 공급자별 어댑터에서 변환한다.
+- LLM API: **Google Gemini 기본**(`google-genai` SDK, ADR-004), 선택 기능. 앱의 LLM 공급자는 교체 가능한 인터페이스로 구현한다. **(v1.2)** 공급자마다 tool calling 형식이 다르므로 Gateway 도구는 자체 Pydantic 스키마로 정의하고 공급자별 어댑터에서 변환한다.
 - KiCad **10.0.x** (ADR-002, 검증 기준 10.0.8): 공식 파일 형식, CLI ERC, Netlist, SVG. CLI 지원 옵션은 설치 버전에서 확인.
 - SQLite: 프로젝트 인덱스, 작업 이력, 승인 이력. 프로젝트 원본은 JSON 및 Markdown 파일.
+- `keyring`: API 키를 OS 보안 저장소(Windows 자격 증명 관리자)에 보관. `openpyxl`: 자재 목록 XLSX 읽기.
 - React Flow: 기능 블록도에만 사용. 전자회로 편집기 자체의 대체재로 가정하지 않음.
 - 회로도 생성: 직접 `.kicad_sch` 생성기(ADR-001). SKiDL/schematizer는 Phase 0 비교 실험 결과에 따라 채택하지 않음.
 
@@ -135,26 +152,30 @@ AI-Circuit-Studio/
   templates/               # reviewed circuit blocks (Phase 3)
   examples/                # KiCad에서 바로 여는 예제 프로젝트
   docs/                    # ADR, schema, specs
-<workspace>/projects/<project-id>/
-    project.json           # 메타데이터, 현재 revision
+<workspace>/
+  index.sqlite             # 목록·작업 이력·설정(폴더에서 다시 만들 수 있는 캐시)
+  inventory/               # 보유 자재 목록(워크스페이스 공통): inventory.json, 원본 파일
+  projects/<project-id>/
+    project.json           # 메타데이터, 보드 순서 (파일 버전 2)
     requirements.md
-    circuit.json           # 현재(마지막 저장/승인) Circuit IR
     design_notes.md
     datasheets/
-    revisions/             # <번호>.circuit.json 스냅샷 + 메타
-    proposals/             # (Phase 2) 승인 대기 patch와 검증 증거
-    agent_runs/<run_id>/   # (Phase 4) workspace/, log.jsonl
-    outputs/               # 마지막으로 생성한 revision의 산출물
-      manifest.json        # 아티팩트 목록(7.1절)
-      schematic.kicad_pro
-      schematic.kicad_sch
-      schematic.svg
-      schematic.net
-      erc.json
-      circuit.md
-      circuit.json
-      bom.csv
+    boards/<board-id>/     # (v1.3) 보드 = 회로 하나 = KiCad 프로젝트 하나
+      board.json           # 이름, 현재 revision
+      circuit.json         # 현재 Circuit IR (페이지는 IR의 sheets)
+      revisions/           # <번호>.circuit.json 스냅샷 + 메타
+      imports/             # 가져온 Markdown·PDF와 AI가 만든 Markdown 사본
+      ai_runs/             # AI 호출 기록(시각, 모델, 입력 해시·크기, 토큰, 결과)
+      proposals/           # (Phase 2) 승인 대기 patch와 검증 증거
+      agent_runs/<run_id>/ # (Phase 4) workspace/, log.jsonl
+      outputs/             # 마지막으로 생성한 revision의 산출물
+        manifest.json      # 아티팩트 목록(7.1절)과 페이지 목록
+        <project>-<board>.kicad_pro / .kicad_sch / -p<n>-<page>.kicad_sch
+        <project>-<board>.svg / -<페이지 이름>.svg / .net, erc.json
+        circuit.md, circuit.json, bom.csv
 ```
+- **(v1.3)** 1.0 구조(프로젝트 폴더에 circuit.json)는 처음 열 때 `boards/a/`(보드 A)로 자동 이관한다.
+- **(v1.3)** 여러 페이지일 때 1페이지가 루트 회로도이고 나머지 페이지는 계층 시트로 연결된다. 페이지를 오가는 Net은 global label, 한 페이지 안의 Net은 local label을 쓴다.
 - **(v1.2)** `.kicad_sch`는 반드시 같은 이름의 `.kicad_pro`와 함께 만든다. 단독으로 열면 KiCad가 프로젝트 없이 동작해 무관한 라이브러리 경고가 생긴다(Phase 0 사용자 확인).
 - **(v1.2)** `outputs/`는 "마지막으로 생성한 revision"의 산출물만 둔다. `manifest.json`의 `source_revision`이 현재 revision과 다르면 UI는 "오래됨(stale)"으로 표시한다. revision별 산출물 보관은 Phase 2에서 필요하면 추가한다.
 - **(v1.2)** 프로젝트 원본은 사용자 워크스페이스(기본 `문서/AI Circuit Studio`, 설정 가능)에 두며 앱 설치 폴더와 분리한다.
@@ -169,6 +190,9 @@ AI-Circuit-Studio/
 ## 8. API 계약 초안
 
 모든 경로는 `/api` 아래에 있다(예: `/api/projects`). 구현된 계약은 실행 중인 백엔드의 `/api/docs`(OpenAPI)에서 확인한다.
+
+> **(v1.3)** 회로에 관한 경로는 모두 보드 아래로 옮겼다: `/projects/{id}/boards/{board}/circuit` 등. 아래 목록의 `/projects/{id}/circuit`, `/revisions`, `/exports`, `/outputs`, `/documents`, `/jobs`는 `/projects/{id}/boards/{board}/…`로 읽는다.
+> 추가된 경로: `GET|POST /projects/{id}/boards`, `GET|PATCH|DELETE /projects/{id}/boards/{board}`, `POST …/boards/{board}/imports/markdown`, `POST …/imports/pdf`(AI, job), `GET …/inventory-match`, `POST …/inventory-apply`, `GET …/inventory-suggest/preview`, `POST …/inventory-suggest`(AI, job), `GET|DELETE /inventory`, `POST /inventory/import`, `GET|PUT /ai/settings`, `PUT|DELETE /ai/key`, `GET /ai/models`, `GET /examples`.
 
 - `POST /projects` : 프로젝트 생성
 - `GET /projects` : 프로젝트 목록
@@ -284,6 +308,13 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - Gate: 앱 재시작 후 프로젝트 복원, 동일 입력에서 동일 연결 구조 출력.
 - 결과: `docs/phase1-report.md`, ADR-003.
 
+### Phase 1.5 — 보드·페이지, 가져오기, 보유 자재 (완료: 2026-11-04, v1.3 추가)
+- 프로젝트→보드→페이지 구조, 여러 페이지 KiCad 생성(계층 시트, global label), 자동 배치와 용지 자동 선택.
+- PDF 회로도 카피 1단계(회로도 MD 가져오기), 2단계(Gemini 변환, 옵션).
+- 보유 자재 목록과 자동 대조·적용, AI 대체 추천(옵션).
+- Gate: 페이지를 나눠도 KiCad Netlist = IR, 페이지별 KiCad 재저장 무손실, 가져온 회로의 핀은 라이브러리로만 번호화, AI 결과는 사용자 확인 없이 저장되지 않음.
+- 결과: `docs/phase1_5-report.md`, ADR-004.
+
 ### Phase 2 — Change Workflow → AI Workflow (3~5주 목표)
 - **2a (LLM 없음, v1.2 추가):** patch 연산, diff, proposal, 승인/거부, revision, 격리 작업공간, 재생성·재검증, 작업 기록. 수직 슬라이스: LED 회로 저항값 330→1k patch → diff → 승인 → 생성 → ERC → Netlist 비교.
   - 통합 테스트: 승인 시 Netlist 부품값 변경 확인. 거부·실패 시 원본 파일 해시 불변.
@@ -301,8 +332,9 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - AI가 기존 LED 회로의 저항값을 변경하도록 제안하고, 승인된 범위 내에서 재생성 및 ERC 수행.
 - Gate: 원본 무단 변경 0건, 실패 시 복구, 변경 전후 Netlist/부품값 차이 보고.
 
-### Phase 5 — Advanced Engineering (장기, MVP 제외)
-- KiCad 외부 수정 import/diff, PCB 설계 보조, 제조 검토, Gerber, SPICE, FW 연계.
+### Phase 5 — 아트웍·펌웨어와 통합 입력 창 확장 (장기, MVP 제외)
+- 제품 비전(1장): 하나의 입력 창에서 회로도·아트웍(PCB)·펌웨어.
+- KiCad 외부 수정 import/diff, PCB 설계 보조(배치·배선 제안, DRC), 제조 검토, Gerber, SPICE, 펌웨어 프로젝트 생성(핀맵·주변장치 설정을 Circuit IR에서 유도).
 - 각 기능별 지원 범위와 실물 시험 결과를 별도로 검증한 뒤 출시 여부 결정.
 
 기간은 단독 개발의 잠정 추정치이며 작업 시간과 도구 호환성에 따라 달라짐.
@@ -381,11 +413,19 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 |---|---|
 | 지원 KiCad 메이저 버전 | **결정: 10.0.x** (ADR-002) |
 | Windows 단일 플랫폼 우선 여부 | Windows 11 우선 유지. 개발·CI는 Linux에서도 동작 |
-| LLM 제공자 및 API 키 입력 방식 | 미정. Phase 2b 시작 전 결정 필요 |
+| LLM 제공자 및 API 키 입력 방식 | **결정: Google Gemini 기본, AI는 선택 기능.** 키는 OS 보안 저장소(keyring) 또는 `GEMINI_API_KEY` (ADR-004) |
+| 여러 보드 지원 | **결정: 프로젝트 → 보드 → 페이지** (사용자 결정, 2026-11-04) |
 | KiCad 생성 어댑터 최종 채택 | **결정: 직접 생성기** (ADR-001) |
 | 템플릿의 검증/승인 책임과 출처 관리 정책 | 미정. Phase 3 시작 전 결정 필요 |
 
 ## 19. 변경 이력
+### v1.3 (2026-11-04)
+- 제품 비전 추가: 하나의 입력 창에서 회로도·아트웍·펌웨어(1장). Phase 5를 그 방향으로 재정의.
+- 프로젝트→보드→페이지 구조(1.1, 7장), 보드 단위 API(8장).
+- FR-18~23 추가: 여러 보드·페이지, PDF 회로도 카피 1·2단계, 보유 자재 우선 사용, AI 대체 추천, 통합 입력 창.
+- AI 공급자 결정: Gemini 기본, 선택 기능, 키는 OS 보안 저장소(18장, ADR-004).
+- Phase 1.5 추가(완료).
+
 ### v1.2 (2026-11-04)
 - 승인 경로를 proposal 하나로 통일하고 `agent-runs/{id}/approve`를 삭제.
 - 상태 3축(승인/자동 검사/엔지니어링 검토) 정의(10.1절).
@@ -404,14 +444,15 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - 유지: Circuit IR 단일 기준 원본, Markdown 문서화, KiCad 생성 PoC 우선, 단계별 Gate, ERC와 엔지니어링 검증 구분.
 - 외부 사례: 사용자가 공유한 AI Times 기사(https://www.aitimes.com/news/articleView.html?idxno=216989) 및 관련 AI 기반 물리적 엔지니어링 워크플로의 아이디어를 참고. 특정 모델 성능이나 실물 제작 성과는 본 프로젝트에서 검증된 사실로 간주하지 않음.
 
-## 20. Claude Code 후속 개발 프롬프트 (Phase 1 완료 후 사용)
+## 20. Claude Code 후속 개발 프롬프트 (Phase 1.5 완료 후 사용)
 ```text
-docs/AI_Circuit_Studio_Development_Plan.md(v1.2)를 읽고 현재 저장소의 Phase 1 완료 여부를 실제 파일과 테스트로 검증하세요.
-Phase 1이 완료되지 않았다면 이를 우선 수행하세요. 완료된 경우 Phase 2a(LLM 없는 변경 흐름)를 진행하세요.
+docs/AI_Circuit_Studio_Development_Plan.md(v1.3)를 읽고 현재 저장소의 Phase 1.5 완료 여부를 실제 파일과 테스트로 검증하세요.
+완료된 경우 Phase 2a(LLM 없는 변경 흐름)를 보드 단위로 진행하세요.
 1. patch 연산(update_property, connect, disconnect, add_component, remove_component, move)과 precondition을 Pydantic으로 정의하세요.
 2. proposal 모델과 단일 승인 경로(approve/reject)를 구현하세요. 승인 전에는 proposals/ 아래 격리 공간에서만 파일을 만드세요.
 3. diff는 IR에서 코드로 계산하고 UI에 before/after로 보여주세요.
 4. LED 회로의 저항값 330→1k 변경 → diff → 승인 → 생성 → ERC → Netlist 비교 통합 테스트와, 거부·실패 시 원본 해시 불변 테스트를 작성하세요.
 5. 실제 KiCad CLI 옵션은 로컬 설치 버전에서 확인하고, 검증되지 않은 동작은 구현 완료로 보고하지 마세요.
-LLM 연동(2b), Agent(Phase 4), PCB 자동 설계, 펌웨어 생성은 시작하지 마세요.
+6. PDF 가져오기와 AI 대체 추천의 결과도 proposal로 제출되게 바꾸세요(1.1절 v1.3 항목).
+통합 입력 창(2b), Agent(Phase 4), PCB 자동 설계, 펌웨어 생성은 시작하지 마세요.
 ```

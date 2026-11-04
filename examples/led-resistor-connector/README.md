@@ -3,6 +3,8 @@
 `aics generate`로 만든 KiCad 10 프로젝트입니다. 부품은 J1(커넥터), R1(330Ω), D1(LED) 세 개이고, Net은 VIN, LED_A, GND입니다.
 입력 IR은 [`circuit.json`](circuit.json)입니다.
 
+같은 회로를 "회로도 MD v0.1" 형식으로 옮겨 적은 예시가 [`schematic.md`](schematic.md)입니다. 앱의 **회로도 MD 가져오기**로 넣으면 `circuit.json`과 같은 연결이 나옵니다(`tests/test_schematic_md.py`에서 확인). 형식은 [`docs/prompts/pdf-schematic-to-markdown.md`](../../docs/prompts/pdf-schematic-to-markdown.md)에 있습니다.
+
 ## KiCad에서 열기
 
 1. KiCad 10을 실행합니다.
