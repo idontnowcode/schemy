@@ -1,10 +1,11 @@
-# AI Circuit Studio — 앱 개발 기획서 v1.1
+# AI Circuit Studio — 앱 개발 기획서 v1.2
 
 - 작성일: 2026-11-04
 - 목적: Claude Code에서 개발 착수 가능한 PRD + 기술 설계 + 구현 순서
 - 대상: Windows 우선 로컬 데스크톱 앱
-- 상태: v1.1 개정안. 실제 부품 선정과 회로 검증은 별도 승인 필요.
-- 개정 취지: AI EDA Agent의 제한된 도구 실행, 검증-수정 반복, 확장 가능한 PCB/FW 데이터 구조 추가.
+- 상태: v1.2. 실제 부품 선정과 회로 검증은 별도 승인 필요.
+- v1.1 개정 취지: AI EDA Agent의 제한된 도구 실행, 검증-수정 반복, 확장 가능한 PCB/FW 데이터 구조 추가.
+- v1.2 개정 취지: v1.1 검토 결과 반영. 승인 경로 단일화, 상태 3축 분리, Agent 상태 머신 보완, 승인 범위 정의, 격리 작업공간 정의, 단계 순서 정리, Phase 0 결과 반영.
 - 변경 원칙: v1.0의 Phase 0 및 기존 MVP 범위를 보존하고 단계적 확장.
 
 ## 1. 제품 목표
@@ -16,12 +17,16 @@
 - ERC 통과만으로 전기적 안전/제작성 보장
 - 데이터시트 미확인 부품의 자동 최종 승인
 
-## 1.1 v1.1 핵심 설계 결정
+## 1.1 핵심 설계 결정
 - Circuit IR(JSON)은 전기적 연결 정보의 기준 원본이며 Markdown은 요구사항, 설계 근거, 작업 기록을 표현한다.
 - AI는 승인 전까지 **제안 또는 격리된 작업공간의 변경**만 수행한다.
 - Agent는 임의 OS 명령이 아니라 allowlist로 제한된 EDA Tool Gateway를 통해 작업한다.
 - KiCad 회로도 생성과 KiCad 내부 편집 자동화는 별개의 능력으로 취급한다. 각 기능은 설치된 KiCad 버전에서 검증한다.
 - PCB/FW 연계는 데이터 모델만 확장 가능하게 만들고 MVP 구현 범위에서는 제외한다.
+- **(v1.2) 승인 경로는 하나다.** 사람이 요청한 AI 제안이든 Agent 실행 결과든, 원본에 반영되는 모든 AI 변경은 `proposal`(IR patch + 검증 증거)로 표현되고 `/proposals/{id}/approve` 한 곳에서만 승인된다(FR-16).
+- **(v1.2) 상태는 세 축으로 분리한다**(10.1절): 승인 상태, 자동 검사 결과, 엔지니어링 검토 상태. 하나의 값으로 섞어 표시하지 않는다.
+- **(v1.2) 승인 화면의 diff는 코드가 계산한다.** AI가 작성한 변경 설명은 참고 정보일 뿐이며, 승인 근거는 IR에서 결정적으로 계산한 diff와 실행 증거다.
+- **(v1.2) 사용자가 직접 편집한 IR**(Phase 1의 JSON 편집 등)은 사용자 자신의 행위이므로 proposal 없이 저장하되, 저장마다 revision을 남긴다.
 
 ## 2. 사용자 시나리오
 1. 새 프로젝트 생성: STM32 CAN Controller.
@@ -29,39 +34,39 @@
 3. AI가 모호한 요구사항(24V 입력 범위, 환경, 커넥터, 출력 부하 등)을 식별한다.
 4. AI가 기능 블록·부품 후보·설계 근거·검증 대기 항목을 제시한다.
 5. 사용자가 승인하면 Circuit IR에 반영하고 Markdown/JSON을 저장한다.
-6. EDA Adapter가 KiCad .kicad_sch를 생성하고 KiCad CLI ERC/Netlist/SVG를 실행한다.
+6. EDA Adapter가 KiCad 프로젝트(.kicad_pro + .kicad_sch)를 생성하고 KiCad CLI ERC/Netlist/SVG를 실행한다.
 7. UI에서 생성 결과, 경고, 검증 상태를 표시한다.
 8. 변경 요청 시 변경 제안(diff)을 보여주고 승인 후 버전으로 저장한다.
 
 ## 3. MVP 기능 요구사항
-| ID | 기능 | 우선순위 | 완료 조건 |
-|---|---|---|---|
-| FR-01 | 프로젝트 생성/열기/저장 | P0 | 로컬 프로젝트 재열기 시 상태 복원 |
-| FR-02 | 요구사항 입력·편집 | P0 | 텍스트와 필드형 사양 저장 |
-| FR-03 | AI 요구사항 구조화 | P0 | 스키마 검증 가능한 결과 반환 |
-| FR-04 | 설계안 제안 및 승인 | P0 | 승인 전 원본 변경 없음 |
-| FR-05 | Circuit IR 관리 | P0 | component/pin/net ID 안정적 유지 |
-| FR-06 | Markdown/JSON 내보내기 | P0 | 동일 IR에서 결정적 생성 |
-| FR-07 | KiCad 회로도 생성 | P0 | 지원 회로에서 KiCad 파일 열림 |
-| FR-08 | ERC·Netlist·SVG 결과 표시 | P0 | 실행 결과와 오류를 UI에서 확인 |
-| FR-09 | 변경 diff·버전 이력 | P1 | 승인/취소/롤백 가능 |
-| FR-10 | BOM CSV | P1 | ref/value/MPN/footprint 포함 |
-| FR-11 | 검증 상태 추적 | P0 | 미확인/검토 필요/검증됨 구분 |
-| FR-12 | 데이터시트 첨부 | P1 | 로컬 파일 참조, 출처 기록 |
-| FR-13 | Agent 작업 계획/도구 호출 기록 | P1 | 입력·결과·시각·revision 연계 |
-| FR-14 | 제한된 EDA 도구 실행 | P1 | 허용된 명령만 실행, 작업별 타임아웃 |
-| FR-15 | 자동 재검증 루프 | P1 | 제한 횟수 내 수정 제안·재검증·보고 |
-| FR-16 | 승인 게이트 | P0 | 승인 없는 원본 덮어쓰기·제조 산출물 확정 금지 |
-| FR-17 | PCB/FW 확장용 아티팩트 참조 | P2 | 회로 revision과 결과 파일 연결 |
+| ID | 기능 | 우선순위 | 완료 조건 | 단계 |
+|---|---|---|---|---|
+| FR-01 | 프로젝트 생성/열기/저장 | P0 | 로컬 프로젝트 재열기 시 상태 복원 | 1 |
+| FR-02 | 요구사항 입력·편집 | P0 | 텍스트(1단계)와 필드형 사양(2단계) 저장 | 1, 2 |
+| FR-03 | AI 요구사항 구조화 | P0 | 스키마 검증 가능한 결과 반환 | 2 |
+| FR-04 | 설계안 제안 및 승인 | P0 | 승인 전 원본 변경 없음 | 2 |
+| FR-05 | Circuit IR 관리 | P0 | component/pin/net ID 안정적 유지 | 1 |
+| FR-06 | Markdown/JSON 내보내기 | P0 | 동일 IR에서 결정적 생성 | 1 |
+| FR-07 | KiCad 회로도 생성 | P0 | 지원 회로에서 KiCad 프로젝트가 열림 | 0, 1 |
+| FR-08 | ERC·Netlist·SVG 결과 표시 | P0 | 실행 결과와 오류를 UI에서 확인 | 1 |
+| FR-09 | 변경 diff·버전 이력 | P1 | 승인/취소/롤백 가능 | 1(이력), 2(diff·승인) |
+| FR-10 | BOM CSV | P1 | ref/value/MPN/footprint 포함 | 1 |
+| FR-11 | 검증 상태 추적 | P0 | 상태 3축(10.1절) 구분 표시 | 1 |
+| FR-12 | 데이터시트 첨부 | P1 | 로컬 파일 참조, 출처 기록 | 3 |
+| FR-13 | Agent 작업 계획/도구 호출 기록 | P1 | 입력·결과·시각·revision 연계 | 4 |
+| FR-14 | 제한된 EDA 도구 실행 | P1 | 허용된 명령만 실행, 작업별 타임아웃 | 4 |
+| FR-15 | 자동 재검증 루프 | P1 | 제한 횟수 내 수정 제안·재검증·보고 | 4 |
+| FR-16 | 승인 게이트 | P0 | 승인 없는 원본 덮어쓰기·제조 산출물 확정 금지. 승인 경로는 하나 | 2 |
+| FR-17 | PCB/FW 확장용 아티팩트 참조 | P2 | 회로 revision과 결과 파일 연결 | 1(스키마), 5 |
 
 ## 4. 권장 기술 스택
 - Electron + React + TypeScript + Vite: 데스크톱 셸 및 UI.
 - Python 3.12+ + FastAPI + Pydantic v2: 회로 데이터 모델, 검증, 변환 백엔드.
-- OpenAI 또는 호환 LLM API: 요구사항 구조화, 설계안, 변경 제안. Claude에서 개발하더라도 앱의 LLM 공급자는 교체 가능한 인터페이스로 구현.
-- KiCad (설치 버전 고정): 공식 파일 형식, CLI ERC, Netlist, SVG. CLI 지원 옵션은 설치 버전에서 확인.
+- LLM API(공급자 미정): 요구사항 구조화, 설계안, 변경 제안. 앱의 LLM 공급자는 교체 가능한 인터페이스로 구현한다. **(v1.2)** 공급자마다 tool calling 형식이 다르므로 Gateway 도구는 자체 Pydantic 스키마로 정의하고 공급자별 어댑터에서 변환한다.
+- KiCad **10.0.x** (ADR-002, 검증 기준 10.0.8): 공식 파일 형식, CLI ERC, Netlist, SVG. CLI 지원 옵션은 설치 버전에서 확인.
 - SQLite: 프로젝트 인덱스, 작업 이력, 승인 이력. 프로젝트 원본은 JSON 및 Markdown 파일.
 - React Flow: 기능 블록도에만 사용. 전자회로 편집기 자체의 대체재로 가정하지 않음.
-- SKiDL/schematizer: PoC 후보. 설치 버전과 실제 출력 기능을 확인한 후 채택 여부 결정. 직접 .kicad_sch 생성 어댑터와 비교.
+- 회로도 생성: 직접 `.kicad_sch` 생성기(ADR-001). SKiDL/schematizer는 Phase 0 비교 실험 결과에 따라 채택하지 않음.
 
 ## 5. 시스템 구성
 ```text
@@ -72,17 +77,17 @@ Electron / React UI
   ├─ Block Diagram
   ├─ Schematic Preview (SVG)
   └─ Validation / BOM / History
-          │ local HTTP / IPC
+          │ local HTTP (127.0.0.1, 실행마다 바뀌는 토큰)
 Python Application API
   ├─ Project Service
   ├─ AI Orchestrator (structured proposals + tool plans)
   ├─ Agent Planner / Executor / Observer
-  ├─ EDA Tool Gateway (allowlist, sandbox, timeout)
+  ├─ EDA Tool Gateway (allowlist, workspace path limits, timeout)
   ├─ Circuit IR Service
   ├─ Rules Validator
   ├─ KiCad Adapter
   ├─ Exporter (MD/JSON/BOM)
-  ├─ Revision Service
+  ├─ Revision Service (원본 반영의 유일한 경로)
   └─ Agent Audit Service
           ├─ Project files / SQLite
           ├─ KiCad CLI
@@ -97,6 +102,7 @@ Python Application API
 - symbol_library_id, footprint_library_id, manufacturer_part_number, symbol_version, pin_map_evidence 기록.
 - 값과 단위, 허용오차, 입력 범위, 검증 상태, 근거 출처를 명시.
 - UI 위치와 회로 연결 정보는 분리. 자동 레이아웃으로 Netlist가 변경되어서는 안 됨.
+- **(v1.2)** 생성 전에 부품이 선언한 핀은 라이브러리 심볼의 핀 번호·이름과 정확히 일치해야 한다(Phase 0 구현). 불일치는 오류이며 파일을 만들지 않는다.
 
 ### IR 예시 (설명용, 제작용 아님)
 ```json
@@ -104,128 +110,186 @@ Python Application API
   "schema_version": "0.1.0",
   "project_id": "stm32-can-demo",
   "components": [
-    {"id":"res-001", "reference":"R1", "value":"330R", "symbol_id":"Device:R", "pins":["1","2"]},
-    {"id":"led-001", "reference":"D1", "value":"LED", "symbol_id":"Device:LED", "pins":["A","K"]}
+    {"id":"res-001", "reference":"R1", "value":"330", "symbol_id":"Device:R",
+     "pins":[{"number":"1"}, {"number":"2"}]},
+    {"id":"led-001", "reference":"D1", "value":"LED", "symbol_id":"Device:LED",
+     "pins":[{"number":"1", "name":"K"}, {"number":"2", "name":"A"}]}
   ],
   "nets": [
-    {"id":"net-001", "name":"LED_ANODE", "nodes":[{"component_id":"res-001","pin":"2"},{"component_id":"led-001","pin":"A"}]}
+    {"id":"net-001", "name":"LED_A", "nodes":[{"component_id":"res-001","pin":"2"},{"component_id":"led-001","pin":"2"}]}
   ],
   "validation": {"status":"unverified"}
 }
 ```
-위 예시는 완전한 회로가 아니며 실제 KiCad 심볼 핀 식별자와 매핑 검증이 필요함.
+위 예시는 완전한 회로가 아니다. KiCad 10 `Device:LED`의 핀 번호는 1=K(캐소드), 2=A(애노드)이며(Phase 0에서 라이브러리로 확인), 연결은 이름(`A`/`K`)이 아니라 번호로 저장한다. 정식 스키마는 `docs/schema/circuit-ir.schema.json`.
 
 ## 7. 데이터 및 프로젝트 구조
 ```text
 AI-Circuit-Studio/
   desktop/                 # Electron + React
   backend/                 # FastAPI
-  circuit_core/            # Pydantic models / rules
+  circuit_core/            # Pydantic models / rules / exporters
   kicad_adapter/           # export, ERC, netlist, SVG
-  ai_engine/               # prompts, structured outputs, proposals
+  ai_engine/               # prompts, structured outputs, proposals (Phase 2)
   tests/                   # unit / golden-file / integration
-  templates/               # reviewed circuit blocks
+  templates/               # reviewed circuit blocks (Phase 3)
+  examples/                # KiCad에서 바로 여는 예제 프로젝트
   docs/                    # ADR, schema, specs
-  projects/<project-id>/
-    project.json
+<workspace>/projects/<project-id>/
+    project.json           # 메타데이터, 현재 revision
     requirements.md
-    circuit.json
+    circuit.json           # 현재(마지막 저장/승인) Circuit IR
     design_notes.md
     datasheets/
-    revisions/
-    agent_runs/
-    outputs/
+    revisions/             # <번호>.circuit.json 스냅샷 + 메타
+    proposals/             # (Phase 2) 승인 대기 patch와 검증 증거
+    agent_runs/<run_id>/   # (Phase 4) workspace/, log.jsonl
+    outputs/               # 마지막으로 생성한 revision의 산출물
+      manifest.json        # 아티팩트 목록(7.1절)
+      schematic.kicad_pro
       schematic.kicad_sch
       schematic.svg
-      bom.csv
+      schematic.net
       erc.json
+      circuit.md
+      circuit.json
+      bom.csv
 ```
+- **(v1.2)** `.kicad_sch`는 반드시 같은 이름의 `.kicad_pro`와 함께 만든다. 단독으로 열면 KiCad가 프로젝트 없이 동작해 무관한 라이브러리 경고가 생긴다(Phase 0 사용자 확인).
+- **(v1.2)** `outputs/`는 "마지막으로 생성한 revision"의 산출물만 둔다. `manifest.json`의 `source_revision`이 현재 revision과 다르면 UI는 "오래됨(stale)"으로 표시한다. revision별 산출물 보관은 Phase 2에서 필요하면 추가한다.
+- **(v1.2)** 프로젝트 원본은 사용자 워크스페이스(기본 `문서/AI Circuit Studio`, 설정 가능)에 두며 앱 설치 폴더와 분리한다.
 
 ## 7.1 확장 아티팩트 모델
-- `artifact_id`, `artifact_type`(schematic, pcb, gerber, firmware, simulation, bom), `source_revision`, `tool_version`, `checksum`, `validation_status`, `created_at`을 기록한다.
+- `artifact_id`, `artifact_type`(schematic, kicad_project, netlist, erc_report, svg, markdown, json, bom, pcb, gerber, firmware, simulation), `source_revision`, `tool_version`, `checksum`(SHA-256), `validation_status`, `created_at`을 기록한다.
 - PCB/펌웨어 생성 기능은 MVP에 포함하지 않으며 추후 연결을 위한 참조 스키마만 마련한다.
 - 작업 기록에는 실행 시각(ISO 8601 + 시간대), 입력 요약, 도구 버전, 결과, 승인자, 오류를 남긴다.
+- **(v1.2) 외부 수정 감지:** 생성기는 결정적이므로 checksum이 의미를 가진다. 사용자가 KiCad에서 회로도를 저장하면 checksum이 달라지고, UI는 "외부에서 수정됨"으로 표시한다. 외부 수정은 읽기 전용으로 취급하며 재생성 시 덮어쓰기 전에 경고한다(13장 양방향 편집 위험 대응).
+- **(v1.2) 작업 기록 저장:** 각 실행 폴더의 JSONL 파일이 원본이고 SQLite는 검색용 인덱스다. API 키·토큰 등 민감 정보는 기록 전에 마스킹한다.
 
 ## 8. API 계약 초안
 - `POST /projects` : 프로젝트 생성
+- `GET /projects` : 프로젝트 목록
 - `GET /projects/{id}` : 프로젝트 메타데이터
-- `POST /projects/{id}/requirements/parse` : 요구사항 → 구조화 스펙
-- `POST /projects/{id}/proposals` : AI 설계 제안 (적용하지 않음)
-- `POST /projects/{id}/proposals/{proposal_id}/approve` : 사용자 승인 후 트랜잭션 적용
-- `GET /projects/{id}/circuit` : Circuit IR 조회
-- `POST /projects/{id}/exports/kicad` : KiCad 파일 생성
-- `POST /projects/{id}/validation/erc` : ERC 실행
-- `POST /projects/{id}/agent-runs` : 격리된 Agent 실행 생성 (기본 dry-run)
-- `GET /projects/{id}/agent-runs/{run_id}` : 계획, 도구 실행, 로그, 검증 결과
-- `POST /projects/{id}/agent-runs/{run_id}/approve` : 검증 결과와 diff 확인 후 승인
+- `PATCH /projects/{id}` : 이름·설명 변경
+- `DELETE /projects/{id}` : 인덱스에서 제거하고 폴더를 워크스페이스 휴지통으로 이동(복구 가능)
+- `GET|PUT /projects/{id}/requirements` : 요구사항 Markdown
+- `POST /projects/{id}/requirements/parse` : 요구사항 → 구조화 스펙 (Phase 2)
+- `GET|PUT /projects/{id}/circuit` : Circuit IR 조회/사용자 직접 저장(검증 후, revision 생성)
+- `POST /projects/{id}/circuit/validate` : 저장 없이 L0/L1(+라이브러리) 검사
 - `GET /projects/{id}/revisions` : 변경 이력
-- `POST /projects/{id}/revisions/{revision_id}/restore` : 확인 후 복원
+- `POST /projects/{id}/revisions/{revision_id}/restore` : 확인 후 복원(새 revision으로 기록)
+- `POST /projects/{id}/exports/kicad` : KiCad 프로젝트 생성 + ERC/Netlist/SVG (job)
+- `POST /projects/{id}/exports/documents` : Markdown/JSON/BOM 생성
+- `GET /projects/{id}/outputs` : manifest와 상태(stale, 외부 수정)
+- `GET /jobs/{job_id}` : 오래 걸리는 작업 상태
+- `POST /projects/{id}/proposals` : AI 설계 제안 (적용하지 않음, Phase 2)
+- `POST /projects/{id}/proposals/{proposal_id}/approve|reject` : **유일한 승인 경로** (Phase 2)
+- `POST /projects/{id}/agent-runs` : 격리된 Agent 실행 생성 (기본 dry-run, Phase 4). 결과는 proposal로 제출된다.
+- `GET /projects/{id}/agent-runs/{run_id}` : 계획, 도구 실행, 로그, 검증 결과
+- `POST /projects/{id}/agent-runs/{run_id}/cancel` : 실행 취소
 
 오류 응답은 error_code, message, affected_component_ids, recovery_hint 필드를 포함. 오래 걸리는 EDA 작업은 job_id와 상태 조회 API를 사용.
 
+> v1.1의 `POST /agent-runs/{run_id}/approve`는 삭제했다. Agent 결과의 승인은 그 run이 제출한 proposal의 승인으로 한다.
+
 ## 9. 설계 변경 처리
-1. AI가 `add_component`, `remove_component`, `update_property`, `connect`, `disconnect` 등 허용된 연산으로 patch 생성.
-2. 서버가 현재 revision과 precondition을 확인.
-3. schema/참조/핀/Net 규칙 검증.
-4. UI에서 영향 범위와 before/after diff 제공.
-5. 승인 시 원자적으로 새 revision 저장.
+1. 변경은 `add_component`, `remove_component`, `update_property`, `connect`, `disconnect`, `move`(배치) 등 허용된 연산의 patch로 표현한다.
+2. 서버가 patch의 base revision과 현재 revision, precondition을 확인한다.
+3. schema/참조/핀/Net 규칙을 검증한다.
+4. UI에서 영향 범위와 before/after diff를 제공한다. diff는 서버 코드가 IR에서 계산한다.
+5. 승인 시 Revision Service가 원자적으로 새 revision을 저장한다.
 6. EDA 재생성, Netlist 비교, ERC 실행.
 7. 실패하면 기존 revision 보존, 오류 보고.
 
-## 9.1 AI EDA Agent 실행 상태 머신
-`DRAFT_REQUIREMENTS → PROPOSED_PLAN → USER_APPROVED_SCOPE → SANDBOX_EXECUTION → VALIDATION → REVIEW_REQUIRED → COMMITTED`
+### 9.0 승인 범위와 재승인 (v1.2)
+- 승인 범위(scope)는 "허용 연산 + 대상 ID" 목록으로 기록한다. 예: `update_property(res-001, value)`.
+- 범위 밖의 연산이 하나라도 포함되면 재승인을 받는다.
+- **설계 의미를 바꾸는 수정**: 연결 변경(`connect`, `disconnect`), 부품 추가·삭제, 전기적 속성(value, symbol_id, footprint_id, MPN) 변경. 이들은 항상 승인 대상이다.
+- **의미를 바꾸지 않는 수정**: 배치(`move`), 표시용 메타데이터. 승인된 범위 안에서는 재승인이 필요 없다.
 
-- 실패 시 `FAILED` 또는 `ROLLED_BACK`으로 전이한다.
-- Agent의 자동 재시도는 동일 작업에서 최대 2회로 제한하고, 설계 의미를 바꾸는 수정은 매번 재승인한다.
-- Tool Gateway 허용 예: `read_project`, `read_symbol_library`, `propose_ir_patch`, `generate_schematic`, `run_erc`, `export_netlist`, `export_svg`, `compare_netlists`.
+## 9.1 AI EDA Agent 실행 상태 머신 (v1.2 개정)
+```text
+PROPOSED_PLAN → SCOPE_APPROVED → SANDBOX_EXECUTION → VALIDATION ─┬─→ REVIEW_REQUIRED → COMMITTED
+                                       ↑                          │          │
+                                       └── (실패, 최대 2회) ───────┘          ├─→ REJECTED
+어느 단계에서든: → CANCELLED (사용자 취소) / FAILED (상한 초과·오류) / STALE (base revision 변경)
+```
+- `DRAFT_REQUIREMENTS`는 Agent 실행이 아니라 프로젝트 단계이므로 상태 머신에서 뺐다.
+- 재시도: VALIDATION 실패 시 SANDBOX_EXECUTION으로 돌아가며 동일 실행에서 최대 2회. 재시도 중 범위 밖 연산이 필요하면 SCOPE_APPROVED 이전으로 돌아가 재승인을 받는다.
+- `REVIEW_REQUIRED`에서 run은 proposal을 제출하고, 사용자의 approve/reject가 `COMMITTED`/`REJECTED`를 결정한다.
+- `STALE`: 실행 중 원본 revision이 바뀌면 제출 불가. 새 base에서 다시 실행한다.
+- 커밋 이후 되돌리기는 상태 전이가 아니라 revision 복원(새 revision 생성)으로 처리한다. v1.1의 `ROLLED_BACK`은 이 의미로 대체한다.
+- Tool Gateway 허용 도구: `read_project`, `read_revision`, `read_symbol_library`, `validate_ir`, `propose_ir_patch`, `diff_ir`, `generate_schematic`, `run_erc`, `export_netlist`, `export_svg`, `compare_netlists`.
+  - `read_symbol_library`는 설정된 KiCad 라이브러리 폴더로 제한한다.
+  - 파일을 만드는 도구는 해당 run의 `workspace/` 안에만 쓴다. 모든 경로 인자는 Gateway가 검사한다.
+  - 각 도구의 입력은 Pydantic 스키마로 검증하고, 실행마다 타임아웃을 둔다.
 - 원본 삭제, 외부 프로그램 설치, 네트워크 업로드, Gerber 릴리스는 별도 명시적 승인 없이는 불가하다.
-- Agent는 로그나 데이터시트에 포함된 명령형 텍스트를 도구 실행 지시로 해석하지 않는다.
+- **격리 작업공간의 정의:** OS 수준 보안 샌드박스가 아니라 구조적 격리다. Agent에게는 셸이 없고, Gateway 도구는 앱의 Python 함수뿐이며, 쓰기 경로는 run의 `workspace/`로 제한되고, 원본 반영은 Revision Service만 한다.
+- **비용 상한:** 실행당 LLM 호출 수, 토큰, 경과 시간, 추정 비용의 상한을 설정값으로 두고, 넘으면 `FAILED`(사유: limit_exceeded)로 끝낸다. 기본값은 Phase 4에서 정한다.
+- **프롬프트 인젝션:** 로그·데이터시트의 명령형 텍스트는 프롬프트로 막을 수 있다고 가정하지 않는다. 도구 권한 제한, 비신뢰 입력 표시, 코드가 계산한 diff와 승인 게이트로 구조적으로 막는다.
 
 ## 10. 검증 전략
 - L0 Schema: 타입/필수 필드/참조 ID/중복 검증.
-- L1 Topology: 핀 존재 여부, 미연결, Net 충돌, 연결 그래프 정합성.
-- L2 EDA: KiCad CLI ERC, netlist export, schematic export.
+- L1 Topology: 핀 존재 여부, 미연결, Net 충돌, 연결 그래프 정합성. 라이브러리 핀맵 대조 포함.
+- L2 EDA: KiCad CLI ERC, netlist export, schematic export, Netlist ↔ IR 비교.
 - L3 Engineering: 데이터시트 핀맵, 전압·전류 정격, 보호회로, 발열, 전원 시퀀스, EMC/ESD 등 설계 검토.
 - L4 Physical: 시뮬레이션·시제품 시험. MVP 범위 밖.
 
-ERC 통과는 설계 적합성의 충분조건이 아님. UI에는 `Not checked`, `Automated checks passed`, `Engineer reviewed`를 분리해 표시. AI가 검증하지 않은 사항을 검증 완료로 표시하지 않음.
+ERC 통과는 설계 적합성의 충분조건이 아님. AI가 검증하지 않은 사항을 검증 완료로 표시하지 않음.
+
+### 10.1 상태 3축 (v1.2)
+| 축 | 단위 | 값 | UI 표시 |
+|---|---|---|---|
+| 승인 상태 | revision / proposal | `proposed` → `approved` / `rejected` → `committed` | 제안됨 / 승인됨 / 거부됨 |
+| 자동 검사 결과 | revision의 산출물 | `not_checked` / `passed` / `failed` + 증거(KiCad 버전, 리포트 checksum, 실행 시각) | Not checked / Automated checks passed / Automated checks failed |
+| 엔지니어링 검토 | 부품·요구사항·설계 | `unverified` / `needs_review` / `verified` + 검토자·근거 | 미확인 / 검토 필요 / Engineer reviewed |
+
+- 세 축은 서로 독립이다. "자동 검사 통과"가 "검토됨"을 의미하지 않는다.
+- `verified`는 사람만 설정할 수 있다. AI와 자동 검사는 `verified`를 설정하지 않는다.
 
 ## 11. EDA 생성 전략 비교 PoC
 A. SKiDL + schematizer: 빠른 초기 평가. 지원 버전, 라이브러리 호환, 배치 품질 확인.
 B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, 라이브러리 참조, UUID, 좌표, 배선, 버전 호환 구현 비용 큼.
 
-선택 기준: 파일 열림, ERC, Netlist 정확성, 회로 배치 가독성, 버전 안정성, 변경 시 결정성, 개발 비용.
+선택 기준: 파일 열림, ERC, Netlist 정확성, 회로 배치 가독성, 버전 안정성, 변경 시 결정성, 개발 비용. 결과는 ADR-001.
 
 ## 11.1 Agent 접근법 검증 PoC
 - 파일 기반 방식: Circuit IR patch → KiCad generator → ERC/Netlist.
 - 도구 기반 방식: AI가 허용된 Gateway 도구를 순차 호출해 같은 작업 수행.
-- 평가 지표: 전기적 Netlist 일치율, 무승인 변경 0건, 재현 가능성, 실패 복구, 작업 시간, 로그 완전성.
+- 평가 지표: 전기적 Netlist 일치율(기대 IR 대비), 무승인 변경 0건, 재현 가능성, 실패 복구, 작업 시간, 로그 완전성.
 - 특정 모델 또는 기사에 등장한 자동화 성능을 현재 앱에서 재현할 수 있다고 가정하지 않는다.
 
 ## 12. 단계별 구현 계획 및 게이트
-### Phase 0 — 환경/PoC (1~2주 목표)
+### Phase 0 — 환경/PoC (완료: 2026-11-04)
 - Electron/React, Python, KiCad 버전 확인 및 설치.
 - 수동 Circuit IR로 저항 + LED + 커넥터 회로 생성.
 - KiCad에서 열기, CLI ERC, Netlist, SVG 확인.
 - 생성 엔진 A/B 평가, ADR 기록.
 - Gate: Golden test 회로가 열리고 의도한 Netlist와 일치.
+- 결과: `docs/phase0-report.md`, ADR-001, ADR-002.
 
 ### Phase 1 — Core MVP (2~4주 목표)
-- 프로젝트 CRUD, Circuit IR schema, Markdown/JSON exporter.
-- EDA Adapter, validation UI, 생성 파일 경로 관리.
+- 프로젝트 CRUD(생성/목록/열기/이름 변경/휴지통 삭제), SQLite 인덱스, 마지막 작업 상태 복원.
+- 요구사항 텍스트 편집·저장(필드형 사양은 Phase 2에서 AI 구조화 스키마와 함께).
+- Circuit IR 가져오기·편집·검증·저장, 저장마다 revision, revision 복원.
+- Markdown/JSON/BOM exporter(결정적).
+- EDA Adapter job(생성 + ERC + Netlist 비교 + SVG), validation UI, 생성 파일 경로 관리(manifest, stale·외부 수정 감지).
 - Gate: 앱 재시작 후 프로젝트 복원, 동일 입력에서 동일 연결 구조 출력.
 
-### Phase 2 — AI Workflow (3~5주 목표)
-- 요구사항 구조화, 설계안 생성, 승인, patch/diff, revision.
+### Phase 2 — Change Workflow → AI Workflow (3~5주 목표)
+- **2a (LLM 없음, v1.2 추가):** patch 연산, diff, proposal, 승인/거부, revision, 격리 작업공간, 재생성·재검증, 작업 기록. 수직 슬라이스: LED 회로 저항값 330→1k patch → diff → 승인 → 생성 → ERC → Netlist 비교.
+  - 통합 테스트: 승인 시 Netlist 부품값 변경 확인. 거부·실패 시 원본 파일 해시 불변.
+- **2b:** LLM 공급자 어댑터, 요구사항 구조화(필드형 사양), 설계안 생성. LLM은 2a의 proposal을 만드는 역할만 한다.
 - Gate: 승인 전 데이터 불변, 거부 시 변경 없음, 수정 후 재검증.
 
 ### Phase 3 — Engineering Templates (4~8주 목표)
+- 생성기 확장: 전원 심볼·PWR_FLAG, 다중 유닛 심볼, no-connect 표시(MCU 회로의 전제).
 - 전원부, MCU 최소 회로, CAN 회로 템플릿 확장.
 - 실제 데이터시트 기반 핀맵/정격 검토 프로세스.
 - Gate: 각 템플릿에 근거와 검증 체크리스트 첨부.
 
-### Phase 4 — Bounded AI EDA Agent (추가, 3~6주 목표)
-- EDA Tool Gateway, 실행 계획, 격리 작업공간, 작업 로그 및 승인 게이트 구현.
+### Phase 4 — Bounded AI EDA Agent (3~6주 목표)
+- 2a의 proposal·revision·격리 작업공간 위에 EDA Tool Gateway, 실행 계획, 상태 머신, 비용 상한, 작업 로그를 구현.
 - AI가 기존 LED 회로의 저항값을 변경하도록 제안하고, 승인된 범위 내에서 재생성 및 ERC 수행.
 - Gate: 원본 무단 변경 0건, 실패 시 복구, 변경 전후 Netlist/부품값 차이 보고.
 
@@ -238,17 +302,18 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 ## 13. 핵심 위험과 대응
 | 위험 | 대응 |
 |---|---|
-| LLM의 잘못된 핀 번호 | 라이브러리 핀맵 및 근거 검증, 임의 핀맵 금지 |
+| LLM의 잘못된 핀 번호 | 라이브러리 핀맵 및 근거 검증, 임의 핀맵 금지, 불일치 시 생성 거부 |
 | EDA 자동 배치 가독성 | 검증된 기능 블록 템플릿 우선 |
-| KiCad 버전 차이 | 지원 버전 고정, CI에서 Golden 파일 검증 |
-| 양방향 편집 데이터 충돌 | 초기에는 외부 수정 읽기 전용, 이후 명시적 import/diff |
+| KiCad 버전 차이 | 지원 버전 고정(10.0.x), CI에서 Golden 파일·round-trip 검증 |
+| 양방향 편집 데이터 충돌 | 초기에는 외부 수정 읽기 전용(checksum 감지), 이후 명시적 import/diff |
 | 설계 변경으로 기존 Net 손상 | 안정 ID, patch precondition, Netlist diff |
 | 민감 설계 정보 API 유출 | 기본 로컬 저장, 명시적 전송 승인, 로그 마스킹 |
 | AI 출력 스키마 불일치 | Pydantic 검증, 제한된 재시도, 실패 원인 표시 |
-| Agent가 위험한 명령 실행 | allowlist, 격리 디렉터리, 최소 권한, 실행 승인 |
-| 무한 수정 반복 및 비용 폭증 | 재시도·토큰·시간·비용 상한 |
-| 데이터시트/외부 문서의 프롬프트 인젝션 | 비신뢰 입력 격리, 도구 권한과 분리 |
-| 검증 성공의 과장 | 검증 유형과 실행 증거를 분리 표시 |
+| Agent가 위험한 명령 실행 | 셸 없음, allowlist, workspace 경로 제한, 최소 권한, 실행 승인 |
+| 무한 수정 반복 및 비용 폭증 | 재시도·호출 수·토큰·시간·비용 상한 |
+| 데이터시트/외부 문서의 프롬프트 인젝션 | 비신뢰 입력 표시, 도구 권한과 분리, 코드 계산 diff, 승인 게이트 |
+| 검증 성공의 과장 | 상태 3축 분리, 실행 증거 표시 |
+| 승인 경로 중복 | proposal 단일 승인 경로(FR-16) |
 
 ## 14. 비기능 요구사항
 - Windows 11 우선, 오프라인 프로젝트 조회/EDA 작업 지원(로컬 KiCad 설치 필요).
@@ -257,11 +322,12 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - 생성 작업 취소, 진행 상태, 실패 재시도 제공.
 - 프로젝트 파일 원자적 저장 및 revision 백업.
 - 앱 충돌 시 마지막 승인 버전 복구 가능.
-- 테스트는 Python pytest + TypeScript Vitest/Playwright 검토.
+- 백엔드는 127.0.0.1에만 바인딩하고, 데스크톱 셸이 실행마다 만든 토큰이 없는 요청은 거부한다.
+- 테스트는 Python pytest + TypeScript Vitest/Playwright.
 
 ## 15. Claude Code 개발 규칙
 1. 첫 단계에서는 구현 전에 저장소 구조와 ADR-001(EDA 생성 전략)을 작성.
-2. 한 번에 전체 앱 구현 금지. Phase 0의 단일 회로 PoC부터 구현.
+2. 한 번에 전체 앱 구현 금지. 단계 Gate를 통과한 뒤 다음 단계로 간다.
 3. 모든 핵심 데이터 구조에 Pydantic schema와 테스트 작성.
 4. AI 응답을 직접 KiCad 파일로 쓰지 말고 IR 검증 후 변환.
 5. KiCad CLI 실행은 subprocess 인자 배열로 수행; 쉘 문자열 연결 금지.
@@ -271,8 +337,9 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 9. AI Agent는 allowlist 도구만 사용하고 격리 작업공간에서 먼저 실행.
 10. 사용자의 명시적 승인 전에는 원본 회로와 제조 산출물을 확정하지 않음.
 11. 모든 Agent 실행에는 시간·모델·도구 버전·diff·검증 증거를 기록.
+12. (v1.2) 원본 반영은 Revision Service만 한다. 다른 모듈은 원본 파일을 직접 쓰지 않는다.
 
-## 16. Claude Code 첫 실행 프롬프트
+## 16. Claude Code 첫 실행 프롬프트 (Phase 0, 완료됨)
 ```text
 당신은 Electron/React/TypeScript, Python/FastAPI, KiCad 자동화에 경험이 있는 수석 소프트웨어 엔지니어입니다.
 첨부한 AI Circuit Studio 기획서를 제품 요구사항의 기준으로 사용하세요.
@@ -291,38 +358,52 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 ```
 
 ## 17. MVP 인수 기준
-- [ ] 프로젝트 생성·저장·재열기
-- [ ] 요구사항 구조화 스키마 검증
-- [ ] AI 설계안 승인/거부
-- [ ] JSON/Markdown 내보내기
-- [ ] LED 회로 .kicad_sch 생성 및 KiCad 열기
-- [ ] 추출 Netlist와 IR 연결 구조 일치
-- [ ] ERC 결과 및 경고 표시
-- [ ] 승인된 변경의 revision 기록/복원
-- [ ] 오류·미검증 항목 명시
+- [ ] 프로젝트 생성·저장·재열기 (Phase 1)
+- [ ] 요구사항 구조화 스키마 검증 (Phase 2b)
+- [ ] AI 설계안 승인/거부 (Phase 2)
+- [ ] JSON/Markdown 내보내기 (Phase 1)
+- [x] LED 회로 .kicad_sch 생성 및 KiCad 열기 (Phase 0)
+- [x] 추출 Netlist와 IR 연결 구조 일치 (Phase 0)
+- [ ] ERC 결과 및 경고 표시 — UI 표시 (Phase 1)
+- [ ] 승인된 변경의 revision 기록/복원 (Phase 1 이력 + Phase 2 승인)
+- [ ] 오류·미검증 항목 명시 (Phase 1)
 
-## 18. 결정 대기 사항
-- 지원 KiCad 메이저 버전
-- Windows 단일 플랫폼 우선 여부
-- LLM 제공자 및 API 키 입력 방식
-- KiCad 생성 어댑터 PoC 결과에 따른 최종 채택
-- 템플릿의 검증/승인 책임과 출처 관리 정책
+## 18. 결정 사항
+| 항목 | 상태 |
+|---|---|
+| 지원 KiCad 메이저 버전 | **결정: 10.0.x** (ADR-002) |
+| Windows 단일 플랫폼 우선 여부 | Windows 11 우선 유지. 개발·CI는 Linux에서도 동작 |
+| LLM 제공자 및 API 키 입력 방식 | 미정. Phase 2b 시작 전 결정 필요 |
+| KiCad 생성 어댑터 최종 채택 | **결정: 직접 생성기** (ADR-001) |
+| 템플릿의 검증/승인 책임과 출처 관리 정책 | 미정. Phase 3 시작 전 결정 필요 |
 
+## 19. 변경 이력
+### v1.2 (2026-11-04)
+- 승인 경로를 proposal 하나로 통일하고 `agent-runs/{id}/approve`를 삭제.
+- 상태 3축(승인/자동 검사/엔지니어링 검토) 정의(10.1절).
+- Agent 상태 머신 보완: REJECTED, CANCELLED, STALE, 재시도 루프 추가, DRAFT_REQUIREMENTS 제거, ROLLED_BACK을 revision 복원으로 대체.
+- 승인 범위(연산 + 대상 ID)와 "설계 의미를 바꾸는 수정" 정의(9.0절).
+- 격리 작업공간을 구조적 격리로 정의, Gateway 도구 추가(`read_revision`, `validate_ir`, `diff_ir`)와 경로 제한, 자체 도구 스키마 + 공급자 어댑터.
+- diff는 코드가 계산. 프롬프트 인젝션은 구조적으로 대응.
+- 비용 상한 단위 정의.
+- 6장 IR 예시의 LED 핀을 번호(1=K, 2=A)로 수정.
+- 7장: `.kicad_pro` 동반 생성, `outputs/` 의미와 manifest, 워크스페이스 위치. 7.1장: 외부 수정 감지, 작업 기록 저장 방식.
+- 12장: Phase 2를 2a(LLM 없는 변경 흐름)와 2b(LLM)로 나누고 Phase 4가 2a 위에 서도록 순서 정리. Phase 1 범위 구체화. Phase 0 완료 표시.
+- 18장: KiCad 10.0.x와 직접 생성기 채택을 결정으로 기록.
 
-## 19. v1.1 변경 이력 및 근거
+### v1.1 (2026-11-04)
 - 변경: AI EDA Agent 계획/실행/관찰 계층 추가, 도구 실행 권한 제한, 승인 게이트, 반복 검증, 작업 감사 로그, PCB/FW 확장용 아티팩트 모델.
 - 유지: Circuit IR 단일 기준 원본, Markdown 문서화, KiCad 생성 PoC 우선, 단계별 Gate, ERC와 엔지니어링 검증 구분.
 - 외부 사례: 사용자가 공유한 AI Times 기사(https://www.aitimes.com/news/articleView.html?idxno=216989) 및 관련 AI 기반 물리적 엔지니어링 워크플로의 아이디어를 참고. 특정 모델 성능이나 실물 제작 성과는 본 프로젝트에서 검증된 사실로 간주하지 않음.
 
-## 20. Claude Code 후속 개발 프롬프트 (Phase 0 완료 후 사용)
+## 20. Claude Code 후속 개발 프롬프트 (Phase 1 완료 후 사용)
 ```text
-AI_Circuit_Studio_Development_Plan_v1.1.md를 읽고 현재 저장소의 Phase 0 완료 여부를 실제 파일과 테스트로 검증하세요.
-Phase 0이 완료되지 않았다면 이를 우선 수행하세요. 완료된 경우 v1.1의 AI EDA Agent 설계를 구현 가능한 단위로 분해하세요.
-1. Circuit IR의 승인/검증 상태를 명확히 정의하세요.
-2. EDA Tool Gateway allowlist와 권한 경계를 설계하세요.
-3. Agent 상태 머신 및 audit log 데이터 모델을 작성하세요.
-4. 승인 전에는 격리 작업공간에서만 파일을 생성하도록 하세요.
-5. LED 회로의 저항값 변경 → diff → 승인 → 생성 → ERC → Netlist 비교의 통합 테스트를 제안하세요.
-6. 실제 KiCad CLI 옵션은 로컬 설치 버전에서 확인하고, 검증되지 않은 동작은 구현 완료로 보고하지 마세요.
-이번 작업은 설계와 최소 수직 슬라이스만 구현하고, PCB 자동 설계와 펌웨어 생성은 시작하지 마세요.
+docs/AI_Circuit_Studio_Development_Plan.md(v1.2)를 읽고 현재 저장소의 Phase 1 완료 여부를 실제 파일과 테스트로 검증하세요.
+Phase 1이 완료되지 않았다면 이를 우선 수행하세요. 완료된 경우 Phase 2a(LLM 없는 변경 흐름)를 진행하세요.
+1. patch 연산(update_property, connect, disconnect, add_component, remove_component, move)과 precondition을 Pydantic으로 정의하세요.
+2. proposal 모델과 단일 승인 경로(approve/reject)를 구현하세요. 승인 전에는 proposals/ 아래 격리 공간에서만 파일을 만드세요.
+3. diff는 IR에서 코드로 계산하고 UI에 before/after로 보여주세요.
+4. LED 회로의 저항값 330→1k 변경 → diff → 승인 → 생성 → ERC → Netlist 비교 통합 테스트와, 거부·실패 시 원본 해시 불변 테스트를 작성하세요.
+5. 실제 KiCad CLI 옵션은 로컬 설치 버전에서 확인하고, 검증되지 않은 동작은 구현 완료로 보고하지 마세요.
+LLM 연동(2b), Agent(Phase 4), PCB 자동 설계, 펌웨어 생성은 시작하지 마세요.
 ```

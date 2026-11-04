@@ -20,7 +20,7 @@
 | Netlist ↔ IR 연결 비교 | ✅ 일치. 회전 0/90/180/270도 검증함 |
 | SVG 미리보기 | ✅ |
 | KiCad **GUI**에서 열기 | ✅ 사용자 PC의 KiCad에서 열림. `.kicad_pro` 프로젝트로 열어야 함([아래](#kicad에서-열기)) |
-| SKiDL/schematizer 비교 실험 | ⏳ 계획만 세움 ([ADR-001](docs/adr/ADR-001-eda-generation-strategy.md)) |
+| SKiDL/schematizer 비교 실험 | ✅ 수행. ERC·결정성 기준 미달로 직접 생성기 채택 ([ADR-001](docs/adr/ADR-001-eda-generation-strategy.md), [실험 기록](experiments/adr001_option_a/README.md)) |
 
 자세한 내용은 [`docs/phase0-report.md`](docs/phase0-report.md)를 보세요.
 

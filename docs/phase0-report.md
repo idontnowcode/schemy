@@ -17,8 +17,8 @@
 
 ## 2. ADR
 
-- [ADR-001](adr/ADR-001-eda-generation-strategy.md): 직접 생성(B)을 잠정 채택. SKiDL 3.0.0 + schematizer 0.2.0(A)의 실제 지원 범위를 소스로 확인했고 실험 계획을 세움.
-- [ADR-002](adr/ADR-002-kicad-version.md): KiCad 10.0.x(파일 형식 20260306)로 고정하자는 제안. 사용자 결정 필요.
+- [ADR-001](adr/ADR-001-eda-generation-strategy.md): 직접 생성(B) **채택**. A안(SKiDL 3.0.0 + schematizer 0.2.0)은 2026-11-04 실험에서 ERC·결정성 기준 미달.
+- [ADR-002](adr/ADR-002-kicad-version.md): KiCad 10.0.x(파일 형식 20260306) **채택**.
 
 ## 3~5. IR 모델, fixture, 생성기
 
@@ -65,7 +65,8 @@ Netlist 비교 단위 테스트(`tests/test_netlist.py`)는 KiCad 10.0.8이 실�
 - kicad-cli 기준으로는 **충족**: 로드, ERC, Netlist 일치, round-trip 모두 통과.
 - **GUI 확인 (2026-11-04, 사용자 PC)**: 회로도가 KiCad에서 열림. 단 `.kicad_sch`를 단독으로 열면 이 파일과 관계없는 라이브러리(`mipi_phy`, `mipi_csi`)를 찾을 수 없다는 경고가 떴고, 프로젝트로 열면 경고가 없었음.
   - 조치: 단독 파일이던 `tests/golden`을 `.kicad_pro`가 포함된 `examples/led-resistor-connector/`로 교체. 생성되는 `.kicad_pro`를 KiCad 10 새 프로젝트 템플릿과 같게 맞춤. README에 프로젝트로 여는 방법을 적음.
-- **남은 확인**: SKiDL/schematizer A안 실험.
+- **A/B 평가 (2026-11-04)**: SKiDL 3.0.0 + schematizer 0.2.0을 같은 IR로 실험. Netlist는 일치했으나 ERC 오류 1건과 비결정적 출력으로 통과 기준 미달 → ADR-001 B안 채택(Accepted). 기록: `experiments/adr001_option_a/`.
+- **판정: Phase 0 완료.**
 
 ## 미해결 위험
 
