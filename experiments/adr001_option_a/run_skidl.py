@@ -5,7 +5,7 @@ Run in a separate virtualenv (SKiDL is not a project dependency):
     uv venv skidl-venv && VIRTUAL_ENV=skidl-venv uv pip install skidl==3.0.0 schematizer==0.2.0
     KICAD10_SYMBOL_DIR=<KiCad>/share/kicad/symbols \
         skidl-venv/bin/python experiments/adr001_option_a/run_skidl.py \
-        tests/fixtures/circuits/led_resistor_connector.json out/ ledA
+        examples/led-resistor-connector/circuit.json out/ ledA
 
 Set AB_SEED=<int> to seed Python's global random module before generation.
 """

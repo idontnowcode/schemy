@@ -147,6 +147,7 @@ def run_export(store: ProjectStore, project_id: str, *, symbol_dirs: list[Path],
             project_id=project_id, source_revision=revision, generated_at=created,
             generator=f"AI Circuit Studio {APP_VERSION}", automated_check=check,
             warnings=[issue_dict(w) for w in generated.warnings], artifacts=artifacts,
+            preview_bbox_mm=list(generated.bbox) if generated.bbox else None,
         )
         atomic_write(staging / MANIFEST, manifest.model_dump_json(indent=2) + "\n")
         _swap(staging, outputs, run_id)

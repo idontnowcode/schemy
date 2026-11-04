@@ -1,7 +1,7 @@
 # 예제: LED + 직렬저항 + 2핀 커넥터
 
 `aics generate`로 만든 KiCad 10 프로젝트입니다. 부품은 J1(커넥터), R1(330Ω), D1(LED) 세 개이고, Net은 VIN, LED_A, GND입니다.
-입력 IR은 [`tests/fixtures/circuits/led_resistor_connector.json`](../../tests/fixtures/circuits/led_resistor_connector.json)입니다.
+입력 IR은 [`circuit.json`](circuit.json)입니다.
 
 ## KiCad에서 열기
 
@@ -23,7 +23,7 @@
 ## 다시 생성하기
 
 ```bash
-uv run aics generate tests/fixtures/circuits/led_resistor_connector.json \
+uv run aics generate examples/led-resistor-connector/circuit.json \
     --out my-led-project --project-name led-resistor-connector \
     --symbol-dir tests/fixtures/kicad_symbols --check
 ```

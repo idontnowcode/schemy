@@ -24,7 +24,7 @@
 
 - `circuit_core/models.py`: `CircuitIR`, `Component`, `Pin`, `Net`, `NetNode`, `Placement`, `Evidence`, `VerificationStatus`.
 - `circuit_core/validation.py`: L0/L1 검사. 결과는 API 오류 계약 형식(`error_code`, `message`, `affected_component_ids`, `recovery_hint`)을 따른다.
-- `tests/fixtures/circuits/led_resistor_connector.json`: J1(Conn_01x02) – R1(330) – D1(LED). Net은 VIN, LED_A, GND.
+- `examples/led-resistor-connector/circuit.json`: J1(Conn_01x02) – R1(330) – D1(LED). Net은 VIN, LED_A, GND.
 - `kicad_adapter/schematic.py`: KiCad 10 `.kicad_sch` 생성기.
 
 **발견한 점**: 기획서 6장 IR 예시는 LED 핀을 `["A","K"]`로 적었지만 KiCad `Device:LED`의 핀 **번호**는 `1`(K), `2`(A)다. 기획서 원칙대로 번호로 저장하도록 했다. 이름을 번호 자리에 넣거나 A/K를 뒤바꾸면 생성을 거부한다(테스트 있음).

@@ -11,6 +11,7 @@ from kicad_adapter import KiCadCli
 from kicad_adapter.symbols import default_symbol_dirs
 
 APP_VERSION = "0.1.0"
+REPO_EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
 
 def default_workspace() -> Path:
@@ -34,3 +35,5 @@ class Settings:
     ui_dir: Path | None = None
     """Built desktop UI (desktop/dist) to serve at ``/``; omitted in API-only mode."""
     kicad_factory: Callable[[], KiCadCli | None] = KiCadCli.detect
+    examples_dir: Path | None = REPO_EXAMPLES
+    """Folders with a circuit.json each, offered as starting points in the UI."""

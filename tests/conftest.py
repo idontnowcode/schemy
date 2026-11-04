@@ -14,7 +14,7 @@ FIXTURES = ROOT / "fixtures"
 EXAMPLE_NAME = "led-resistor-connector"
 EXAMPLE_DIR = ROOT.parent / "examples" / EXAMPLE_NAME
 SYMBOL_DIR = FIXTURES / "kicad_symbols"
-LED_CIRCUIT = FIXTURES / "circuits" / "led_resistor_connector.json"
+LED_CIRCUIT = EXAMPLE_DIR / "circuit.json"
 
 
 @pytest.fixture

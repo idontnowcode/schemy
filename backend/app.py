@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import threading
 from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -57,6 +58,9 @@ def create_app(settings: Settings) -> FastAPI:
             return {"available": True, "version": cli.version(), "runner": cli.describe()}
         except Exception as exc:  # noqa: BLE001 - report, don't crash the status endpoint
             return {"available": False, "version": None, "runner": cli.describe(), "error": str(exc)}
+
+    # Detecting KiCad can take seconds (Docker start-up); warm the cache off the request path.
+    threading.Thread(target=kicad_info, name="kicad-detect", daemon=True).start()
 
     # --- plumbing ---------------------------------------------------------
 
@@ -118,6 +122,20 @@ def create_app(settings: Settings) -> FastAPI:
             "symbol_dirs": [str(d) for d in settings.symbol_dirs],
             "kicad": kicad_info(),
         }
+
+    @app.get("/api/examples")
+    def examples():
+        out = []
+        root = settings.examples_dir
+        if root and root.is_dir():
+            for f in sorted(root.glob("*/circuit.json")):
+                try:
+                    circuit = CircuitIR.model_validate_json(f.read_text(encoding="utf-8"))
+                except (ValidationError, ValueError):
+                    continue
+                out.append({"id": f.parent.name, "title": circuit.title or f.parent.name,
+                            "circuit": circuit.model_dump(mode="json")})
+        return out
 
     @app.get("/api/settings")
     def get_settings():

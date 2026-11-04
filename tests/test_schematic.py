@@ -197,3 +197,12 @@ def test_project_file_is_kicads_new_project_template():
 def test_rejects_unsafe_project_name(led_circuit, library, name):
     with pytest.raises(ValueError, match="project name"):
         generate_schematic(led_circuit, library, project_name=name)
+
+
+def test_bbox_covers_every_pin_and_label(led_circuit, library):
+    generated = generate_schematic(led_circuit, library)
+    x, y, w, h = generated.bbox
+    for a in generated.anchors:
+        assert x < a.x < x + w and y < a.y < y + h
+    # Much smaller than the A4 sheet, so the preview can zoom in.
+    assert w < 80 and h < 80

@@ -107,6 +107,8 @@ class Manifest(_Model):
     generator: str
     automated_check: AutomatedCheck
     warnings: list[dict] = []
+    preview_bbox_mm: list[float] | None = None
+    """Drawing extent (x, y, w, h) used by the UI to crop the SVG preview; files are not modified."""
     artifacts: list[Artifact]
 
 

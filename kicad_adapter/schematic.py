@@ -38,6 +38,7 @@ LABEL_FONT = 1.27
 _UUID_NAMESPACE = uuid.UUID("3b0f6f8e-6a43-4d4e-9a8c-2f6f1d0c5a11")
 _PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 
+_BODY_REACH = 7.62  # generous half-size of a small symbol body around its origin
 _MANDATORY_FIELDS = ("Reference", "Value", "Footprint", "Datasheet", "Description")
 
 # Pin direction (towards body, library frame) -> outward unit vector, sheet frame.
@@ -77,6 +78,8 @@ class GeneratedSchematic:
     anchors: list[PinAnchor]
     warnings: list[Issue] = field(default_factory=list)
     symbol_sources: dict[str, dict[str, str]] = field(default_factory=dict)
+    bbox: tuple[float, float, float, float] | None = None
+    """Approximate drawing extent on the sheet (x, y, width, height in mm), for cropping previews."""
 
     def write(self, out_dir: Path) -> Path:
         """Write ``<project>.kicad_sch`` and ``<project>.kicad_pro`` side by side.
@@ -257,6 +260,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
     wires: list[list] = []
     labels: list[list] = []
     points: dict[tuple[float, float], set[str]] = {}
+    extent: list[tuple[float, float]] = []
     segments: list[tuple[tuple[float, float], tuple[float, float], str]] = []
 
     for comp in circuit.components:
@@ -281,6 +285,8 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                 ["uuid", q(ids("wire", *key))],
             ])
             angle, justify = _LABEL_STYLE[(ox, oy)]
+            text_len = len(net) * LABEL_FONT * 0.9 + 1.0
+            extent.append((ex + ox * text_len, ey + oy * text_len))
             labels.append([
                 "label", q(net),
                 ["at", num(ex), num(ey), num(angle)],
@@ -288,6 +294,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                 ["uuid", q(ids("label", *key))],
             ])
 
+    extent.extend(points)
     collisions = _find_collisions(points, segments)
     if collisions:
         raise SchematicGenerationError(collisions)
@@ -297,6 +304,13 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
     for comp in circuit.components:
         sym, p = symbols[comp.id], placements[comp.id]
         placed.append(_placed_symbol(comp, sym, p, ids, project_name, root_uuid))
+        extent += [(p.x - _BODY_REACH, p.y - _BODY_REACH), (p.x + _BODY_REACH, p.y + _BODY_REACH)]
+        shown = {"Reference": comp.reference, "Value": comp.value}
+        for f in sym.fields:
+            if not f.hidden and not f.name.startswith("ki_"):
+                fx, fy = _to_sheet(p, f.x, f.y)
+                half = max(GRID, len(shown.get(f.name, f.value)) * 0.7)
+                extent += [(fx - half, fy - half), (fx + half, fy + half)]
 
     unique_symbols = {s.lib_id: s for s in symbols.values()}
     lib_symbols = ["lib_symbols"] + [unique_symbols[k].embedded_node() for k in sorted(unique_symbols)]
@@ -335,7 +349,16 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
         anchors=anchors,
         warnings=warnings,
         symbol_sources=dict(sorted(sources.items())),
+        bbox=_bbox(extent, margin=2 * GRID),
     )
+
+
+def _bbox(pts: list[tuple[float, float]], margin: float) -> tuple[float, float, float, float] | None:
+    if not pts:
+        return None
+    xs, ys = [x for x, _ in pts], [y for _, y in pts]
+    x0, y0 = min(xs) - margin, min(ys) - margin
+    return (round(x0, 2), round(y0, 2), round(max(xs) + margin - x0, 2), round(max(ys) + margin - y0, 2))
 
 
 def _uuid_of(node: list) -> str:

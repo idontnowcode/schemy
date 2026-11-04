@@ -2,6 +2,8 @@
 
 import json
 
+from circuit_core import CircuitIR
+
 from .backend_helpers import TOKEN, led_ir, make_client, new_project, save_ir
 
 
@@ -125,3 +127,10 @@ def test_system_reports_environment(tmp_path):
     assert info["kicad"] == {"available": False, "version": None, "runner": None}
     assert info["workspace"] == str(tmp_path)
     assert len(info["symbol_dirs"]) == 1
+
+
+def test_examples_are_offered(tmp_path):
+    examples = make_client(tmp_path).get("/api/examples").json()
+    led = next(e for e in examples if e["id"] == "led-resistor-connector")
+    assert led["title"].startswith("LED + series resistor")
+    assert CircuitIR.model_validate(led["circuit"]) == CircuitIR.model_validate(led_ir())

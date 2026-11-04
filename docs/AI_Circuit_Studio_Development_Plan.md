@@ -275,13 +275,14 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - Gate: Golden test 회로가 열리고 의도한 Netlist와 일치.
 - 결과: `docs/phase0-report.md`, ADR-001, ADR-002.
 
-### Phase 1 — Core MVP (2~4주 목표)
+### Phase 1 — Core MVP (완료: 2026-11-04)
 - 프로젝트 CRUD(생성/목록/열기/이름 변경/휴지통 삭제), SQLite 인덱스, 마지막 작업 상태 복원.
 - 요구사항 텍스트 편집·저장(필드형 사양은 Phase 2에서 AI 구조화 스키마와 함께).
 - Circuit IR 가져오기·편집·검증·저장, 저장마다 revision, revision 복원.
 - Markdown/JSON/BOM exporter(결정적).
 - EDA Adapter job(생성 + ERC + Netlist 비교 + SVG), validation UI, 생성 파일 경로 관리(manifest, stale·외부 수정 감지).
 - Gate: 앱 재시작 후 프로젝트 복원, 동일 입력에서 동일 연결 구조 출력.
+- 결과: `docs/phase1-report.md`, ADR-003.
 
 ### Phase 2 — Change Workflow → AI Workflow (3~5주 목표)
 - **2a (LLM 없음, v1.2 추가):** patch 연산, diff, proposal, 승인/거부, revision, 격리 작업공간, 재생성·재검증, 작업 기록. 수직 슬라이스: LED 회로 저항값 330→1k patch → diff → 승인 → 생성 → ERC → Netlist 비교.
@@ -365,15 +366,15 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 ```
 
 ## 17. MVP 인수 기준
-- [ ] 프로젝트 생성·저장·재열기 (Phase 1)
+- [x] 프로젝트 생성·저장·재열기 (Phase 1)
 - [ ] 요구사항 구조화 스키마 검증 (Phase 2b)
 - [ ] AI 설계안 승인/거부 (Phase 2)
-- [ ] JSON/Markdown 내보내기 (Phase 1)
+- [x] JSON/Markdown 내보내기 (Phase 1)
 - [x] LED 회로 .kicad_sch 생성 및 KiCad 열기 (Phase 0)
 - [x] 추출 Netlist와 IR 연결 구조 일치 (Phase 0)
-- [ ] ERC 결과 및 경고 표시 — UI 표시 (Phase 1)
-- [ ] 승인된 변경의 revision 기록/복원 (Phase 1 이력 + Phase 2 승인)
-- [ ] 오류·미검증 항목 명시 (Phase 1)
+- [x] ERC 결과 및 경고 표시 — UI 표시 (Phase 1)
+- [ ] 승인된 변경의 revision 기록/복원 (Phase 1 이력·복원 완료, Phase 2 승인 남음)
+- [x] 오류·미검증 항목 명시 (Phase 1)
 
 ## 18. 결정 사항
 | 항목 | 상태 |

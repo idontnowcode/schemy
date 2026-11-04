@@ -47,6 +47,10 @@ def main(argv: list[str] | None = None) -> int:
     app = create_app(settings)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if os.name != "nt":
+        # Allow an immediate restart on the same port (TIME_WAIT). On Windows this option
+        # would let another process share the port, so it is left off there.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("127.0.0.1", args.port))
     sock.listen(128)  # accept connections into the backlog before uvicorn starts serving
     port = sock.getsockname()[1]

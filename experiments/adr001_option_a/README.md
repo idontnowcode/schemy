@@ -1,7 +1,7 @@
 # ADR-001 A안 실험: SKiDL 3.0.0 + schematizer 0.2.0
 
 - 날짜: 2026-11-04
-- 입력: `tests/fixtures/circuits/led_resistor_connector.json` (B안과 같은 IR)
+- 입력: `examples/led-resistor-connector/circuit.json` (B안과 같은 IR)
 - 도구: skidl 3.0.0, schematizer 0.2.0, simp_sexp 0.3.2 (격리 venv, Python 3.13)
 - 심볼: KiCad 10.0.8 공식 라이브러리 (`KICAD10_SYMBOL_DIR`)
 - 검사: kicad-cli 10.0.8 (Docker `kicad/kicad:10.0.8`), Netlist 비교는 `kicad_adapter.compare_with_ir`
@@ -29,6 +29,6 @@ ADR-001의 통과 기준(Netlist 일치, ERC 오류 0, 결정적 생성) 중 **E
 uv venv skidl-venv --python 3.13
 VIRTUAL_ENV=skidl-venv uv pip install skidl==3.0.0 schematizer==0.2.0
 KICAD10_SYMBOL_DIR=<KiCad 10 symbols> skidl-venv/bin/python experiments/adr001_option_a/run_skidl.py \
-    tests/fixtures/circuits/led_resistor_connector.json out ledA
+    examples/led-resistor-connector/circuit.json out ledA
 # 이후 kicad-cli sch erc / sch export netlist / sch upgrade --force 로 검사
 ```

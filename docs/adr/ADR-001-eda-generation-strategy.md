@@ -54,7 +54,7 @@
 ## A안 실험 (2026-11-04 수행)
 
 1. 격리된 venv에 `skidl==3.0.0`, `schematizer==0.2.0`을 설치하고 KiCad 10.0.8 라이브러리 경로를 지정한다.
-2. `tests/fixtures/circuits/led_resistor_connector.json`을 SKiDL 코드로 옮기는 얇은 변환기를 만든다(IR → SKiDL Part/Net).
+2. `examples/led-resistor-connector/circuit.json`을 SKiDL 코드로 옮기는 얇은 변환기를 만든다(IR → SKiDL Part/Net).
 3. `generate_schematic(tool=KICAD10)`로 회로도를 만든다.
 4. B와 같은 검사를 돌린다: `kicad-cli sch erc`, `sch export netlist` 결과를 `compare_with_ir`로 비교, `sch upgrade --force` round-trip.
 5. 같은 입력으로 두 번 생성해 결정성(바이트 동일 여부)을 확인한다.
