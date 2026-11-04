@@ -167,6 +167,9 @@ AI-Circuit-Studio/
 - **(v1.2) 작업 기록 저장:** 각 실행 폴더의 JSONL 파일이 원본이고 SQLite는 검색용 인덱스다. API 키·토큰 등 민감 정보는 기록 전에 마스킹한다.
 
 ## 8. API 계약 초안
+
+모든 경로는 `/api` 아래에 있다(예: `/api/projects`). 구현된 계약은 실행 중인 백엔드의 `/api/docs`(OpenAPI)에서 확인한다.
+
 - `POST /projects` : 프로젝트 생성
 - `GET /projects` : 프로젝트 목록
 - `GET /projects/{id}` : 프로젝트 메타데이터
@@ -178,9 +181,13 @@ AI-Circuit-Studio/
 - `POST /projects/{id}/circuit/validate` : 저장 없이 L0/L1(+라이브러리) 검사
 - `GET /projects/{id}/revisions` : 변경 이력
 - `POST /projects/{id}/revisions/{revision_id}/restore` : 확인 후 복원(새 revision으로 기록)
-- `POST /projects/{id}/exports/kicad` : KiCad 프로젝트 생성 + ERC/Netlist/SVG (job)
-- `POST /projects/{id}/exports/documents` : Markdown/JSON/BOM 생성
-- `GET /projects/{id}/outputs` : manifest와 상태(stale, 외부 수정)
+- `POST /projects/{id}/exports` : 현재 revision의 모든 산출물 생성(KiCad 프로젝트 + ERC/Netlist/SVG + Markdown/JSON/BOM). job으로 실행. 외부 수정이 있으면 `force` 없이는 409
+- `GET /projects/{id}/documents/markdown`, `GET /projects/{id}/documents/bom` : 현재 IR에서 계산한 문서 미리보기(파일 생성 없음)
+- `GET /projects/{id}/outputs` : manifest와 상태(stale, 외부 수정, 누락)
+- `GET /projects/{id}/outputs/files/{name}` : manifest에 정의된 산출물 파일
+- `GET /projects/{id}/jobs` : 작업 이력
+- `POST /projects/{id}/open`, `GET|PUT /settings` : 마지막 작업 상태 저장·복원
+- `GET /system` : 앱 버전, 워크스페이스, KiCad·심볼 라이브러리 상태
 - `GET /jobs/{job_id}` : 오래 걸리는 작업 상태
 - `POST /projects/{id}/proposals` : AI 설계 제안 (적용하지 않음, Phase 2)
 - `POST /projects/{id}/proposals/{proposal_id}/approve|reject` : **유일한 승인 경로** (Phase 2)

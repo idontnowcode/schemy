@@ -8,7 +8,9 @@ from .schematic import (
     SCHEMATIC_FILE_VERSION,
     GeneratedSchematic,
     SchematicGenerationError,
+    check_against_library,
     generate_schematic,
+    project_file,
 )
 from .symbols import LibPin, LibSymbol, SymbolLibrary, SymbolLibraryError
 
@@ -28,9 +30,11 @@ __all__ = [
     "SchematicGenerationError",
     "SymbolLibrary",
     "SymbolLibraryError",
+    "check_against_library",
     "compare_with_ir",
     "generate_schematic",
     "parse_erc_report",
     "parse_kicad_netlist",
+    "project_file",
     "run_checks",
 ]

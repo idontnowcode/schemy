@@ -165,7 +165,8 @@ def _auto_placement(index: int) -> Placement:
     return Placement(x=50.8 + (index % 6) * 30.48, y=63.5 + (index // 6) * 30.48, rotation=0)
 
 
-def _check_against_library(circuit: CircuitIR, library: SymbolLibrary) -> tuple[dict[str, LibSymbol], list[Issue]]:
+def check_against_library(circuit: CircuitIR, library: SymbolLibrary) -> tuple[dict[str, LibSymbol], list[Issue]]:
+    """Compare every component's declared pins with its KiCad symbol (L1, library level)."""
     E, W = Severity.ERROR, Severity.WARNING
     issues: list[Issue] = []
     symbols: dict[str, LibSymbol] = {}
@@ -231,7 +232,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
     if not _PROJECT_NAME.fullmatch(project_name):
         raise ValueError(f"project name {project_name!r} must match {_PROJECT_NAME.pattern}")
     validation = validate_circuit(circuit)
-    symbols, lib_issues = _check_against_library(circuit, library)
+    symbols, lib_issues = check_against_library(circuit, library)
     issues = validation.issues + lib_issues
     errors = [i for i in issues if i.severity is Severity.ERROR]
     if errors:

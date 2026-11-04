@@ -1,0 +1,36 @@
+"""Backend settings. Everything that differs between machines is configured here."""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from kicad_adapter import KiCadCli
+from kicad_adapter.symbols import default_symbol_dirs
+
+APP_VERSION = "0.1.0"
+
+
+def default_workspace() -> Path:
+    if env := os.environ.get("AICS_WORKSPACE"):
+        return Path(env)
+    return Path.home() / "Documents" / "AI Circuit Studio"
+
+
+def _symbol_dirs_from_env() -> list[Path]:
+    if env := os.environ.get("AICS_SYMBOL_DIRS"):
+        return [Path(p) for p in env.split(os.pathsep) if p]
+    return [d for d in default_symbol_dirs() if d.is_dir()]
+
+
+@dataclass
+class Settings:
+    workspace: Path = field(default_factory=default_workspace)
+    token: str | None = None
+    """When set, every /api request must send ``Authorization: Bearer <token>``."""
+    symbol_dirs: list[Path] = field(default_factory=_symbol_dirs_from_env)
+    ui_dir: Path | None = None
+    """Built desktop UI (desktop/dist) to serve at ``/``; omitted in API-only mode."""
+    kicad_factory: Callable[[], KiCadCli | None] = KiCadCli.detect
