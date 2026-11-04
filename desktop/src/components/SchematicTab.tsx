@@ -3,12 +3,13 @@ import { useEffect, useState } from "react";
 import { api, ApiError, errorText, outputText, waitForJob } from "../api";
 import { desktop } from "../desktop";
 import { automatedLabel, cropSvg, formatTime, shortHash } from "../format";
-import type { ApiErrorBody, Issue, Job, OutputsStatus, SystemInfo } from "../types";
+import type { ApiErrorBody, BoardSummary, Issue, Job, OutputsStatus, SystemInfo } from "../types";
 import { Chip } from "./Chip";
 import { IssueList } from "./IssueList";
 
 interface Props {
   projectId: string;
+  board: BoardSummary;
   revision: number | null;
   outputs: OutputsStatus | null;
   system: SystemInfo | null;
@@ -21,27 +22,29 @@ const ZOOMS = [
   { id: "2", label: "200%" },
 ] as const;
 
-export function SchematicTab({ projectId, revision, outputs, system, onChanged }: Props) {
+export function SchematicTab({ projectId, board, revision, outputs, system, onChanged }: Props) {
   const [job, setJob] = useState<Job | null>(null);
   const [failure, setFailure] = useState<ApiErrorBody | string | null>(null);
   const [svgUrl, setSvgUrl] = useState<string | null>(null);
   const [zoom, setZoom] = useState<(typeof ZOOMS)[number]["id"]>("fit");
+  const [pageIndex, setPageIndex] = useState(0);
 
   const manifest = outputs?.manifest ?? null;
-  const hasSvg = manifest?.artifacts.some((a) => a.path === "schematic.svg") ?? false;
+  const pages = manifest?.pages ?? [];
+  const page = pages[Math.min(pageIndex, Math.max(pages.length - 1, 0))] ?? null;
   const running = job !== null && (job.status === "queued" || job.status === "running");
 
   useEffect(() => {
-    if (!hasSvg || !manifest) {
+    if (!page?.svg || !manifest) {
       setSvgUrl(null);
       return;
     }
     let url: string | null = null;
     let cancelled = false;
     // Rendered through <img> from a blob URL, so nothing inside the SVG can run.
-    outputText(projectId, "schematic.svg")
+    outputText(projectId, board.id, page.svg)
       .then((text) => {
-        url = URL.createObjectURL(new Blob([cropSvg(text, manifest.preview_bbox_mm)], { type: "image/svg+xml" }));
+        url = URL.createObjectURL(new Blob([cropSvg(text, page.bbox_mm)], { type: "image/svg+xml" }));
         if (!cancelled) setSvgUrl(url);
       })
       .catch(() => setSvgUrl(null));
@@ -49,13 +52,13 @@ export function SchematicTab({ projectId, revision, outputs, system, onChanged }
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [projectId, hasSvg, manifest?.generated_at]);
+  }, [projectId, board.id, page?.svg, page?.bbox_mm, manifest]);
 
   const generate = async (force = false) => {
     setFailure(null);
     let started: Job;
     try {
-      started = await api.exportProject(projectId, force);
+      started = await api.exportBoard(projectId, board.id, force);
     } catch (e) {
       if (e instanceof ApiError && e.body.error_code === "EXTERNAL_MODIFICATION") {
         const files = ((e.body.details as { paths?: string[] })?.paths ?? []).join(", ");
@@ -181,7 +184,7 @@ export function SchematicTab({ projectId, revision, outputs, system, onChanged }
                 <button className="ghost" onClick={() => desktop?.openPath(outputs.path)}>
                   폴더 열기
                 </button>
-                <button className="ghost" onClick={() => desktop?.openPath(`${outputs.path}/schematic.kicad_pro`)}>
+                <button className="ghost" onClick={() => desktop?.openPath(`${outputs.path}/${manifest.kicad_project}.kicad_pro`)}>
                   KiCad에서 열기
                 </button>
               </div>
@@ -206,7 +209,7 @@ export function SchematicTab({ projectId, revision, outputs, system, onChanged }
                 ))}
               </tbody>
             </table>
-            <p className="muted small">KiCad에서는 .kicad_sch가 아니라 schematic.kicad_pro를 여세요.</p>
+            <p className="muted small">KiCad에서는 .kicad_sch가 아니라 {manifest.kicad_project}.kicad_pro를 여세요.</p>
           </div>
         )}
       </div>
@@ -214,6 +217,15 @@ export function SchematicTab({ projectId, revision, outputs, system, onChanged }
       <div className="panel preview">
         <div className="toolbar">
           <strong>미리보기</strong>
+          {pages.length > 1 && (
+            <select aria-label="페이지 선택" value={pageIndex} onChange={(e) => setPageIndex(Number(e.target.value))}>
+              {pages.map((p, i) => (
+                <option key={p.sheet_id} value={i}>
+                  {p.number}/{pages.length} · {p.name} ({p.paper})
+                </option>
+              ))}
+            </select>
+          )}
           {ZOOMS.map((z) => (
             <button key={z.id} className={`ghost ${zoom === z.id ? "active" : ""}`} onClick={() => setZoom(z.id)}>
               {z.label}
@@ -226,7 +238,7 @@ export function SchematicTab({ projectId, revision, outputs, system, onChanged }
               src={svgUrl}
               alt="생성된 회로도 미리보기"
               className={`preview-img ${zoom === "fit" ? "fit" : ""}`}
-              style={zoom === "fit" ? undefined : { width: `${Number(zoom) * (manifest?.preview_bbox_mm?.[2] ?? 297)}mm` }}
+              style={zoom === "fit" ? undefined : { width: `${Number(zoom) * (page?.bbox_mm?.[2] ?? 297)}mm` }}
             />
           ) : (
             <div className="empty small">

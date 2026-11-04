@@ -7,10 +7,11 @@ import type { BomTable } from "../types";
 
 interface Props {
   projectId: string;
+  boardId: string;
   revision: number | null;
 }
 
-export function DocumentsTab({ projectId, revision }: Props) {
+export function DocumentsTab({ projectId, boardId, revision }: Props) {
   const [html, setHtml] = useState<string>("");
   const [bom, setBom] = useState<BomTable | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -23,13 +24,13 @@ export function DocumentsTab({ projectId, revision }: Props) {
       return;
     }
     setMessage(null);
-    Promise.all([api.markdown(projectId), api.bom(projectId)])
+    Promise.all([api.markdown(projectId, boardId), api.bom(projectId, boardId)])
       .then(([md, table]) => {
         setHtml(DOMPurify.sanitize(marked.parse(md.markdown, { async: false }) as string));
         setBom(table);
       })
       .catch((e) => setMessage(e instanceof ApiError ? errorText(e) : String(e)));
-  }, [projectId, revision]);
+  }, [projectId, boardId, revision]);
 
   return (
     <div className="documents-layout">

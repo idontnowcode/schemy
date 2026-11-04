@@ -7,24 +7,27 @@ import { Chip } from "./Chip";
 
 interface Props {
   projectId: string;
+  boardId: string;
   revision: number | null;
   onRestored(): Promise<unknown>;
 }
 
-export function HistoryTab({ projectId, revision, onRestored }: Props) {
+const KIND_LABEL: Record<string, string> = { export: "회로도 생성", pdf_import: "PDF 가져오기 (AI)", inventory_suggest: "자재 추천 (AI)" };
+
+export function HistoryTab({ projectId, boardId, revision, onRestored }: Props) {
   const [revisions, setRevisions] = useState<RevisionInfo[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [r, j] = await Promise.all([api.revisions(projectId), api.jobs(projectId)]);
+      const [r, j] = await Promise.all([api.revisions(projectId, boardId), api.jobs(projectId, boardId)]);
       setRevisions(r);
       setJobs(j);
     } catch (e) {
       setMessage(errorText(e));
     }
-  }, [projectId]);
+  }, [projectId, boardId]);
 
   useEffect(() => {
     void load();
@@ -33,7 +36,7 @@ export function HistoryTab({ projectId, revision, onRestored }: Props) {
   const restore = async (rev: number) => {
     if (!window.confirm(`revision ${rev}의 회로를 현재 회로로 되돌릴까요?\n새 revision으로 기록되며 기존 이력은 지워지지 않습니다.`)) return;
     try {
-      const r = await api.restoreRevision(projectId, rev);
+      const r = await api.restoreRevision(projectId, boardId, rev);
       setMessage(r.created ? `revision ${r.revision.revision}으로 복원했습니다.` : "이미 현재 회로와 같습니다.");
       await onRestored();
       await load();
@@ -72,6 +75,7 @@ export function HistoryTab({ projectId, revision, onRestored }: Props) {
                   <td>
                     {sourceLabel(r.source)}
                     {r.restored_from ? ` (rev ${r.restored_from})` : ""}
+                    {r.note && <div className="muted small">{r.note}</div>}
                   </td>
                   <td>
                     {r.component_count} / {r.net_count}
@@ -102,6 +106,7 @@ export function HistoryTab({ projectId, revision, onRestored }: Props) {
             <thead>
               <tr>
                 <th>시작</th>
+                <th>작업</th>
                 <th>상태</th>
                 <th>결과</th>
               </tr>
@@ -113,12 +118,15 @@ export function HistoryTab({ projectId, revision, onRestored }: Props) {
                 return (
                   <tr key={j.id}>
                     <td>{formatTime(j.created_at)}</td>
+                    <td>{KIND_LABEL[j.kind] ?? j.kind}</td>
                     <td>{{ queued: "대기", running: "실행 중", succeeded: "완료", failed: "실패" }[j.status]}</td>
                     <td>
                       {j.error ? (
                         <span className="bad-text">
                           [{j.error.error_code}] {j.error.message}
                         </span>
+                      ) : j.kind !== "export" ? (
+                        "완료"
                       ) : check ? (
                         <>
                           rev {j.result?.source_revision} · <Chip text={label.text} tone={label.tone} />

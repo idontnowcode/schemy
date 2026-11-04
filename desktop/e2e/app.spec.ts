@@ -42,7 +42,7 @@ test("create → import example → save → generate → documents, then restor
   } else {
     await expect(page.locator(".card").getByText("Not checked")).toBeVisible({ timeout: 60_000 });
   }
-  await expect(page.getByRole("cell", { name: "schematic.kicad_pro" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "led-demo-a.kicad_pro" })).toBeVisible();
 
   // Documents: BOM and Markdown come from the saved IR.
   await page.getByRole("tab", { name: "문서 · BOM" }).click();
@@ -55,7 +55,7 @@ test("create → import example → save → generate → documents, then restor
   await page.goto(backend.url);
   await expect(page.getByRole("heading", { name: "LED Demo" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "문서 · BOM" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByText("led-demo · revision 1")).toBeVisible();
+  await expect(page.getByText("revision 1 · led-demo-a")).toBeVisible();
   await expect(page.getByRole("cell", { name: "Resistor_SMD:R_0603_1608Metric" }).first()).toBeVisible();
 });
 

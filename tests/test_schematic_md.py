@@ -158,3 +158,10 @@ def test_pages_become_sheets_and_uncertain_items_need_review():
     assert result.uncertain[0]["내용"] == "R2 값 흐림"
     assert result.circuit.validation.status.value == "needs_review"
     assert "불확실 항목 1개" in result.circuit.validation.notes
+
+
+def test_chip_footprints_are_inferred_for_passives(library):
+    result = import_schematic_markdown(EXAMPLE_MD, lookup_from(library))
+    fp = {c.reference: c.footprint_id for c in result.circuit.components}
+    assert fp == {"J1": None, "R1": "Resistor_SMD:R_0603_1608Metric", "D1": "LED_SMD:LED_0603_1608Metric"}
+    assert codes(result, "info").count("FOOTPRINT_INFERRED") == 2

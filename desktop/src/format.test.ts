@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { automatedLabel, cropSvg, outputsLabel, parseJson, reviewLabel, toErrorBody } from "./format";
-import type { OutputsStatus } from "./types";
+import {
+  addPage,
+  automatedLabel,
+  cropSvg,
+  matchLabel,
+  moveToPage,
+  outputsLabel,
+  pagesOf,
+  parseJson,
+  removePage,
+  renamePage,
+  reviewLabel,
+  sourceLabel,
+  toErrorBody,
+} from "./format";
+import type { CircuitIR, OutputsStatus } from "./types";
 
 function outputs(partial: Partial<OutputsStatus>, status: "passed" | "failed" | "not_checked" = "passed"): OutputsStatus {
   return {
@@ -21,7 +35,9 @@ function outputs(partial: Partial<OutputsStatus>, status: "passed" | "failed" | 
         netlist_diff: null,
       },
       warnings: [],
-      preview_bbox_mm: null,
+      board_id: "a",
+      kicad_project: "p-a",
+      pages: [],
       artifacts: [],
     },
     stale: false,
@@ -89,5 +105,41 @@ describe("cropSvg", () => {
   it("leaves the SVG alone without a usable box", () => {
     expect(cropSvg(svg, null)).toBe(svg);
     expect(cropSvg(svg, [0, 0, 0, 10])).toBe(svg);
+  });
+});
+
+describe("inventory and revision labels", () => {
+  it("names every state", () => {
+    expect(matchLabel("matched", false)).toEqual({ text: "보유", tone: "ok" });
+    expect(matchLabel("matched", true).text).toBe("보유 · 재고 부족");
+    expect(matchLabel("candidate", null).text).toBe("대체 가능");
+    expect(matchLabel("missing", null).tone).toBe("bad");
+    expect(sourceLabel("inventory")).toBe("보유 자재 적용");
+  });
+});
+
+describe("page helpers", () => {
+  const ir: CircuitIR = {
+    schema_version: "0.2.0",
+    project_id: "p",
+    components: ["a", "b", "c"].map((id) => ({ id, reference: id.toUpperCase() + "1", value: "1k", symbol_id: "Device:R", pins: [] })),
+    nets: [{ id: "n", name: "N", nodes: [{ component_id: "a", pin: "1" }] }],
+  };
+
+  it("starts with one implicit page", () => {
+    expect(pagesOf(ir)).toEqual([{ id: "p1", name: "Page 1", components: ["a", "b", "c"] }]);
+  });
+
+  it("adds, moves, renames and removes pages without touching nets", () => {
+    let next = addPage(ir);
+    expect(next.sheets!.map((s) => s.id)).toEqual(["p1", "p2"]);
+    next = moveToPage(next, "c", "p2");
+    expect(pagesOf(next).map((p) => p.components)).toEqual([["a", "b"], ["c"]]);
+    next = renamePage(next, "p2", "LED");
+    expect(next.sheets![1].name).toBe("LED");
+    expect(next.nets).toBe(ir.nets);
+    next = removePage(next, "p2");
+    expect(next.sheets).toEqual([]);
+    expect(pagesOf(next)[0].components).toEqual(["a", "b", "c"]);
   });
 });

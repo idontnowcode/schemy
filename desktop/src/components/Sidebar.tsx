@@ -3,18 +3,22 @@ import { useState } from "react";
 import { formatTime } from "../format";
 import type { ProjectSummary, SystemInfo } from "../types";
 
+export type View = "projects" | "inventory" | "settings";
+
 interface Props {
   projects: ProjectSummary[];
   selected: string | null;
   system: SystemInfo | null;
   /** False until the initial project list has loaded, so a new project cannot be overwritten by it. */
   ready: boolean;
+  view: View;
+  onView(view: View): void;
   onSelect(id: string): void;
   onCreate(name: string): void;
   onDelete(project: ProjectSummary): void;
 }
 
-export function Sidebar({ projects, selected, system, ready, onSelect, onCreate, onDelete }: Props) {
+export function Sidebar({ projects, selected, system, ready, view, onView, onSelect, onCreate, onDelete }: Props) {
   const [name, setName] = useState("");
 
   const submit = (e: React.FormEvent) => {
@@ -54,7 +58,7 @@ export function Sidebar({ projects, selected, system, ready, onSelect, onCreate,
             <button className="project-open" onClick={() => onSelect(p.id)} title={p.path}>
               <span className="project-name">{p.name}</span>
               <span className="project-meta">
-                {p.current_revision ? `rev ${p.current_revision}` : "회로 없음"} · {formatTime(p.updated_at)}
+                보드 {p.board_list.length}개 · {formatTime(p.updated_at)}
               </span>
             </button>
             <button className="icon" aria-label={`${p.name} 삭제`} title="삭제 (휴지통으로 이동)" onClick={() => onDelete(p)}>
@@ -62,6 +66,15 @@ export function Sidebar({ projects, selected, system, ready, onSelect, onCreate,
             </button>
           </div>
         ))}
+      </nav>
+
+      <nav className="side-nav" aria-label="도구">
+        <button className={`side-link ${view === "inventory" ? "active" : ""}`} onClick={() => onView("inventory")}>
+          보유 자재
+        </button>
+        <button className={`side-link ${view === "settings" ? "active" : ""}`} onClick={() => onView("settings")}>
+          설정
+        </button>
       </nav>
 
       <footer className="sidebar-footer small">

@@ -1,12 +1,19 @@
 import { desktop } from "./desktop";
 import { toErrorBody } from "./format";
 import type {
+  AiStatus,
   ApiErrorBody,
   AppSettings,
+  BoardSummary,
   BomTable,
   CircuitIR,
   Example,
+  InventoryApplyResult,
+  InventoryImportResult,
+  InventoryInfo,
+  InventoryMatch,
   Job,
+  MarkdownImportResult,
   OutputsStatus,
   ProjectSummary,
   RevisionInfo,
@@ -50,6 +57,18 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 const enc = encodeURIComponent;
+const board = (p: string, b: string) => `/projects/${enc(p)}/boards/${enc(b)}`;
+
+/** Read a File as base64 (for uploads sent inside JSON). */
+export async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
 
 export const api = {
   system: () => request<SystemInfo>("GET", "/system"),
@@ -68,24 +87,58 @@ export const api = {
   saveRequirements: (id: string, text: string) =>
     request<{ text: string }>("PUT", `/projects/${enc(id)}/requirements`, { text }),
 
-  circuit: (id: string) =>
-    request<{ circuit: CircuitIR | null; revision: number | null }>("GET", `/projects/${enc(id)}/circuit`),
-  validateCircuit: (id: string, ir: unknown) =>
-    request<ValidationReport>("POST", `/projects/${enc(id)}/circuit/validate`, ir),
-  saveCircuit: (id: string, ir: unknown, source: "user_edit" | "import") =>
-    request<SaveCircuitResult>("PUT", `/projects/${enc(id)}/circuit?source=${source}`, ir),
+  createBoard: (p: string, name: string) => request<BoardSummary>("POST", `/projects/${enc(p)}/boards`, { name }),
+  renameBoard: (p: string, b: string, name: string) => request<BoardSummary>("PATCH", board(p, b), { name }),
+  deleteBoard: (p: string, b: string) => request<{ moved_to: string }>("DELETE", board(p, b)),
 
-  revisions: (id: string) => request<RevisionInfo[]>("GET", `/projects/${enc(id)}/revisions`),
-  restoreRevision: (id: string, rev: number) =>
-    request<{ revision: RevisionInfo; created: boolean }>("POST", `/projects/${enc(id)}/revisions/${rev}/restore`),
+  circuit: (p: string, b: string) =>
+    request<{ circuit: CircuitIR | null; revision: number | null }>("GET", `${board(p, b)}/circuit`),
+  validateCircuit: (p: string, b: string, ir: unknown) =>
+    request<ValidationReport>("POST", `${board(p, b)}/circuit/validate`, ir),
+  saveCircuit: (p: string, b: string, ir: unknown, source: "user_edit" | "import") =>
+    request<SaveCircuitResult>("PUT", `${board(p, b)}/circuit?source=${source}`, ir),
 
-  markdown: (id: string) => request<{ revision: number; markdown: string }>("GET", `/projects/${enc(id)}/documents/markdown`),
-  bom: (id: string) => request<BomTable>("GET", `/projects/${enc(id)}/documents/bom`),
+  revisions: (p: string, b: string) => request<RevisionInfo[]>("GET", `${board(p, b)}/revisions`),
+  restoreRevision: (p: string, b: string, rev: number) =>
+    request<{ revision: RevisionInfo; created: boolean }>("POST", `${board(p, b)}/revisions/${rev}/restore`),
 
-  exportProject: (id: string, force = false) => request<Job>("POST", `/projects/${enc(id)}/exports`, { force }),
-  outputs: (id: string) => request<OutputsStatus>("GET", `/projects/${enc(id)}/outputs`),
-  jobs: (id: string) => request<Job[]>("GET", `/projects/${enc(id)}/jobs`),
+  markdown: (p: string, b: string) => request<{ revision: number; markdown: string }>("GET", `${board(p, b)}/documents/markdown`),
+  bom: (p: string, b: string) => request<BomTable>("GET", `${board(p, b)}/documents/bom`),
+
+  exportBoard: (p: string, b: string, force = false) => request<Job>("POST", `${board(p, b)}/exports`, { force }),
+  outputs: (p: string, b: string) => request<OutputsStatus>("GET", `${board(p, b)}/outputs`),
+  jobs: (p: string, b: string) => request<Job[]>("GET", `${board(p, b)}/jobs`),
   job: (jobId: string) => request<Job>("GET", `/jobs/${enc(jobId)}`),
+
+  importMarkdown: (p: string, b: string, filename: string, text: string) =>
+    request<MarkdownImportResult>("POST", `${board(p, b)}/imports/markdown`, { filename, text }),
+  importPdf: (p: string, b: string, filename: string, content_base64: string) =>
+    request<Job>("POST", `${board(p, b)}/imports/pdf`, { filename, content_base64 }),
+
+  inventory: () => request<InventoryInfo>("GET", "/inventory"),
+  importInventory: (filename: string, content_base64: string, save: boolean) =>
+    request<InventoryImportResult>("POST", "/inventory/import", { filename, content_base64, save }),
+  deleteInventory: () => request<{ deleted: boolean }>("DELETE", "/inventory"),
+  inventoryMatch: (p: string, b: string, boards = 1) =>
+    request<InventoryMatch>("GET", `${board(p, b)}/inventory-match?boards=${boards}`),
+  inventoryApply: (p: string, b: string, applyMatched: boolean, choices: Record<string, string>) =>
+    request<InventoryApplyResult>("POST", `${board(p, b)}/inventory-apply`, { apply_matched: applyMatched, choices }),
+  suggestPreview: (p: string, b: string) =>
+    request<{ provider: string; model: string; line_count: number; candidate_count: number }>(
+      "GET",
+      `${board(p, b)}/inventory-suggest/preview`,
+    ),
+  suggest: (p: string, b: string) => request<Job>("POST", `${board(p, b)}/inventory-suggest`),
+
+  aiStatus: () => request<AiStatus>("GET", "/ai/settings"),
+  saveAiSettings: (s: Partial<{ enabled: boolean; model: string }>) => request<AiStatus>("PUT", "/ai/settings", s),
+  saveAiKey: (apiKey: string) => request<{ key: AiStatus["key"] }>("PUT", "/ai/key", { api_key: apiKey }),
+  deleteAiKey: () => request<{ key: AiStatus["key"] }>("DELETE", "/ai/key"),
+  aiModels: () =>
+    request<{ models: { name: string; display_name: string | null; output_token_limit: number | null }[]; current: string }>(
+      "GET",
+      "/ai/models",
+    ),
 };
 
 /** Poll a job until it finishes. */
@@ -98,9 +151,9 @@ export async function waitForJob(jobId: string, onUpdate?: (job: Job) => void, i
   }
 }
 
-/** Fetch a text output file (e.g. the SVG preview) with the API token. */
-export async function outputText(projectId: string, name: string): Promise<string> {
-  const res = await fetch(`/api/projects/${enc(projectId)}/outputs/files/${enc(name)}`, { headers: authHeaders() });
+/** Fetch a text output file (e.g. an SVG page) with the API token. */
+export async function outputText(projectId: string, boardId: string, name: string): Promise<string> {
+  const res = await fetch(`/api${board(projectId, boardId)}/outputs/files/${enc(name)}`, { headers: authHeaders() });
   if (!res.ok) throw new ApiError(res.status, toErrorBody(await res.text(), res.status));
   return res.text();
 }

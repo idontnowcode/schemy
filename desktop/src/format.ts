@@ -1,6 +1,15 @@
 // Pure helpers (unit-tested in format.test.ts).
 
-import type { ApiErrorBody, AutomatedStatus, OutputsStatus, RevisionInfo, VerificationStatus } from "./types";
+import type {
+  ApiErrorBody,
+  AutomatedStatus,
+  CircuitIR as IR,
+  MatchStatus,
+  OutputsStatus,
+  RevisionInfo,
+  Sheet as IRSheet,
+  VerificationStatus,
+} from "./types";
 
 export type Tone = "ok" | "bad" | "warn" | "muted" | "info";
 
@@ -42,7 +51,14 @@ export function outputsLabel(outputs: OutputsStatus | null): { text: string; ton
 }
 
 export function sourceLabel(source: RevisionInfo["source"]): string {
-  return { user_edit: "직접 편집", import: "가져오기", restore: "복원" }[source];
+  return { user_edit: "직접 편집", import: "가져오기", restore: "복원", inventory: "보유 자재 적용" }[source];
+}
+
+/** Inventory match status (보유 자재 우선 사용). */
+export function matchLabel(status: MatchStatus, stockShort: boolean | null): { text: string; tone: Tone } {
+  if (status === "matched") return stockShort ? { text: "보유 · 재고 부족", tone: "warn" } : { text: "보유", tone: "ok" };
+  if (status === "candidate") return { text: "대체 가능", tone: "warn" };
+  return { text: "미보유", tone: "bad" };
 }
 
 export function formatTime(iso: string | null | undefined): string {
@@ -104,4 +120,47 @@ export function cropSvg(svg: string, bbox: number[] | null | undefined): string 
   return svg.replace(/<svg\b[^>]*>/, (tag) =>
     setAttr(setAttr(setAttr(tag, "viewBox", `${x} ${y} ${w} ${h}`), "width", `${w}mm`), "height", `${h}mm`),
   );
+}
+
+// --- pages (sheets) in a Circuit IR ---------------------------------------------------
+// Pages only group components for drawing; these helpers never touch nets.
+
+
+/** Effective pages: an IR without sheets has one implicit page holding everything. */
+export function pagesOf(ir: IR): IRSheet[] {
+  const sheets = ir.sheets ?? [];
+  if (sheets.length === 0) return [{ id: "p1", name: "Page 1", components: ir.components.map((c) => c.id) }];
+  const listed = new Set(sheets.flatMap((s) => s.components));
+  const unlisted = ir.components.filter((c) => !listed.has(c.id)).map((c) => c.id);
+  return sheets.map((s, i) => (i === 0 ? { ...s, components: [...s.components, ...unlisted] } : s));
+}
+
+function withPages(ir: IR, sheets: IRSheet[]): IR {
+  return { ...ir, sheets: sheets.length <= 1 && sheets[0]?.id === "p1" && sheets[0]?.name === "Page 1" ? [] : sheets };
+}
+
+export function addPage(ir: IR): IR {
+  const pages = pagesOf(ir);
+  let n = pages.length + 1;
+  while (pages.some((p) => p.id === `p${n}`)) n += 1;
+  return { ...ir, sheets: [...pages, { id: `p${n}`, name: `Page ${n}`, components: [] }] };
+}
+
+export function moveToPage(ir: IR, componentId: string, sheetId: string): IR {
+  const pages = pagesOf(ir).map((p) => ({ ...p, components: p.components.filter((c) => c !== componentId) }));
+  return withPages(ir, pages.map((p) => (p.id === sheetId ? { ...p, components: [...p.components, componentId] } : p)));
+}
+
+export function renamePage(ir: IR, sheetId: string, name: string): IR {
+  return { ...ir, sheets: pagesOf(ir).map((p) => (p.id === sheetId ? { ...p, name } : p)) };
+}
+
+/** Remove a page; its components go to the first remaining page. */
+export function removePage(ir: IR, sheetId: string): IR {
+  const pages = pagesOf(ir);
+  const gone = pages.find((p) => p.id === sheetId);
+  const rest = pages.filter((p) => p.id !== sheetId);
+  if (!gone || rest.length === 0) return ir;
+  rest[0] = { ...rest[0], components: [...rest[0].components, ...gone.components] };
+  return withPages(ir, rest);
 }

@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, errorText } from "./api";
+import { InventoryPage } from "./components/InventoryPage";
 import { isTab, ProjectView, type TabId } from "./components/ProjectView";
-import { Sidebar } from "./components/Sidebar";
+import { SettingsPage } from "./components/SettingsPage";
+import { Sidebar, type View } from "./components/Sidebar";
 import type { ProjectSummary, SystemInfo } from "./types";
 
 export function App() {
   const [system, setSystem] = useState<SystemInfo | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [boardId, setBoardId] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("requirements");
+  const [view, setView] = useState<View>("projects");
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -19,7 +23,7 @@ export function App() {
     return list;
   }, []);
 
-  // Restore the last project and tab (Phase 1 gate: state survives an app restart).
+  // Restore the last project, board and tab (state survives an app restart).
   // System info can be slow (KiCad detection), so it never blocks the project list.
   useEffect(() => {
     api.system().then(setSystem).catch((e) => setError(errorText(e)));
@@ -27,8 +31,12 @@ export function App() {
       try {
         const [list, settings] = await Promise.all([api.projects(), api.settings()]);
         setProjects(list);
-        if (settings.last_project_id && list.some((p) => p.id === settings.last_project_id)) {
-          setSelected(settings.last_project_id);
+        const project = list.find((p) => p.id === settings.last_project_id);
+        if (project) {
+          setSelected(project.id);
+          setBoardId(settings.last_board_id && project.boards.includes(settings.last_board_id)
+            ? settings.last_board_id
+            : project.boards[0] ?? null);
           if (isTab(settings.last_tab)) setTab(settings.last_tab);
         }
       } catch (e) {
@@ -39,12 +47,19 @@ export function App() {
     })();
   }, []);
 
+  const persist = (projectId: string | null, board: string | null, nextTab: TabId) =>
+    api.saveSettings({ last_project_id: projectId, last_board_id: board, last_tab: nextTab }).catch(() => undefined);
+
   const select = async (id: string) => {
+    setView("projects");
     setSelected(id);
     setError(null);
     try {
-      await api.openProject(id);
-      await api.saveSettings({ last_project_id: id, last_tab: tab });
+      const project = await api.openProject(id);
+      const settings = await api.settings();
+      const board = settings.last_board_id ?? project.boards[0] ?? null;
+      setBoardId(board);
+      await persist(id, board, tab);
       await refreshProjects();
     } catch (e) {
       setError(errorText(e));
@@ -53,7 +68,12 @@ export function App() {
 
   const changeTab = (next: TabId) => {
     setTab(next);
-    api.saveSettings({ last_project_id: selected, last_tab: next }).catch(() => undefined);
+    void persist(selected, boardId, next);
+  };
+
+  const changeBoard = (next: string) => {
+    setBoardId(next);
+    void persist(selected, next, tab);
   };
 
   const create = async (name: string) => {
@@ -71,7 +91,10 @@ export function App() {
     if (!window.confirm(`'${project.name}' 프로젝트를 삭제할까요?\n폴더는 워크스페이스의 .trash로 옮겨지며 복구할 수 있습니다.`)) return;
     try {
       await api.deleteProject(project.id);
-      if (selected === project.id) setSelected(null);
+      if (selected === project.id) {
+        setSelected(null);
+        setBoardId(null);
+      }
       await refreshProjects();
     } catch (e) {
       setError(errorText(e));
@@ -79,17 +102,20 @@ export function App() {
   };
 
   const current = projects.find((p) => p.id === selected) ?? null;
+  const currentBoard = current && boardId && current.boards.includes(boardId) ? boardId : current?.boards[0] ?? null;
 
   return (
     <div className="app">
       <Sidebar
         projects={projects}
-        selected={selected}
+        selected={view === "projects" ? selected : null}
         onSelect={select}
         onCreate={create}
         onDelete={remove}
         system={system}
         ready={ready}
+        view={view}
+        onView={setView}
       />
       <main className="main">
         {error && (
@@ -102,10 +128,16 @@ export function App() {
         )}
         {!ready ? (
           <div className="empty">불러오는 중…</div>
-        ) : current ? (
+        ) : view === "inventory" ? (
+          <InventoryPage onError={setError} />
+        ) : view === "settings" ? (
+          <SettingsPage system={system} onError={setError} />
+        ) : current && currentBoard ? (
           <ProjectView
             key={current.id}
             project={current}
+            boardId={currentBoard}
+            onBoard={changeBoard}
             system={system}
             tab={tab}
             onTab={changeTab}

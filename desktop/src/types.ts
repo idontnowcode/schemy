@@ -20,7 +20,20 @@ export interface SystemInfo {
 
 export interface AppSettings {
   last_project_id: string | null;
+  last_board_id: string | null;
   last_tab: string | null;
+}
+
+export interface BoardSummary {
+  schema_version: number;
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  current_revision: number | null;
+  path: string;
+  kicad_project: string;
 }
 
 export interface ProjectSummary {
@@ -30,7 +43,8 @@ export interface ProjectSummary {
   description: string;
   created_at: string;
   updated_at: string;
-  current_revision: number | null;
+  boards: string[];
+  board_list: BoardSummary[];
   path: string;
   last_opened_at: string | null;
 }
@@ -58,12 +72,19 @@ export interface Net {
   nodes: { component_id: string; pin: string }[];
 }
 
+export interface Sheet {
+  id: string;
+  name: string;
+  components: string[];
+}
+
 export interface CircuitIR {
   schema_version: string;
   project_id: string;
   title?: string | null;
   components: Component[];
   nets: Net[];
+  sheets?: Sheet[];
   layout?: Record<string, { x: number; y: number; rotation: number }>;
   validation?: { status: VerificationStatus; notes?: string | null };
 }
@@ -93,7 +114,7 @@ export interface ValidationReport {
 export interface RevisionInfo {
   revision: number;
   created_at: string;
-  source: "user_edit" | "import" | "restore";
+  source: "user_edit" | "import" | "restore" | "inventory";
   checksum: string;
   parent: number | null;
   restored_from: number | null;
@@ -138,14 +159,26 @@ export interface Artifact {
   created_at: string;
 }
 
+export interface PageOutput {
+  number: number;
+  sheet_id: string;
+  name: string;
+  schematic: string;
+  svg: string | null;
+  paper: string;
+  bbox_mm: number[] | null;
+}
+
 export interface Manifest {
   project_id: string;
+  board_id: string;
+  kicad_project: string;
   source_revision: number;
   generated_at: string;
   generator: string;
   automated_check: AutomatedCheck;
   warnings: Issue[];
-  preview_bbox_mm: number[] | null;
+  pages: PageOutput[];
   artifacts: Artifact[];
 }
 
@@ -161,12 +194,14 @@ export interface OutputsStatus {
 export interface Job {
   id: string;
   project_id: string;
+  board_id: string | null;
   kind: string;
   status: "queued" | "running" | "succeeded" | "failed";
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
-  result: { source_revision: number; automated_check: AutomatedCheck; artifacts: string[] } | null;
+  /** Shape depends on kind: export, pdf_import, inventory_suggest. */
+  result: any;
   error: ApiErrorBody | null;
 }
 
@@ -180,4 +215,117 @@ export interface BomTable {
   revision: number;
   columns: string[];
   rows: Record<string, string>[];
+}
+
+// --- inventory -------------------------------------------------------------------
+
+export interface InventoryPart {
+  id: string;
+  mpn: string | null;
+  manufacturer: string | null;
+  category: string | null;
+  category_label: string | null;
+  value: string | null;
+  package: string | null;
+  footprint_id: string | null;
+  symbol_id: string | null;
+  rating: string | null;
+  tolerance: string | null;
+  stock: number | null;
+  priority: number;
+  notes: string | null;
+  source_row: number;
+}
+
+export interface InventoryInfo {
+  inventory: { source_file: string; imported_at: string; parts: InventoryPart[] } | null;
+  column_labels: Record<string, string>;
+  category_labels: Record<string, string>;
+}
+
+export interface InventoryImportResult {
+  ok: boolean;
+  part_count: number;
+  mapped_columns: Record<string, string>;
+  unknown_columns: string[];
+  warnings: { row: number | null; message: string }[];
+  errors: { row: number | null; message: string }[];
+  parts: InventoryPart[];
+  saved: boolean;
+}
+
+export type MatchStatus = "matched" | "candidate" | "missing";
+
+export interface LineMatch {
+  component_ids: string[];
+  references: string[];
+  quantity: number;
+  category: string | null;
+  category_label: string | null;
+  value: string;
+  symbol_id: string;
+  footprint_id: string | null;
+  mpn: string | null;
+  status: MatchStatus;
+  chosen: InventoryPart | null;
+  candidates: { part: InventoryPart; reasons: string[]; exact: boolean }[];
+  reasons: string[];
+  stock_short: boolean | null;
+}
+
+export interface InventoryMatch {
+  available: boolean;
+  revision: number | null;
+  boards: number;
+  inventory?: { source_file: string; imported_at: string; part_count: number };
+  summary: { matched: number; candidate: number; missing: number; stock_short: number } | null;
+  lines: LineMatch[];
+}
+
+export interface InventoryApplyResult {
+  revision: RevisionInfo | null;
+  created: boolean;
+  changes: { component_id: string; reference: string; field: string; before: string | null; after: string | null }[];
+}
+
+export interface Suggestion {
+  line: number;
+  references: string[];
+  inventory_part_id: string;
+  mpn: string | null;
+  fit: "good" | "acceptable" | "poor";
+  reason: string;
+}
+
+// --- imports & AI ----------------------------------------------------------------------
+
+export interface ImportIssue {
+  severity: "error" | "warning" | "info";
+  code: string;
+  message: string;
+  references: string[];
+  line: number | null;
+}
+
+export interface MarkdownImportResult {
+  ok: boolean;
+  circuit: CircuitIR | null;
+  issues: ImportIssue[];
+  uncertain: Record<string, string>[];
+  stats: Record<string, number>;
+  saved_copy?: string;
+}
+
+export interface AiSettings {
+  enabled: boolean;
+  provider: "gemini";
+  model: string;
+  max_output_tokens: number;
+  timeout_s: number;
+}
+
+export interface AiStatus {
+  settings: AiSettings;
+  key: { configured: boolean; source: "env" | "keyring" | null; keyring_available: boolean };
+  providers: string[];
 }
