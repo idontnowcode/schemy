@@ -1,28 +1,74 @@
+import json
 import os
 
 import pytest
 
 from circuit_core import CircuitIR
 from kicad_adapter import SCHEMATIC_FILE_VERSION, SchematicGenerationError, generate_schematic, sexpr
+from kicad_adapter.schematic import project_file
 from kicad_adapter.sexpr import child, children, head, unquote
 
 from .circuits import rotation_ring
-from .conftest import GOLDEN
+from .conftest import EXAMPLE_DIR, EXAMPLE_NAME
 
-GOLDEN_SCH = GOLDEN / "led_resistor_connector.kicad_sch"
+KICAD_10_NEW_PROJECT_TEMPLATE = """{
+  "board": {
+    "design_settings": {
+      "defaults": {},
+      "diff_pair_dimensions": [],
+      "drc_exclusions": [],
+      "rules": {},
+      "track_widths": [],
+      "via_dimensions": []
+    }
+  },
+  "boards": [],
+  "libraries": {
+    "pinned_footprint_libs": [],
+    "pinned_symbol_libs": []
+  },
+  "meta": {
+    "filename": "kicad.kicad_pro",
+    "version": 1
+  },
+  "net_settings": {
+    "classes": [],
+    "meta": {
+      "version": 0
+    }
+  },
+  "pcbnew": {
+    "page_layout_descr_file": ""
+  },
+  "sheets": [],
+  "text_variables": {}
+}
+"""
 
 
 def error_codes(exc_info):
     return sorted(i.error_code for i in exc_info.value.issues)
 
 
-def test_matches_golden_file(led_circuit, library):
-    text = generate_schematic(led_circuit, library).text
+def test_example_project_matches_generator(led_circuit, library, workdir):
+    """examples/led-resistor-connector is the golden output and a KiCad project users can open.
+
+    The schematic is compared byte for byte. The .kicad_pro is only checked for its
+    file name, because KiCad rewrites that file whenever someone opens and closes the
+    project; its content is covered by test_project_file_is_kicads_new_project_template.
+    """
+    generate_schematic(led_circuit, library, project_name=EXAMPLE_NAME).write(workdir)
+    sch, pro = (f"{EXAMPLE_NAME}{suffix}" for suffix in (".kicad_sch", ".kicad_pro"))
     if os.environ.get("AICS_UPDATE_GOLDEN"):
-        GOLDEN_SCH.write_text(text, encoding="utf-8", newline="\n")
-    assert text == GOLDEN_SCH.read_text(encoding="utf-8"), (
-        "output changed: inspect the diff, then rerun with AICS_UPDATE_GOLDEN=1"
+        for name in (sch, pro):
+            (EXAMPLE_DIR / name).write_text((workdir / name).read_text(encoding="utf-8"),
+                                            encoding="utf-8", newline="\n")
+    assert (workdir / sch).read_text(encoding="utf-8") == (EXAMPLE_DIR / sch).read_text(encoding="utf-8"), (
+        f"{sch} differs from the generator output. If it was saved from KiCad, restore it with "
+        "`git checkout -- examples/`; if the generator changed on purpose, rerun with AICS_UPDATE_GOLDEN=1."
     )
+    meta = json.loads((EXAMPLE_DIR / pro).read_text(encoding="utf-8"))["meta"]
+    assert meta["filename"] == pro
 
 
 def test_deterministic(led_circuit, library):
@@ -136,8 +182,15 @@ def test_warns_on_reference_prefix_and_off_grid(led_circuit_data, library):
 def test_write_creates_schematic_and_project(led_circuit, library, workdir):
     sch = generate_schematic(led_circuit, library, project_name="demo").write(workdir)
     assert sch.name == "demo.kicad_sch"
-    assert (workdir / "demo.kicad_pro").is_file()
-    assert '"demo"' in sch.read_text(encoding="utf-8")  # instance project name
+    # Symbol instances are keyed by project name, so it must match the .kicad_pro file name.
+    assert '(project "demo"' in sch.read_text(encoding="utf-8")
+    pro = json.loads((workdir / "demo.kicad_pro").read_text(encoding="utf-8"))
+    assert pro["meta"] == {"filename": "demo.kicad_pro", "version": 1}
+
+
+def test_project_file_is_kicads_new_project_template():
+    """Same bytes as KiCad 10.0.8 share/kicad/template/kicad.kicad_pro when named 'kicad'."""
+    assert project_file("kicad") == KICAD_10_NEW_PROJECT_TEMPLATE
 
 
 @pytest.mark.parametrize("name", ["../evil", "a/b", "", "with space"])

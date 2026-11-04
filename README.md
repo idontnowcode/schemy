@@ -19,10 +19,21 @@
 | ERC | ✅ 오류 0, 경고 0 (*자동 검사일 뿐, 전기적 설계 검증이 아님*) |
 | Netlist ↔ IR 연결 비교 | ✅ 일치. 회전 0/90/180/270도 검증함 |
 | SVG 미리보기 | ✅ |
-| KiCad **GUI**에서 열기 | ⏳ 아직 하지 않음. Windows에서 수동 확인 필요 |
+| KiCad **GUI**에서 열기 | ✅ 사용자 PC의 KiCad에서 열림. `.kicad_pro` 프로젝트로 열어야 함([아래](#kicad에서-열기)) |
 | SKiDL/schematizer 비교 실험 | ⏳ 계획만 세움 ([ADR-001](docs/adr/ADR-001-eda-generation-strategy.md)) |
 
 자세한 내용은 [`docs/phase0-report.md`](docs/phase0-report.md)를 보세요.
+
+## KiCad에서 열기
+
+바로 열어 볼 수 있는 예제 프로젝트가 [`examples/led-resistor-connector/`](examples/led-resistor-connector/)에 있습니다.
+
+1. KiCad 10에서 **파일 → 프로젝트 열기**로 `led-resistor-connector.kicad_pro`를 엽니다.
+2. 프로젝트 관리자에서 회로도를 엽니다.
+
+**`.kicad_sch`만 단독으로 열지 마세요.** 단독으로 열면 KiCad가 프로젝트 없이 동작하면서 다른 프로젝트의 라이브러리 설정을 섞어 씁니다.
+그러면 이 회로도와 관계없는 라이브러리(예: `mipi_phy`, `mipi_csi`)를 폴더에서 찾을 수 없다는 경고가 뜰 수 있습니다.
+`aics generate`도 항상 `.kicad_sch`와 같은 이름의 `.kicad_pro`를 함께 만들므로, 생성 결과도 `.kicad_pro`로 여세요.
 
 ## 빠른 시작
 
@@ -30,7 +41,7 @@
 
 ```bash
 uv sync                      # 의존성 설치
-uv run pytest                # 테스트 (KiCad 없으면 KiCad 테스트 5개는 skip)
+uv run pytest                # 테스트 (KiCad 없으면 KiCad 테스트 6개는 skip)
 ```
 
 ### 회로도 생성
@@ -46,7 +57,7 @@ uv run aics generate tests/fixtures/circuits/led_resistor_connector.json \
 
 | 파일 | 내용 |
 |---|---|
-| `schematic.kicad_sch`, `schematic.kicad_pro` | KiCad 10 회로도와 최소 프로젝트 파일. KiCad에서 바로 열 수 있음 |
+| `schematic.kicad_sch`, `schematic.kicad_pro` | KiCad 10 회로도와 프로젝트 파일(KiCad 새 프로젝트 템플릿과 같은 구조). **`.kicad_pro`로 여세요** |
 | `symbol_sources.json` | 사용한 심볼 라이브러리 경로와 형식 버전(출처 기록) |
 | `erc.json` | kicad-cli ERC 원본 리포트 (`--check`) |
 | `schematic.net` | KiCad가 추출한 Netlist (`--check`) |
@@ -101,6 +112,7 @@ kicad_adapter/       ✅ KiCad 생성기·kicad-cli 실행·Netlist/ERC 파싱
   pipeline.py          생성 → ERC → Netlist 비교 → SVG
   __main__.py          `aics` 명령
 tests/               ✅ 단위 / golden / KiCad 통합 테스트
+examples/            ✅ KiCad에서 바로 여는 예제 프로젝트 (golden 파일 겸용)
 docs/                ✅ 기획서, ADR, IR JSON Schema, Phase 0 보고서
 scripts/             ✅ 심볼 subset 추출 도구
 desktop/             ⏳ Phase 1: Electron + React
@@ -138,5 +150,5 @@ projects/<id>/       ⏳ Phase 1: 프로젝트 파일 (outputs/는 git에서 제
 ```bash
 uv run pytest                              # 전체
 uvx ruff check .                           # lint
-AICS_UPDATE_GOLDEN=1 uv run pytest         # golden 파일/JSON Schema 갱신 (diff 확인 후 커밋)
+AICS_UPDATE_GOLDEN=1 uv run pytest         # examples/ 예제와 JSON Schema 갱신 (diff 확인 후 커밋)
 ```

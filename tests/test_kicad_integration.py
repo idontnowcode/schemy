@@ -1,5 +1,7 @@
 """End-to-end checks with a real kicad-cli. Skipped (not passed) when KiCad is absent."""
 
+import shutil
+
 import pytest
 
 from circuit_core import CircuitIR
@@ -70,3 +72,19 @@ def test_erc_reports_real_problems(led_circuit_data, library, kicad_cli, workdir
     types = {v.type for v in report.erc.violations}
     assert "pin_not_connected" in types, report.erc.summary()
 
+
+
+def test_example_project_opens_cleanly(led_circuit, kicad_cli, workdir):
+    """The committed example, opened with its .kicad_pro, has a clean ERC and the IR's netlist."""
+    from .conftest import EXAMPLE_DIR, EXAMPLE_NAME
+
+    for f in EXAMPLE_DIR.iterdir():
+        if f.suffix in (".kicad_sch", ".kicad_pro"):
+            shutil.copy(f, workdir / f.name)
+    sch = workdir / f"{EXAMPLE_NAME}.kicad_sch"
+    erc = kicad_cli.erc(sch, workdir / "erc.json")
+    assert erc.violations == (), erc.summary()
+    netlist = parse_kicad_netlist(kicad_cli.export_netlist(sch, workdir / "example.net"))
+    diff = compare_with_ir(led_circuit, netlist)
+    assert diff.ok, diff.describe()
+    assert erc.raw["source"] == sch.name

@@ -723,7 +723,7 @@
 			(uuid "b931f1a7-20cf-53b5-aefe-31b28f394dc9")
 		)
 		(instances
-			(project "schematic"
+			(project "led-resistor-connector"
 				(path "/31ee686e-89a4-5e6e-bc4f-89000aff2a3d"
 					(reference "D1")
 					(unit 1)
@@ -813,7 +813,7 @@
 			(uuid "cec6968a-f3c4-5c85-b03c-c75ff1524c03")
 		)
 		(instances
-			(project "schematic"
+			(project "led-resistor-connector"
 				(path "/31ee686e-89a4-5e6e-bc4f-89000aff2a3d"
 					(reference "J1")
 					(unit 1)
@@ -903,7 +903,7 @@
 			(uuid "cace7d67-132b-51cd-bdad-fdf73a2a9537")
 		)
 		(instances
-			(project "schematic"
+			(project "led-resistor-connector"
 				(path "/31ee686e-89a4-5e6e-bc4f-89000aff2a3d"
 					(reference "R1")
 					(unit 1)

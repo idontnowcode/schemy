@@ -1,0 +1,4 @@
+# Keep LF everywhere so golden files and byte-for-byte KiCad round-trip tests
+# behave the same on Windows checkouts.
+* text=auto eol=lf
+*.png binary

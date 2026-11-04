@@ -9,8 +9,12 @@ build/
 
 # Generated KiCad outputs (regenerate with `aics generate`)
 projects/*/outputs/
+
+# Files KiCad creates while a project is open
 *.kicad_sch-bak
 *.kicad_prl
+*-backups/
+~*.lck
 fp-info-cache
 _autosave-*
 \#auto_saved_files#

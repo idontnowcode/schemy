@@ -11,7 +11,8 @@ from kicad_adapter import KiCadCli, SymbolLibrary
 
 ROOT = Path(__file__).resolve().parent
 FIXTURES = ROOT / "fixtures"
-GOLDEN = ROOT / "golden"
+EXAMPLE_NAME = "led-resistor-connector"
+EXAMPLE_DIR = ROOT.parent / "examples" / EXAMPLE_NAME
 SYMBOL_DIR = FIXTURES / "kicad_symbols"
 LED_CIRCUIT = FIXTURES / "circuits" / "led_resistor_connector.json"
 

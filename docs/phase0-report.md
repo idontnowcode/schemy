@@ -33,15 +33,15 @@
 
 ```text
 $ AICS_KICAD_DOCKER_IMAGE=kicad/kicad:10.0.8 uv run pytest
-73 passed in 28.55s
+75 passed in 31.98s
 ```
 
 ```text
 $ uv run pytest          # KiCad 없이
-68 passed, 5 skipped     # skip 사유: "kicad-cli not available ... KiCad checks are pending, not passed"
+69 passed, 6 skipped     # skip 사유: "kicad-cli not available ... KiCad checks are pending, not passed"
 ```
 
-KiCad 통합 테스트(`tests/test_kicad_integration.py`, 5개, 모두 실제 kicad-cli 10.0.8로 실행됨):
+KiCad 통합 테스트(`tests/test_kicad_integration.py`, 6개, 모두 실제 kicad-cli 10.0.8로 실행됨):
 
 | 테스트 | 확인 내용 |
 |---|---|
@@ -50,6 +50,7 @@ KiCad 통합 테스트(`tests/test_kicad_integration.py`, 5개, 모두 실제 ki
 | `test_kicad_round_trip_preserves_file` | KiCad가 파일을 로드하고 다시 저장해도 generator 2줄 외에는 바이트 단위로 같음 |
 | `test_every_rotation_connects` | R과 LED를 0/90/180/270으로 회전한 8개 부품 링에서 Netlist = IR |
 | `test_erc_reports_real_problems` | LED 캐소드를 끊으면 ERC가 `pin_not_connected`를 보고함(검사가 형식적이지 않음을 확인) |
+| `test_example_project_opens_cleanly` | `examples/` 예제를 `.kicad_pro`와 함께 열었을 때 ERC 위반 0, Netlist = IR |
 
 Netlist 비교 단위 테스트(`tests/test_netlist.py`)는 KiCad 10.0.8이 실제로 내보낸 Netlist 파일을 fixture로 쓴다.
 
@@ -62,12 +63,14 @@ Netlist 비교 단위 테스트(`tests/test_netlist.py`)는 KiCad 10.0.8이 실�
 > Gate: Golden test 회로가 열리고 의도한 Netlist와 일치.
 
 - kicad-cli 기준으로는 **충족**: 로드, ERC, Netlist 일치, round-trip 모두 통과.
-- **남은 확인**: KiCad GUI(Windows)에서 실제로 열어 보는 수동 확인. SKiDL/schematizer A안 실험.
+- **GUI 확인 (2026-11-04, 사용자 PC)**: 회로도가 KiCad에서 열림. 단 `.kicad_sch`를 단독으로 열면 이 파일과 관계없는 라이브러리(`mipi_phy`, `mipi_csi`)를 찾을 수 없다는 경고가 떴고, 프로젝트로 열면 경고가 없었음.
+  - 조치: 단독 파일이던 `tests/golden`을 `.kicad_pro`가 포함된 `examples/led-resistor-connector/`로 교체. 생성되는 `.kicad_pro`를 KiCad 10 새 프로젝트 템플릿과 같게 맞춤. README에 프로젝트로 여는 방법을 적음.
+- **남은 확인**: SKiDL/schematizer A안 실험.
 
 ## 미해결 위험
 
 1. **Windows 미검증**: kicad-cli 기본 경로, 심볼 경로, 경로 인코딩, 줄바꿈을 아직 Windows에서 실행해 보지 않았다.
-2. **GUI 미확인**: 헤드리스 환경이라 Eeschema GUI로 열어 보지 못했다. 대신 kicad-cli의 로드와 재저장으로 검증했다.
+2. **GUI 확인은 1회뿐**: 사용자 PC에서 열리는 것만 확인했다. 편집과 저장 후 다시 생성하는 흐름은 아직 확인하지 않았다. `.kicad_sch` 단독 열기는 경고가 생기므로 프로젝트로 열도록 안내한다.
 3. **가독성**: label stub 방식이라 직접 배선이 없다. 부품이 많아지면 읽기 어려워진다(ADR-001).
 4. **미지원 심볼 기능**: `extends`, 다중 유닛, 전원 심볼, 미러, 계층 시트. MCU 회로(Phase 3)에는 다중 유닛과 전원 심볼이 꼭 필요하다.
 5. **KiCad 버전 고정**: KiCad 9 사용자는 파일을 열 수 없다(ADR-002, 결정 필요).

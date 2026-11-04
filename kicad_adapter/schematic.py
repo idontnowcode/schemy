@@ -15,6 +15,7 @@ A pin at library (px, py) on a symbol placed at (X, Y) with CCW rotation r is at
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -78,25 +79,46 @@ class GeneratedSchematic:
     symbol_sources: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def write(self, out_dir: Path) -> Path:
-        """Write ``<project>.kicad_sch`` and a minimal ``<project>.kicad_pro``."""
+        """Write ``<project>.kicad_sch`` and ``<project>.kicad_pro`` side by side.
+
+        Users should open the ``.kicad_pro``. A ``.kicad_sch`` opened on its own
+        runs without a project, and KiCad may then report libraries from other
+        projects' settings as missing.
+        """
         out_dir.mkdir(parents=True, exist_ok=True)
         sch = out_dir / f"{self.project_name}.kicad_sch"
         _atomic_write(sch, self.text)
         pro = out_dir / f"{self.project_name}.kicad_pro"
-        _atomic_write(pro, minimal_project_file(self.project_name))
+        _atomic_write(pro, project_file(self.project_name))
         return sch
 
 
-def minimal_project_file(project_name: str) -> str:
-    # KiCad fills every missing setting with its defaults when it loads a project.
-    return (
-        "{\n"
-        '  "meta": {\n'
-        f'    "filename": "{project_name}.kicad_pro",\n'
-        '    "version": 3\n'
-        "  }\n"
-        "}\n"
-    )
+def project_file(project_name: str) -> str:
+    """The skeleton KiCad 10 itself uses for File > New Project.
+
+    Copied from ``share/kicad/template/kicad.kicad_pro`` (KiCad 10.0.8) with only
+    the file name changed; KiCad fills every other setting with its defaults.
+    """
+    data = {
+        "board": {
+            "design_settings": {
+                "defaults": {},
+                "diff_pair_dimensions": [],
+                "drc_exclusions": [],
+                "rules": {},
+                "track_widths": [],
+                "via_dimensions": [],
+            }
+        },
+        "boards": [],
+        "libraries": {"pinned_footprint_libs": [], "pinned_symbol_libs": []},
+        "meta": {"filename": f"{project_name}.kicad_pro", "version": 1},
+        "net_settings": {"classes": [], "meta": {"version": 0}},
+        "pcbnew": {"page_layout_descr_file": ""},
+        "sheets": [],
+        "text_variables": {},
+    }
+    return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
 
 def _atomic_write(path: Path, text: str) -> None:
