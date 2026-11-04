@@ -164,8 +164,11 @@ def test_pdf_import_end_to_end_with_fake_provider(tmp_path):
     assert call["attachments"][0].mime_type == "application/pdf" and call["attachments"][0].data == PDF
     assert "회로도 MD v0.1" in call["prompt"]
     assert created[0]["key"] == "AIza-test-key-123456" and created[0]["model"] == "gemini-flash-latest"
-    # Nothing is saved to the circuit: the user reviews first.
+    # Nothing is saved to the circuit: it becomes a proposal the user reviews and approves.
     assert client.get(f"/api/projects/{pid}/boards/a/circuit").json()["circuit"] is None
+    proposal = client.get(f"/api/projects/{pid}/boards/a/proposals/{result['proposal_id']}").json()
+    assert proposal["source"] == "ai_pdf_import" and proposal["status"] == "ready"
+    assert proposal["diff"]["summary"]["components_added"] == 3
     runs = list((tmp_path / "projects" / pid / "boards" / "a" / "ai_runs").glob("*.json"))
     record = json.loads(runs[0].read_text(encoding="utf-8"))
     assert record["kind"] == "pdf_import" and record["status"] == "succeeded"

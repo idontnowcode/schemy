@@ -8,23 +8,23 @@ suggestions are applied only through the normal inventory-apply endpoint.
 
 from __future__ import annotations
 
-import uuid
-
 from fastapi import APIRouter
 
-from ai_engine import AiError, KeyStoreError, LlmProvider
+from ai_engine import AiError, KeyStoreError
 from ai_engine.tasks import suggest_substitutes, suggestion_request, summarize_datasheet, transcribe_pdf
 from circuit_core.datasheet_md import import_datasheet_markdown
 from circuit_core.inventory import match_inventory
+from circuit_core.patch import ReplaceCircuit
 from circuit_core.schematic_md import import_schematic_markdown
 
+from .ai_access import AiAccess, api_error, run_record
 from .config import Settings
 from .datasheets import DatasheetError, DatasheetLibrary
 from .errors import ApiError
 from .inventory_store import InventoryStore
 from .jobs import JobRunner
-from .schemas import AiSettings, AiSettingsUpdate, ApiKeyBody, FileUpload, MarkdownImportRequest
-from .store import ProjectStore, now_iso, sha256_bytes
+from .schemas import AiSettingsUpdate, ApiKeyBody, FileUpload, MarkdownImportRequest
+from .store import ProjectStore, sha256_bytes
 from .uploads import MB, decode_upload
 
 BOARD = "/api/projects/{project_id}/boards/{board_id}"
@@ -32,31 +32,13 @@ MAX_PDF_BYTES = 50 * MB
 
 
 def build_ai_router(store: ProjectStore, jobs: JobRunner, inventory: InventoryStore, settings: Settings,
-                    pin_lookup, datasheets: DatasheetLibrary) -> APIRouter:
+                    pin_lookup, datasheets: DatasheetLibrary, proposal_service=None) -> APIRouter:
     router = APIRouter()
 
-    def ai_settings() -> AiSettings:
-        raw = store.get_setting_json("ai")
-        try:
-            return AiSettings.model_validate(raw or {})
-        except ValueError:
-            return AiSettings()
-
-    def key_status(provider: str) -> dict:
-        key, source = settings.keystore.get(provider)
-        return {"configured": key is not None, "source": source, "keyring_available": settings.keystore.available}
-
-    def provider_for(cfg: AiSettings, *, require_enabled: bool = True) -> LlmProvider:
-        if require_enabled and not cfg.enabled:
-            raise ApiError(409, "AI_DISABLED", "AI 기능이 꺼져 있습니다.", recovery_hint="설정 화면에서 AI 기능을 켜세요.")
-        key, _ = settings.keystore.get(cfg.provider)
-        if not key:
-            raise ApiError(409, "AI_NO_KEY", "Gemini API 키가 없습니다.",
-                           recovery_hint="설정 화면에서 API 키를 저장하거나 GEMINI_API_KEY 환경 변수를 설정하세요.")
-        try:
-            return settings.ai_provider_factory(cfg.provider, key, cfg.model, cfg.timeout_s)
-        except AiError as exc:
-            raise _api_error(exc) from exc
+    access = AiAccess(store, settings)
+    ai_settings = access.settings
+    key_status = access.key_status
+    provider_for = access.provider_for
 
     # --- settings ---------------------------------------------------------------
 
@@ -134,10 +116,21 @@ def build_ai_router(store: ProjectStore, jobs: JobRunner, inventory: InventorySt
                           finish_reason=transcription.result.finish_reason, warnings=transcription.warnings,
                           output={"markdown_sha256": sha256_bytes(transcription.markdown.encode("utf-8")),
                                   "stored_as": md_copy.name, "import_ok": result.ok})
+            proposal_id = None
+            if result.ok and proposal_service is not None:
+                # AI output reaches the board only through the proposal approval path.
+                p = proposal_service.proposals.create(
+                    project_id, board_id, title=f"PDF 가져오기: {body.filename}"[:150],
+                    ops=[ReplaceCircuit(circuit=result.circuit)], source="ai_pdf_import",
+                    rationale="AI가 PDF 회로도를 '회로도 MD'로 옮겨 적고, 앱이 KiCad 라이브러리 핀과 대조해 만든 회로입니다.",
+                    ai={"model": transcription.result.model, "summary": "", "questions": [
+                        f"불확실 항목: {u.get('내용')}" for u in result.uncertain][:20], "review": None})
+                proposal_id = proposal_service.check_now(p).id
+                record.setdefault("output", {})["proposal"] = proposal_id
             store.save_ai_run(project_id, board_id, record)
             return {"markdown": transcription.markdown, "import": result.to_dict(), "warnings": transcription.warnings,
                     "model": transcription.result.model, "usage": transcription.result.usage,
-                    "saved_copy": md_copy.name}
+                    "saved_copy": md_copy.name, "proposal_id": proposal_id}
 
         return jobs.submit(project_id, "pdf_import", run, board_id=board_id)
 
@@ -228,13 +221,5 @@ def build_ai_router(store: ProjectStore, jobs: JobRunner, inventory: InventorySt
     return router
 
 
-def _run_record(job_id: str, kind: str, cfg: AiSettings, input_summary: dict) -> dict:
-    return {"id": f"{now_iso()[:19].replace(':', '')}-{uuid.uuid4().hex[:6]}", "job_id": job_id, "kind": kind,
-            "created_at": now_iso(), "provider": cfg.provider, "model": cfg.model, "input": input_summary,
-            "status": "running"}
-
-
-def _api_error(exc: AiError) -> ApiError:
-    status = {"AI_AUTH_FAILED": 401, "AI_QUOTA": 429, "AI_MODEL_NOT_FOUND": 404, "NOT_A_PDF": 422,
-              "AI_BAD_OUTPUT": 502}.get(exc.code, 502)
-    return ApiError(status, exc.code, exc.message, recovery_hint=exc.hint)
+_run_record = run_record
+_api_error = api_error

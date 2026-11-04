@@ -418,6 +418,29 @@ class ProjectStore:
             atomic_write(self.project_dir(project_id) / "requirements.md", text)
             self._touch(project_id)
 
+    def get_requirements_spec(self, project_id: str) -> dict | None:
+        """The structured requirements sheet the user saved (AI-assisted), or None."""
+        self._read_meta(project_id)
+        path = self.project_dir(project_id) / "requirements.spec.json"
+        if not path.is_file():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            return None
+        return data if isinstance(data, dict) else None
+
+    def put_requirements_spec(self, project_id: str, spec: dict | None) -> None:
+        with self._lock:
+            self._read_meta(project_id)
+            path = self.project_dir(project_id) / "requirements.spec.json"
+            if spec is None:
+                if path.exists():
+                    path.unlink()
+            else:
+                atomic_write(path, json.dumps(spec, ensure_ascii=False, indent=2) + "\n")
+            self._touch(project_id)
+
     # --- circuit and revisions (per board) -------------------------------------
 
     def _revision_paths(self, project_id: str, board_id: str, n: int) -> tuple[Path, Path]:

@@ -22,7 +22,7 @@ from pydantic import ValidationError
 
 from .md_tables import ImportIssue, Table, first_int, parse_table, read_sections
 from .models import CircuitIR, VerificationStatus
-from .parts import category_from_text
+from .parts import category_from_text, chip_footprint
 from .validation import validate_circuit
 
 FORMAT_NAME = "회로도 MD v0.1"
@@ -53,10 +53,6 @@ _SYMBOL_BY_CATEGORY = {
     "diode": "Device:D",
     "fuse": "Device:Fuse",
 }
-# Standard chip footprints, checked to exist in the KiCad 10.0.8 footprint libraries.
-_CHIP_FOOTPRINT_LIBS = {"resistor": ("Resistor_SMD", "R"), "capacitor": ("Capacitor_SMD", "C"),
-                        "inductor": ("Inductor_SMD", "L"), "led": ("LED_SMD", "LED")}
-_CHIP_METRIC = {"0402": "1005", "0603": "1608", "0805": "2012", "1206": "3216"}
 # Device:C_Polarized has unnamed pins; KiCad 10.0.8 draws the "+" mark on the pin 1 side.
 _POLARITY_BY_SYMBOL = {"Device:C_Polarized": {"+": "1", "-": "2"}}
 _NAME_ALIASES = {
@@ -247,11 +243,9 @@ def import_schematic_markdown(text: str, pin_lookup: PinLookup, *, project_id: s
                                           f"{ref}: 종류 '{comp['kind']}' → KiCad 심볼 {symbol}", [ref], comp["line"]))
         comp["symbol_id"] = symbol or None
         comp["footprint_id"] = None
-        chip = re.fullmatch(r"(?:\D*?)(0402|0603|0805|1206)(?:\D.*)?", comp["package"] or "")
-        lib = _CHIP_FOOTPRINT_LIBS.get(category_from_text(comp["kind"]) or "")
-        if chip and lib and symbol in _SYMBOL_BY_CATEGORY.values():
-            size = chip.group(1)
-            comp["footprint_id"] = f"{lib[0]}:{lib[1]}_{size}_{_CHIP_METRIC[size]}Metric"
+        chip = chip_footprint(category_from_text(comp["kind"]), comp["package"])
+        if chip and symbol in _SYMBOL_BY_CATEGORY.values():
+            comp["footprint_id"] = chip
             issues.append(ImportIssue("info", "FOOTPRINT_INFERRED",
                                       f"{ref}: 패키지 '{comp['package']}' → 풋프린트 {comp['footprint_id']}", [ref], comp["line"]))
 

@@ -204,3 +204,21 @@ def normalize_mpn(mpn: str | None) -> str | None:
         return None
     s = re.sub(r"[\s\-_./]", "", unicodedata.normalize("NFKC", mpn).upper())
     return s or None
+
+
+# --- standard chip footprints -----------------------------------------------------------------
+
+# Checked to exist in the KiCad 10.0.8 footprint libraries.
+_CHIP_FOOTPRINT_LIBS = {"resistor": ("Resistor_SMD", "R"), "capacitor": ("Capacitor_SMD", "C"),
+                        "inductor": ("Inductor_SMD", "L"), "led": ("LED_SMD", "LED")}
+_CHIP_METRIC = {"0402": "1005", "0603": "1608", "0805": "2012", "1206": "3216"}
+
+
+def chip_footprint(category: str | None, package: str | None) -> str | None:
+    """'resistor', '0603' -> 'Resistor_SMD:R_0603_1608Metric'; None when not a standard chip size."""
+    m = re.fullmatch(r"(?:\D*?)(0402|0603|0805|1206)(?:\D.*)?", package or "")
+    lib = _CHIP_FOOTPRINT_LIBS.get(category or "")
+    if not m or not lib:
+        return None
+    size = m.group(1)
+    return f"{lib[0]}:{lib[1]}_{size}_{_CHIP_METRIC[size]}Metric"

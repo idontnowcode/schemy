@@ -8,6 +8,7 @@ live in the IR. Requirements belong to the project; everything about a circuit
 from __future__ import annotations
 
 import hmac
+import logging
 import threading
 from contextlib import asynccontextmanager
 from functools import lru_cache
@@ -27,6 +28,7 @@ from kicad_adapter import SymbolLibrary, SymbolLibraryError, check_against_libra
 
 from .config import APP_VERSION, Settings
 from .datasheets import DatasheetLibrary
+from .design_resolver import symbol_index
 from .errors import ApiError, issue_dict, not_found
 from .exports import external_edit_error, output_path, outputs_status, run_export
 from .inventory_store import InventoryStore
@@ -34,6 +36,7 @@ from .jobs import JobRunner
 from .proposals import ProposalStore
 from .routes_ai import build_ai_router
 from .routes_datasheets import build_datasheet_router
+from .routes_design import build_design_router
 from .routes_inventory import build_inventory_router
 from .routes_proposals import ProposalService, build_proposal_router
 from .schemas import (
@@ -48,6 +51,7 @@ from .schemas import (
 from .store import ProjectStore
 
 IrBody = Annotated[Any, Body(description="Circuit IR JSON (validated by the handler)")]
+log = logging.getLogger(__name__)
 BOARD = "/api/projects/{project_id}/boards/{board_id}"
 
 
@@ -118,6 +122,16 @@ def create_app(settings: Settings) -> FastAPI:
 
     # Detecting KiCad can take seconds (Docker start-up); warm the cache off the request path.
     threading.Thread(target=kicad_info, name="kicad-detect", daemon=True).start()
+
+    # The KiCad symbol index for AI design takes ~10 s to build the first time; build it in the background.
+    def warm_symbol_index():
+        try:
+            symbol_index(settings.symbol_dirs, settings.workspace / "cache" / "symbol_index.json")
+        except Exception:  # noqa: BLE001 - the design job rebuilds it and reports errors
+            log.exception("symbol index warm-up failed")
+
+    if settings.symbol_dirs:
+        threading.Thread(target=warm_symbol_index, name="symbol-index", daemon=True).start()
 
     # --- plumbing ---------------------------------------------------------
 
@@ -364,11 +378,12 @@ def create_app(settings: Settings) -> FastAPI:
 
     app.include_router(api)
     app.include_router(build_inventory_router(store, inventory))
-    app.include_router(build_ai_router(store, jobs, inventory, settings, pin_lookup, datasheets))
-    app.include_router(build_datasheet_router(store, jobs, datasheets, settings, checker.library))
     proposal_service = ProposalService(store, jobs, proposals, datasheets, settings, checker)
     app.state.proposal_service = proposal_service
+    app.include_router(build_ai_router(store, jobs, inventory, settings, pin_lookup, datasheets, proposal_service))
+    app.include_router(build_datasheet_router(store, jobs, datasheets, settings, checker.library))
     app.include_router(build_proposal_router(proposal_service))
+    app.include_router(build_design_router(store, jobs, proposal_service, inventory, datasheets, settings))
 
     # --- desktop UI ---------------------------------------------------------------------
 
