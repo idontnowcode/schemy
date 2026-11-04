@@ -46,3 +46,28 @@ def rotation_ring() -> CircuitIR:
         "nets": nets,
         "layout": layout,
     })
+
+
+def two_page_led(sheet_names=("전원 입력", "LED 출력")) -> CircuitIR:
+    """The LED example split over two pages; LED_A is local to page 2, GND crosses pages."""
+    import json
+
+    from .conftest import LED_CIRCUIT
+
+    data = json.loads(LED_CIRCUIT.read_text(encoding="utf-8"))
+    data["layout"] = {}
+    data["sheets"] = [
+        {"id": "power", "name": sheet_names[0], "components": ["conn-001"]},
+        {"id": "led", "name": sheet_names[1], "components": ["res-001", "led-001"]},
+    ]
+    return CircuitIR.model_validate(data)
+
+
+def many_resistors(count: int) -> CircuitIR:
+    """``count`` resistors in a chain, no layout: exercises automatic placement and paper choice."""
+    components = [{"id": f"r{i}", "reference": f"R{i}", "value": "10k", "symbol_id": "Device:R",
+                   "pins": [{"number": "1"}, {"number": "2"}]} for i in range(1, count + 1)]
+    nets = [{"id": f"n{i}", "name": f"N{i}", "nodes": [{"component_id": f"r{i}", "pin": "2"},
+                                                         {"component_id": f"r{i + 1}", "pin": "1"}]}
+            for i in range(1, count)]
+    return CircuitIR.model_validate({"project_id": "many", "components": components, "nets": nets})

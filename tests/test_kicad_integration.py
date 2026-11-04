@@ -88,3 +88,31 @@ def test_example_project_opens_cleanly(led_circuit, kicad_cli, workdir):
     diff = compare_with_ir(led_circuit, netlist)
     assert diff.ok, diff.describe()
     assert erc.raw["source"] == sch.name
+
+
+def test_two_pages_with_kicad(library, kicad_cli, workdir):
+    """Page split: clean ERC, the IR's netlist (incl. a local net on page 2), lossless round trip, one SVG per page."""
+    from .circuits import two_page_led
+
+    circuit = two_page_led(("전원 입력", "LED 출력 (부하)"))
+    generated = generate_schematic(circuit, library)
+    sch = generated.write(workdir)
+    erc = kicad_cli.erc(sch, workdir / "erc.json")
+    assert erc.violations == (), erc.summary()
+    assert [s["path"] for s in erc.raw["sheets"]] == ["/", "/LED 출력 (부하)/"]
+    netlist = parse_kicad_netlist(kicad_cli.export_netlist(sch, workdir / "two.net"))
+    diff = compare_with_ir(circuit, netlist)
+    assert diff.ok, diff.describe()
+
+    for page in generated.pages:  # each file survives KiCad's own load/save
+        kicad_cli.upgrade(workdir / page.filename)
+        resaved = (workdir / page.filename).read_text(encoding="utf-8").splitlines()
+        ours = page.text.splitlines()
+        assert len(resaved) == len(ours)
+        assert [(a, b) for a, b in zip(ours, resaved, strict=True) if a != b] == [
+            ('\t(generator "ai_circuit_studio")', '\t(generator "eeschema")'),
+            ('\t(generator_version "0.1")', '\t(generator_version "10.0")'),
+        ]
+
+    kicad_cli.export_svg(sch, workdir)
+    assert sorted(p.name for p in workdir.glob("*.svg")) == ["schematic-LED 출력 (부하).svg", "schematic.svg"]

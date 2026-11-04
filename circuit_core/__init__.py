@@ -9,6 +9,7 @@ from .models import (
     NetNode,
     Pin,
     Placement,
+    Sheet,
     Validation,
     VerificationStatus,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "Pin",
     "Placement",
     "Severity",
+    "Sheet",
     "Validation",
     "ValidationResult",
     "VerificationStatus",

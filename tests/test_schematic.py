@@ -206,3 +206,59 @@ def test_bbox_covers_every_pin_and_label(led_circuit, library):
         assert x < a.x < x + w and y < a.y < y + h
     # Much smaller than the A4 sheet, so the preview can zoom in.
     assert w < 80 and h < 80
+
+
+# --- pages -------------------------------------------------------------------------------
+
+def test_two_pages_structure(library):
+    from .circuits import two_page_led
+
+    g = generate_schematic(two_page_led(), library)
+    assert [p.filename for p in g.pages] == ["schematic.kicad_sch", "schematic-p2-led.kicad_sch"]
+    root, sub = (sexpr.parse(p.text) for p in g.pages)
+    # Root holds J1 and one sheet symbol pointing at page 2.
+    assert [unquote(child(s, "lib_id")[1]) for s in children(root, "symbol")] == ["Connector_Generic:Conn_01x02"]
+    sheet = child(root, "sheet")
+    props = {unquote(p[1]): unquote(p[2]) for p in children(sheet, "property")}
+    assert props == {"Sheetname": "LED 출력", "Sheetfile": "schematic-p2-led.kicad_sch"}
+    assert child(child(child(child(sheet, "instances"), "project"), "path"), "page")[1] == '"2"'
+    # Nets crossing pages become global labels; LED_A stays local on page 2.
+    assert sorted(unquote(g[1]) for g in children(root, "global_label")) == ["GND", "VIN"]
+    assert sorted(unquote(lbl[1]) for lbl in children(sub, "label")) == ["LED_A", "LED_A"]
+    assert sorted(unquote(g[1]) for g in children(sub, "global_label")) == ["GND", "VIN"]
+    # Sub-page symbols are instanced under the sheet symbol, and only the root has sheet_instances.
+    path = child(child(child(next(children(sub, "symbol")), "instances"), "project"), "path")[1]
+    assert unquote(path) == f"/{g.root_uuid}/{unquote(child(sheet, 'uuid')[1])}"
+    assert child(sub, "sheet_instances") is None
+    assert {a.sheet for a in g.anchors if a.reference == "D1"} == {"led"}
+
+
+def test_single_page_list_is_the_same_as_no_pages(led_circuit_data, library):
+    plain = generate_schematic(CircuitIR.model_validate(led_circuit_data), library)
+    led_circuit_data["sheets"] = [{"id": "p1", "name": "Page 1", "components": []}]
+    one = generate_schematic(CircuitIR.model_validate(led_circuit_data), library)
+    assert one.text == plain.text
+
+
+def test_page_rules(led_circuit_data):
+    from circuit_core import validate_circuit
+
+    led_circuit_data["sheets"] = [
+        {"id": "a", "name": "A", "components": ["res-001", "ghost"]},
+        {"id": "b", "name": "A", "components": ["res-001"]},
+    ]
+    codes = sorted(i.error_code for i in validate_circuit(CircuitIR.model_validate(led_circuit_data)).errors)
+    assert codes == ["COMPONENT_ON_TWO_SHEETS", "DUPLICATE_SHEET_NAME", "SHEET_UNKNOWN_COMPONENT"]
+
+
+def test_auto_layout_picks_a_bigger_sheet_when_needed(library):
+    from .circuits import many_resistors
+
+    small = generate_schematic(many_resistors(6), library)
+    assert small.pages[0].paper == "A4"
+    big = generate_schematic(many_resistors(80), library)
+    assert big.pages[0].paper in ("A3", "A2", "A1")
+    assert not [w for w in big.warnings if w.error_code == "PAGE_OVERFLOW"]
+    # No two symbols share an origin and every pin is inside the sheet.
+    width, height = {"A3": (420, 297), "A2": (594, 420), "A1": (841, 594)}[big.pages[0].paper]
+    assert all(0 < a.x < width and 0 < a.y < height for a in big.anchors)

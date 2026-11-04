@@ -83,6 +83,22 @@ def validate_circuit(circuit: CircuitIR) -> ValidationResult:
             r.add("UNSUPPORTED_ROTATION", E,
                   f"Rotation {placement.rotation} for '{comp_id}' is not one of 0/90/180/270.", (comp_id,))
 
+    for dup in _duplicates(sh.id for sh in circuit.sheets):
+        r.add("DUPLICATE_SHEET_ID", E, f"Page id '{dup}' is used more than once.")
+    for dup in _duplicates(sh.name for sh in circuit.sheets):
+        r.add("DUPLICATE_SHEET_NAME", E, f"Page name '{dup}' is used more than once.",
+              recovery_hint="Give every page a unique name.")
+    placed_on: dict[str, str] = {}
+    for sheet in circuit.sheets:
+        for comp_id in sheet.components:
+            if comp_id not in components:
+                r.add("SHEET_UNKNOWN_COMPONENT", E,
+                      f"Page '{sheet.name}' lists unknown component '{comp_id}'.", (comp_id,))
+            elif comp_id in placed_on and placed_on[comp_id] != sheet.id:
+                r.add("COMPONENT_ON_TWO_SHEETS", E,
+                      f"{components[comp_id].reference} is listed on more than one page.", (comp_id,))
+            placed_on.setdefault(comp_id, sheet.id)
+
     # --- L1: topology ------------------------------------------------------
     pin_owner: dict[tuple[str, str], str] = {}
     for net in circuit.nets:

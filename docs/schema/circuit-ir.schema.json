@@ -236,6 +236,43 @@
       "title": "Placement",
       "type": "object"
     },
+    "Sheet": {
+      "additionalProperties": false,
+      "description": "One page of a board's schematic. Pages only group components for drawing;\nnets stay board-wide, so moving a component to another page never changes connectivity.",
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 60,
+          "minLength": 1,
+          "pattern": "^[^/\\\\:*?\\\"<>|]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "components": {
+          "default": [],
+          "items": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "type": "string"
+          },
+          "title": "Components",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "Sheet",
+      "type": "object"
+    },
     "Validation": {
       "additionalProperties": false,
       "properties": {
@@ -273,7 +310,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "default": "0.1.0",
+      "default": "0.2.0",
       "title": "Schema Version",
       "type": "string"
     },
@@ -312,8 +349,17 @@
       "title": "Nets",
       "type": "array"
     },
+    "sheets": {
+      "default": [],
+      "description": "Pages in order. Empty means one page. Components not listed go on the first page.",
+      "items": {
+        "$ref": "#/$defs/Sheet"
+      },
+      "title": "Sheets",
+      "type": "array"
+    },
     "layout": {
-      "description": "Optional placement per component id; kept apart from connectivity.",
+      "description": "Optional placement per component id (on its page); kept apart from connectivity.",
       "patternProperties": {
         "^[a-z0-9][a-z0-9._-]*$": {
           "$ref": "#/$defs/Placement"

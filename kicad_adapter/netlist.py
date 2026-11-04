@@ -2,7 +2,7 @@
 
 The netlist comes from ``kicad-cli sch export netlist --format kicadsexpr``.
 Nets are compared as sets of ``(reference, pin number)`` nodes, and net names
-are compared after dropping the root-sheet prefix ``/``.
+are compared after dropping the sheet path KiCad puts in front of local nets.
 """
 
 from __future__ import annotations
@@ -55,7 +55,8 @@ def parse_kicad_netlist(text: str) -> Netlist:
         if name.startswith("unconnected-(") and len(nodes) == 1:
             unconnected |= nodes
             continue
-        nets[name[1:] if name.startswith("/") and name.count("/") == 1 else name] = nodes
+        # Local nets carry their sheet path ("/VIN", "/LED/LED_A"); global labels have none.
+        nets[name.rsplit("/", 1)[-1] if name.startswith("/") else name] = nodes
     return Netlist(components, nets, frozenset(unconnected))
 
 

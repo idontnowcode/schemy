@@ -18,7 +18,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-SCHEMA_VERSION = "0.1.0"
+SCHEMA_VERSION = "0.2.0"
+"""0.2.0 added optional ``sheets`` (pages). 0.1.0 documents are still valid."""
 
 StableId = Annotated[
     str,
@@ -111,6 +112,15 @@ class Placement(_Model):
     rotation: int = Field(default=0, description="Counter-clockwise degrees: 0/90/180/270.")
 
 
+class Sheet(_Model):
+    """One page of a board's schematic. Pages only group components for drawing;
+    nets stay board-wide, so moving a component to another page never changes connectivity."""
+
+    id: StableId
+    name: Annotated[str, StringConstraints(min_length=1, max_length=60, pattern=r"^[^/\\:*?\"<>|]+$")]
+    components: tuple[StableId, ...] = ()
+
+
 class Validation(_Model):
     status: VerificationStatus = VerificationStatus.UNVERIFIED
     notes: str | None = None
@@ -122,9 +132,13 @@ class CircuitIR(_Model):
     title: str | None = None
     components: tuple[Component, ...] = Field(min_length=1)
     nets: tuple[Net, ...] = ()
+    sheets: tuple[Sheet, ...] = Field(
+        default=(),
+        description="Pages in order. Empty means one page. Components not listed go on the first page.",
+    )
     layout: dict[StableId, Placement] = Field(
         default_factory=dict,
-        description="Optional placement per component id; kept apart from connectivity.",
+        description="Optional placement per component id (on its page); kept apart from connectivity.",
     )
     validation: Validation = Field(default_factory=Validation)
 
@@ -133,3 +147,17 @@ class CircuitIR(_Model):
             if c.id == component_id:
                 return c
         return None
+
+    def page_of(self) -> dict[str, str]:
+        """component id -> sheet id (the first sheet for unlisted components)."""
+        if not self.sheets:
+            return {c.id: DEFAULT_SHEET_ID for c in self.components}
+        listed = {cid: sheet.id for sheet in self.sheets for cid in sheet.components}
+        first = self.sheets[0].id
+        return {c.id: listed.get(c.id, first) for c in self.components}
+
+    def effective_sheets(self) -> tuple[Sheet, ...]:
+        return self.sheets or (Sheet(id=DEFAULT_SHEET_ID, name="Page 1"),)
+
+
+DEFAULT_SHEET_ID = "p1"

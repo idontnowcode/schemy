@@ -44,7 +44,7 @@ class Requirements(_Model):
     text: str = Field(max_length=200_000)
 
 
-RevisionSource = Literal["user_edit", "import", "restore"]
+RevisionSource = Literal["user_edit", "import", "restore", "inventory"]
 
 
 class RevisionInfo(_Model):
@@ -125,3 +125,19 @@ class Job(_Model):
     finished_at: str | None = None
     result: dict | None = None
     error: dict | None = None
+
+
+class FileUpload(_Model):
+    """A file sent as base64 inside JSON (keeps the API free of multipart handling)."""
+
+    filename: str = Field(min_length=1, max_length=255)
+    content_base64: str
+
+
+class InventoryImportRequest(FileUpload):
+    save: bool = Field(default=False, description="False = preview only")
+
+
+class InventoryApplyRequest(_Model):
+    apply_matched: bool = True
+    choices: dict[str, str] = Field(default_factory=dict, description="component id -> inventory part id")

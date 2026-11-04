@@ -68,32 +68,58 @@ class PinAnchor:
     x: float
     y: float
     net: str | None
+    sheet: str = "p1"
+
+
+@dataclass
+class GeneratedPage:
+    """One page = one .kicad_sch file. Page 1 is the root schematic."""
+
+    sheet_id: str
+    name: str
+    number: int
+    filename: str
+    text: str
+    paper: str
+    bbox: tuple[float, float, float, float] | None
+    """Approximate drawing extent on the sheet (x, y, width, height in mm), for cropping previews."""
 
 
 @dataclass
 class GeneratedSchematic:
-    text: str
+    pages: list[GeneratedPage]
     project_name: str
     root_uuid: str
     anchors: list[PinAnchor]
     warnings: list[Issue] = field(default_factory=list)
     symbol_sources: dict[str, dict[str, str]] = field(default_factory=dict)
-    bbox: tuple[float, float, float, float] | None = None
-    """Approximate drawing extent on the sheet (x, y, width, height in mm), for cropping previews."""
+
+    @property
+    def text(self) -> str:
+        """The root schematic (page 1)."""
+        return self.pages[0].text
+
+    @property
+    def bbox(self) -> tuple[float, float, float, float] | None:
+        return self.pages[0].bbox
+
+    @property
+    def files(self) -> dict[str, str]:
+        return {page.filename: page.text for page in self.pages}
 
     def write(self, out_dir: Path) -> Path:
-        """Write ``<project>.kicad_sch`` and ``<project>.kicad_pro`` side by side.
+        """Write every page, plus ``<project>.kicad_pro``; returns the root ``.kicad_sch``.
 
         Users should open the ``.kicad_pro``. A ``.kicad_sch`` opened on its own
         runs without a project, and KiCad may then report libraries from other
         projects' settings as missing.
         """
         out_dir.mkdir(parents=True, exist_ok=True)
-        sch = out_dir / f"{self.project_name}.kicad_sch"
-        _atomic_write(sch, self.text)
+        for page in self.pages:
+            _atomic_write(out_dir / page.filename, page.text)
         pro = out_dir / f"{self.project_name}.kicad_pro"
         _atomic_write(pro, project_file(self.project_name))
-        return sch
+        return out_dir / self.pages[0].filename
 
 
 def project_file(project_name: str) -> str:
@@ -164,8 +190,91 @@ class _Ids:
         return str(uuid.uuid5(_UUID_NAMESPACE, "/".join((self.project_id, *parts))))
 
 
-def _auto_placement(index: int) -> Placement:
-    return Placement(x=50.8 + (index % 6) * 30.48, y=63.5 + (index // 6) * 30.48, rotation=0)
+PAPERS = (("A4", 297.0, 210.0), ("A3", 420.0, 297.0), ("A2", 594.0, 420.0), ("A1", 841.0, 594.0),
+          ("A0", 1189.0, 841.0))
+_MARGIN = 15.24
+_TITLE_BLOCK = 40.64  # keep the bottom strip free for KiCad's title block
+_GAP = 7.62
+_SHEET_SYMBOL_H = 10.16
+
+Extent = tuple[float, float, float, float]  # min x, min y, max x, max y (sheet frame, relative to origin)
+
+
+def _snap_up(v: float, step: float = 2 * GRID) -> float:
+    return round(-(-v // step) * step, 4)
+
+
+def _symbol_extent(sym: LibSymbol, comp, net_of: dict, rotation: int = 0) -> Extent:
+    """Space a placed symbol needs: body graphics, pins, stubs with labels, visible fields."""
+    pts: list[tuple[float, float]] = []
+    for sub in sexpr.children(sym.node, "symbol"):
+        for g in sub[2:]:
+            kind = sexpr.head(g)
+            if kind == "rectangle":
+                for corner in ("start", "end"):
+                    n = sexpr.child(g, corner)
+                    pts.append((float(n[1]), -float(n[2])))
+            elif kind in ("polyline", "bezier"):
+                for xy in sexpr.children(sexpr.child(g, "pts") or ["pts"], "xy"):
+                    pts.append((float(xy[1]), -float(xy[2])))
+            elif kind == "circle":
+                c, r = sexpr.child(g, "center"), float(sexpr.child(g, "radius")[1])
+                pts += [(float(c[1]) - r, -float(c[2]) - r), (float(c[1]) + r, -float(c[2]) + r)]
+            elif kind == "arc":
+                for key in ("start", "mid", "end"):
+                    n = sexpr.child(g, key)
+                    pts.append((float(n[1]), -float(n[2])))
+    for pin in comp.pins:
+        lib_pin = sym.pin(pin.number)
+        x, y = lib_pin.x, -lib_pin.y
+        pts.append((x, y))
+        net = net_of.get((comp.id, pin.number))
+        if net:
+            ox, oy = _OUTWARD[lib_pin.angle]
+            reach = STUB_LENGTH + len(net) * LABEL_FONT * 0.9 + 2.0
+            pts.append((x + ox * reach, y + oy * reach))
+    shown = {"Reference": comp.reference, "Value": comp.value}
+    for f in sym.fields:
+        if not f.hidden and not f.name.startswith("ki_"):
+            half = max(GRID, len(shown.get(f.name, f.value)) * 0.7)
+            pts += [(f.x - half, -f.y - half), (f.x + half, -f.y + half)]
+    rotated = [_rotate(x, y, rotation) for x, y in pts] or [(0.0, 0.0)]
+    xs, ys = [x for x, _ in rotated], [y for _, y in rotated]
+    return (min(xs) - GRID, min(ys) - GRID, max(xs) + GRID, max(ys) + GRID)
+
+
+def _layout_page(fixed: dict[str, tuple[Placement, Extent]], auto: list[tuple[str, Extent]]
+                 ) -> tuple[dict[str, tuple[float, float]], str, bool]:
+    """Shelf-pack ``auto`` items below any fixed ones on the smallest paper that fits.
+
+    Returns origin per auto item, the paper name, and whether even A0 overflowed.
+    """
+    fixed_box = None
+    if fixed:
+        boxes = [(p.x + e[0], p.y + e[1], p.x + e[2], p.y + e[3]) for p, e in fixed.values()]
+        fixed_box = (min(b[0] for b in boxes), min(b[1] for b in boxes),
+                     max(b[2] for b in boxes), max(b[3] for b in boxes))
+    result: dict[str, tuple[float, float]] = {}
+    for name, width, height in PAPERS:
+        left, top, right, bottom = _MARGIN, _MARGIN, width - _MARGIN, height - _MARGIN - _TITLE_BLOCK
+        if fixed_box and (fixed_box[2] > width - _MARGIN or fixed_box[3] > height - _MARGIN):
+            continue
+        row_top = top if fixed_box is None else max(top, fixed_box[3] + _GAP)
+        cursor, row_bottom, result, fits = left, row_top, {}, True
+        for key, (x0, y0, x1, y1) in auto:
+            if x1 - x0 > right - left:
+                fits = False
+            ox = _snap_up(cursor - x0)
+            if ox + x1 > right and cursor > left:
+                row_top, cursor = _snap_up(row_bottom + _GAP), left
+                ox = _snap_up(cursor - x0)
+            oy = _snap_up(row_top - y0)
+            result[key] = (ox, oy)
+            cursor = ox + x1 + _GAP
+            row_bottom = max(row_bottom, oy + y1)
+        if fits and (not auto or row_bottom <= bottom):
+            return result, name, False
+    return result, PAPERS[-1][0], True
 
 
 def check_against_library(circuit: CircuitIR, library: SymbolLibrary) -> tuple[dict[str, LibSymbol], list[Issue]]:
@@ -231,7 +340,12 @@ def _field_node(name: str, value: str, x: float, y: float, angle: float, hidden:
 
 def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                        project_name: str = "schematic") -> GeneratedSchematic:
-    """Build a KiCad 10 schematic for ``circuit``; raise on any error-level issue."""
+    """Build a KiCad 10 schematic for ``circuit``; raise on any error-level issue.
+
+    One page gives one ``.kicad_sch``. With several pages (``circuit.sheets``), page 1 is
+    the root schematic holding a sheet symbol for every other page, each other page is
+    its own file, and nets that appear on more than one page use global labels.
+    """
     if not _PROJECT_NAME.fullmatch(project_name):
         raise ValueError(f"project name {project_name!r} must match {_PROJECT_NAME.pattern}")
     validation = validate_circuit(circuit)
@@ -244,113 +358,203 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
 
     ids = _Ids(circuit.project_id)
     root_uuid = ids("sheet", "root")
-    placements = {
-        c.id: circuit.layout.get(c.id) or _auto_placement(i)
-        for i, c in enumerate(circuit.components)
-    }
-    for comp_id, p in placements.items():
-        if not (_on_grid(p.x) and _on_grid(p.y)):
+    sheets = circuit.effective_sheets()
+    multi = len(sheets) > 1
+    page_of = circuit.page_of()
+    net_of = {(n.component_id, n.pin): net.name for net in circuit.nets for n in net.nodes}
+    net_pages: dict[str, set[str]] = {}
+    for (comp_id, _), net in net_of.items():
+        net_pages.setdefault(net, set()).add(page_of[comp_id])
+    global_nets = {net for net, pages in net_pages.items() if len(pages) > 1}
+
+    # Placement per page -------------------------------------------------------
+    placements: dict[str, Placement] = {}
+    papers: dict[str, str] = {}
+    sheet_origins: dict[str, tuple[float, float]] = {}
+    sheet_sizes = {sh.id: (max(30.48, _snap_up(len(sh.name) * LABEL_FONT * 0.8 + 10.16)), _SHEET_SYMBOL_H)
+                   for sh in sheets[1:]}
+    for index, sheet in enumerate(sheets):
+        comps = [c for c in circuit.components if page_of[c.id] == sheet.id]
+        fixed = {c.id: (circuit.layout[c.id], _symbol_extent(symbols[c.id], c, net_of, circuit.layout[c.id].rotation))
+                 for c in comps if c.id in circuit.layout}
+        auto: list[tuple[str, Extent]] = [(c.id, _symbol_extent(symbols[c.id], c, net_of))
+                                          for c in comps if c.id not in circuit.layout]
+        if index == 0 and multi:
+            auto += [(f"sheet:{sh.id}", (0.0, -2 * GRID, sheet_sizes[sh.id][0], _SHEET_SYMBOL_H + 2 * GRID))
+                     for sh in sheets[1:]]
+        origins, paper, overflow = _layout_page(fixed, auto)
+        papers[sheet.id] = paper
+        if overflow:
+            warnings.append(Issue("PAGE_OVERFLOW", Severity.WARNING,
+                                  f"Page '{sheet.name}' does not fit on A0; split it into more pages."))
+        for c in comps:
+            if c.id in circuit.layout:
+                placements[c.id] = circuit.layout[c.id]
+            else:
+                ox, oy = origins[c.id]
+                placements[c.id] = Placement(x=ox, y=oy, rotation=0)
+        for key, origin in origins.items():
+            if key.startswith("sheet:"):
+                sheet_origins[key[6:]] = origin
+    for comp_id, pl in placements.items():
+        if not (_on_grid(pl.x) and _on_grid(pl.y)):
             warnings.append(Issue("OFF_GRID", Severity.WARNING,
                                   f"Placement of '{comp_id}' is not on the {GRID} mm grid.", (comp_id,)))
 
-    net_of = {(n.component_id, n.pin): net.name for net in circuit.nets for n in net.nodes}
-
-    # Pin anchors, stubs and labels -------------------------------------------
-    anchors: list[PinAnchor] = []
-    wires: list[list] = []
-    labels: list[list] = []
-    points: dict[tuple[float, float], set[str]] = {}
-    extent: list[tuple[float, float]] = []
-    segments: list[tuple[tuple[float, float], tuple[float, float], str]] = []
-
-    for comp in circuit.components:
-        sym, p = symbols[comp.id], placements[comp.id]
-        for pin in comp.pins:
-            lib_pin = sym.pin(pin.number)
-            x, y = _to_sheet(p, lib_pin.x, lib_pin.y)
-            net = net_of.get((comp.id, pin.number))
-            anchors.append(PinAnchor(comp.reference, pin.number, x, y, net))
-            points.setdefault((x, y), set()).add(net or f"<unconnected {comp.reference}.{pin.number}>")
-            if net is None:
-                continue
-            ox, oy = _rotate(*_OUTWARD[lib_pin.angle], p.rotation)
-            ex, ey = round(x + ox * STUB_LENGTH, 4), round(y + oy * STUB_LENGTH, 4)
-            points.setdefault((ex, ey), set()).add(net)
-            segments.append(((x, y), (ex, ey), net))
-            key = (comp.id, pin.number)
-            wires.append([
-                "wire",
-                ["pts", ["xy", num(x), num(y)], ["xy", num(ex), num(ey)]],
-                ["stroke", ["width", "0"], ["type", "default"]],
-                ["uuid", q(ids("wire", *key))],
-            ])
-            angle, justify = _LABEL_STYLE[(ox, oy)]
-            text_len = len(net) * LABEL_FONT * 0.9 + 1.0
-            extent.append((ex + ox * text_len, ey + oy * text_len))
-            labels.append([
-                "label", q(net),
-                ["at", num(ex), num(ey), num(angle)],
-                _effects(LABEL_FONT, justify),
-                ["uuid", q(ids("label", *key))],
-            ])
-
-    extent.extend(points)
-    collisions = _find_collisions(points, segments)
-    if collisions:
-        raise SchematicGenerationError(collisions)
-
-    # Placed symbols ----------------------------------------------------------
-    placed: list[list] = []
-    for comp in circuit.components:
-        sym, p = symbols[comp.id], placements[comp.id]
-        placed.append(_placed_symbol(comp, sym, p, ids, project_name, root_uuid))
-        extent += [(p.x - _BODY_REACH, p.y - _BODY_REACH), (p.x + _BODY_REACH, p.y + _BODY_REACH)]
-        shown = {"Reference": comp.reference, "Value": comp.value}
-        for f in sym.fields:
-            if not f.hidden and not f.name.startswith("ki_"):
-                fx, fy = _to_sheet(p, f.x, f.y)
-                half = max(GRID, len(shown.get(f.name, f.value)) * 0.7)
-                extent += [(fx - half, fy - half), (fx + half, fy + half)]
-
-    unique_symbols = {s.lib_id: s for s in symbols.values()}
-    lib_symbols = ["lib_symbols"] + [unique_symbols[k].embedded_node() for k in sorted(unique_symbols)]
-
-    title = circuit.title or circuit.project_id
-    doc: list = [
-        "kicad_sch",
-        ["version", SCHEMATIC_FILE_VERSION],
-        ["generator", q(GENERATOR)],
-        ["generator_version", q(GENERATOR_VERSION)],
-        ["uuid", q(root_uuid)],
-        ["paper", q("A4")],
-        ["title_block",
-         ["title", q(title)],
-         ["comment", "1", q(f"Generated from Circuit IR '{circuit.project_id}' "
-                               f"(schema {circuit.schema_version})")],
-         ["comment", "2", q(f"Design verification status: {circuit.validation.status.value}")]],
-        lib_symbols,
-        # KiCad 10 saves items grouped by type and sorted by UUID; doing the same
-        # makes a load/save round trip in KiCad a no-op apart from the generator.
-        *sorted(wires, key=_uuid_of),
-        *sorted(labels, key=_uuid_of),
-        *sorted(placed, key=_uuid_of),
-        ["sheet_instances", ["path", q("/"), ["page", q("1")]]],
-    ]
-
+    # Pages ------------------------------------------------------------------------
     sources = {}
-    for s in symbols.values():
-        nickname = s.lib_id.partition(":")[0]
-        sources[s.lib_id] = library.provenance(nickname)
+    for sym in symbols.values():
+        sources[sym.lib_id] = library.provenance(sym.lib_id.partition(":")[0])
+    title = circuit.title or circuit.project_id
+    anchors: list[PinAnchor] = []
+    pages: list[GeneratedPage] = []
+    for index, sheet in enumerate(sheets):
+        comps = [c for c in circuit.components if page_of[c.id] == sheet.id]
+        instance_path = f"/{root_uuid}" if index == 0 else f"/{root_uuid}/{ids('sheet-symbol', sheet.id)}"
+        wires, labels, glabels, placed = [], [], [], []
+        points: dict[tuple[float, float], set[str]] = {}
+        extent: list[tuple[float, float]] = []
+        segments: list[tuple[tuple[float, float], tuple[float, float], str]] = []
+
+        for comp in comps:
+            sym, pl = symbols[comp.id], placements[comp.id]
+            for pin in comp.pins:
+                lib_pin = sym.pin(pin.number)
+                x, y = _to_sheet(pl, lib_pin.x, lib_pin.y)
+                net = net_of.get((comp.id, pin.number))
+                anchors.append(PinAnchor(comp.reference, pin.number, x, y, net, sheet.id))
+                points.setdefault((x, y), set()).add(net or f"<unconnected {comp.reference}.{pin.number}>")
+                if net is None:
+                    continue
+                ox, oy = _rotate(*_OUTWARD[lib_pin.angle], pl.rotation)
+                ex, ey = round(x + ox * STUB_LENGTH, 4), round(y + oy * STUB_LENGTH, 4)
+                points.setdefault((ex, ey), set()).add(net)
+                segments.append(((x, y), (ex, ey), net))
+                key = (comp.id, pin.number)
+                wires.append([
+                    "wire",
+                    ["pts", ["xy", num(x), num(y)], ["xy", num(ex), num(ey)]],
+                    ["stroke", ["width", "0"], ["type", "default"]],
+                    ["uuid", q(ids("wire", *key))],
+                ])
+                angle, justify = _LABEL_STYLE[(ox, oy)]
+                text_len = len(net) * LABEL_FONT * 0.9 + 1.0
+                extent.append((ex + ox * text_len, ey + oy * text_len))
+                if net in global_nets:
+                    glabels.append(_global_label(net, ex, ey, angle, justify[0], ids("glabel", *key)))
+                else:
+                    labels.append([
+                        "label", q(net),
+                        ["at", num(ex), num(ey), num(angle)],
+                        _effects(LABEL_FONT, justify),
+                        ["uuid", q(ids("label", *key))],
+                    ])
+            placed.append(_placed_symbol(comp, sym, pl, ids, project_name, instance_path))
+            extent += [(pl.x - _BODY_REACH, pl.y - _BODY_REACH), (pl.x + _BODY_REACH, pl.y + _BODY_REACH)]
+            shown = {"Reference": comp.reference, "Value": comp.value}
+            for f in sym.fields:
+                if not f.hidden and not f.name.startswith("ki_"):
+                    fx, fy = _to_sheet(pl, f.x, f.y)
+                    half = max(GRID, len(shown.get(f.name, f.value)) * 0.7)
+                    extent += [(fx - half, fy - half), (fx + half, fy + half)]
+
+        extent.extend(points)
+        collisions = _find_collisions(points, segments)
+        if collisions:
+            raise SchematicGenerationError(collisions)
+
+        sheet_nodes = []
+        if index == 0:
+            for number, sub in enumerate(sheets[1:], start=2):
+                sx, sy = sheet_origins[sub.id]
+                w, h = sheet_sizes[sub.id]
+                sheet_nodes.append(_sheet_symbol(sub, number, sx, sy, w, h, _page_filename(project_name, sub, number),
+                                                 ids("sheet-symbol", sub.id), project_name, root_uuid))
+                extent += [(sx, sy - 2 * GRID), (sx + w, sy + h + 2 * GRID)]
+
+        used = {symbols[c.id].lib_id: symbols[c.id] for c in comps}
+        lib_symbols = ["lib_symbols"] + [used[k].embedded_node() for k in sorted(used)]
+        comments = [
+            ["comment", "1", q(f"Generated from Circuit IR '{circuit.project_id}' (schema {circuit.schema_version})")],
+            ["comment", "2", q(f"Design verification status: {circuit.validation.status.value}")],
+        ]
+        if multi:
+            comments.append(["comment", "3", q(f"Page {index + 1}/{len(sheets)}: {sheet.name}")])
+        doc: list = [
+            "kicad_sch",
+            ["version", SCHEMATIC_FILE_VERSION],
+            ["generator", q(GENERATOR)],
+            ["generator_version", q(GENERATOR_VERSION)],
+            ["uuid", q(root_uuid if index == 0 else ids("sheet-file", sheet.id))],
+            ["paper", q(papers[sheet.id])],
+            ["title_block", ["title", q(title)], *comments],
+            lib_symbols,
+            # KiCad 10 saves items grouped by type and sorted by UUID; doing the same
+            # makes a load/save round trip in KiCad a no-op apart from the generator.
+            *sorted(wires, key=_uuid_of),
+            *sorted(labels, key=_uuid_of),
+            *sorted(glabels, key=_uuid_of),
+            *sorted(placed, key=_uuid_of),
+            *sorted(sheet_nodes, key=_uuid_of),
+        ]
+        if index == 0:
+            doc.append(["sheet_instances", ["path", q("/"), ["page", q("1")]]])
+        pages.append(GeneratedPage(
+            sheet_id=sheet.id, name=sheet.name, number=index + 1,
+            filename=f"{project_name}.kicad_sch" if index == 0 else _page_filename(project_name, sheet, index + 1),
+            text=sexpr.dumps(doc), paper=papers[sheet.id], bbox=_bbox(extent, margin=2 * GRID),
+        ))
 
     return GeneratedSchematic(
-        text=sexpr.dumps(doc),
+        pages=pages,
         project_name=project_name,
         root_uuid=root_uuid,
         anchors=anchors,
         warnings=warnings,
         symbol_sources=dict(sorted(sources.items())),
-        bbox=_bbox(extent, margin=2 * GRID),
     )
+
+
+def _page_filename(project_name: str, sheet, number: int) -> str:
+    return f"{project_name}-p{number}-{sheet.id}.kicad_sch"
+
+
+def _global_label(net: str, x: float, y: float, angle: int, justify: str, uid: str) -> list:
+    return [
+        "global_label", q(net),
+        ["shape", "passive"],
+        ["at", num(x), num(y), num(angle)],
+        ["fields_autoplaced", "yes"],
+        _effects(LABEL_FONT, (justify,)),
+        ["uuid", q(uid)],
+        ["property", q("Intersheetrefs"), q("${INTERSHEET_REFS}"),
+         ["at", num(x), num(y), num(angle)],
+         ["hide", "yes"], ["show_name", "no"], ["do_not_autoplace", "no"],
+         _effects(LABEL_FONT, (justify,))],
+    ]
+
+
+def _sheet_symbol(sheet, number: int, x: float, y: float, w: float, h: float, filename: str, uid: str,
+                  project_name: str, root_uuid: str) -> list:
+    def field_node(name: str, value: str, fy: float, justify: tuple[str, str]) -> list:
+        return ["property", q(name), q(value), ["at", num(x), num(fy), "0"],
+                ["show_name", "no"], ["do_not_autoplace", "no"], _effects(LABEL_FONT, justify)]
+
+    return [
+        "sheet",
+        ["at", num(x), num(y)],
+        ["size", num(w), num(h)],
+        ["exclude_from_sim", "no"],
+        ["in_bom", "yes"],
+        ["on_board", "yes"],
+        ["dnp", "no"],
+        ["stroke", ["width", "0"], ["type", "solid"]],
+        ["fill", ["color", "0", "0", "0", "0"]],
+        ["uuid", q(uid)],
+        field_node("Sheetname", sheet.name, y - 0.762, ("left", "bottom")),
+        field_node("Sheetfile", filename, y + h + 0.635, ("left", "top")),
+        ["instances", ["project", q(project_name), ["path", q(f"/{root_uuid}"), ["page", q(str(number))]]]],
+    ]
 
 
 def _bbox(pts: list[tuple[float, float]], margin: float) -> tuple[float, float, float, float] | None:
@@ -366,7 +570,7 @@ def _uuid_of(node: list) -> str:
 
 
 def _placed_symbol(comp, sym: LibSymbol, p: Placement, ids: _Ids, project_name: str,
-                   root_uuid: str) -> list:
+                   instance_path: str) -> list:
     def flag(name: str, default: str) -> list:
         node = sexpr.child(sym.node, name)
         return [name, node[1] if node else default]
@@ -408,7 +612,7 @@ def _placed_symbol(comp, sym: LibSymbol, p: Placement, ids: _Ids, project_name: 
     node.append([
         "instances",
         ["project", q(project_name),
-         ["path", q(f"/{root_uuid}"), ["reference", q(comp.reference)], ["unit", "1"]]],
+         ["path", q(instance_path), ["reference", q(comp.reference)], ["unit", "1"]]],
     ])
     return node
 

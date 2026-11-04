@@ -23,7 +23,9 @@ from kicad_adapter import SymbolLibrary, check_against_library
 from .config import APP_VERSION, Settings
 from .errors import ApiError, issue_dict, not_found
 from .exports import ARTIFACT_TYPES, outputs_status, run_export
+from .inventory_store import InventoryStore
 from .jobs import JobRunner
+from .routes_inventory import build_inventory_router
 from .schemas import AppSettings, ExportRequest, ProjectCreate, ProjectUpdate, Requirements
 from .store import ProjectStore
 
@@ -37,6 +39,7 @@ def _schema_errors(exc: ValidationError) -> list[dict]:
 def create_app(settings: Settings) -> FastAPI:
     store = ProjectStore(settings.workspace)
     jobs = JobRunner(store)
+    inventory = InventoryStore(settings.workspace)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -48,6 +51,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.store = store
     app.state.jobs = jobs
     app.state.settings = settings
+    app.include_router(build_inventory_router(store, inventory))
 
     @lru_cache(maxsize=1)
     def kicad_info() -> dict:
