@@ -83,7 +83,10 @@ def test_file_structure(led_circuit, library):
     assert head(doc) == "kicad_sch"
     assert child(doc, "version")[1] == SCHEMATIC_FILE_VERSION
     embedded = sorted(unquote(s[1]) for s in children(child(doc, "lib_symbols"), "symbol"))
-    assert embedded == ["Connector_Generic:Conn_01x02", "Device:LED", "Device:R"]
+    # Rails are drawn with KiCad power symbols (VIN has no symbol of its own, so VCC is renamed), and
+    # power entering through J1 gets a PWR_FLAG.
+    assert embedded == ["Connector_Generic:Conn_01x02", "Device:LED", "Device:R", "power:GND", "power:PWR_FLAG",
+                        "power:VCC"]
     placed = {
         unquote(child(s, "lib_id")[1]): s for s in children(doc, "symbol")
     }
@@ -92,8 +95,13 @@ def test_file_structure(led_circuit, library):
     assert props["Reference"] == "D1"
     assert props["Footprint"] == "LED_SMD:LED_0603_1608Metric"
     assert props["AICS_ID"] == "led-001"
+    # R1 and D1 are joined by a wire; the net keeps its name with one label on it.
     labels = sorted(unquote(lbl[1]) for lbl in children(doc, "label"))
-    assert labels == ["GND", "GND", "LED_A", "LED_A", "VIN", "VIN"]
+    assert labels == ["LED_A"]
+    power_values = sorted(
+        next(unquote(p[2]) for p in children(s, "property") if unquote(p[1]) == "Value")
+        for s in children(doc, "symbol") if unquote(child(s, "lib_id")[1]) in ("power:GND", "power:VCC"))
+    assert set(power_values) == {"GND", "VIN"}
 
 
 def test_pin_anchors(led_circuit, library):
@@ -122,7 +130,8 @@ def test_connectivity_is_independent_of_layout(led_circuit_data, library):
 
 def test_symbol_sources_recorded(led_circuit, library):
     sources = generate_schematic(led_circuit, library).symbol_sources
-    assert set(sources) == {"Connector_Generic:Conn_01x02", "Device:LED", "Device:R"}
+    assert set(sources) == {"Connector_Generic:Conn_01x02", "Device:LED", "Device:R", "power:GND",
+                            "power:PWR_FLAG", "power:VCC"}
     assert sources["Device:R"]["version"] == "20251024"
 
 
@@ -216,16 +225,20 @@ def test_two_pages_structure(library):
     g = generate_schematic(two_page_led(), library)
     assert [p.filename for p in g.pages] == ["schematic.kicad_sch", "schematic-p2-led.kicad_sch"]
     root, sub = (sexpr.parse(p.text) for p in g.pages)
+
+    def parts(doc):
+        return [unquote(child(s, "lib_id")[1]) for s in children(doc, "symbol")
+                if not unquote(child(s, "lib_id")[1]).startswith("power:")]
+
     # Root holds J1 and one sheet symbol pointing at page 2.
-    assert [unquote(child(s, "lib_id")[1]) for s in children(root, "symbol")] == ["Connector_Generic:Conn_01x02"]
+    assert parts(root) == ["Connector_Generic:Conn_01x02"]
     sheet = child(root, "sheet")
     props = {unquote(p[1]): unquote(p[2]) for p in children(sheet, "property")}
     assert props == {"Sheetname": "LED 출력", "Sheetfile": "schematic-p2-led.kicad_sch"}
     assert child(child(child(child(sheet, "instances"), "project"), "path"), "page")[1] == '"2"'
-    # Nets crossing pages become global labels; LED_A stays local on page 2.
-    assert sorted(unquote(g[1]) for g in children(root, "global_label")) == ["GND", "VIN"]
-    assert sorted(unquote(lbl[1]) for lbl in children(sub, "label")) == ["LED_A", "LED_A"]
-    assert sorted(unquote(g[1]) for g in children(sub, "global_label")) == ["GND", "VIN"]
+    # The rails crossing pages are power symbols (global by nature); LED_A stays a local label on page 2.
+    assert list(children(root, "global_label")) == [] and list(children(sub, "global_label")) == []
+    assert sorted(unquote(lbl[1]) for lbl in children(sub, "label")) == ["LED_A"]
     # Sub-page symbols are instanced under the sheet symbol, and only the root has sheet_instances.
     path = child(child(child(next(children(sub, "symbol")), "instances"), "project"), "path")[1]
     assert unquote(path) == f"/{g.root_uuid}/{unquote(child(sheet, 'uuid')[1])}"
@@ -256,7 +269,7 @@ def test_auto_layout_picks_a_bigger_sheet_when_needed(library):
 
     small = generate_schematic(many_resistors(6), library)
     assert small.pages[0].paper == "A4"
-    big = generate_schematic(many_resistors(80), library)
+    big = generate_schematic(many_resistors(200), library)
     assert big.pages[0].paper in ("A3", "A2", "A1")
     assert not [w for w in big.warnings if w.error_code == "PAGE_OVERFLOW"]
     # No two symbols share an origin and every pin is inside the sheet.
@@ -327,3 +340,153 @@ def sexpr_child(node, name):
     from kicad_adapter import sexpr
 
     return sexpr.child(node, name)
+
+
+# --- drawing: power symbols, wires, labels ------------------------------------------------------
+
+def drawn_nets(generated) -> dict[frozenset, set[str]]:
+    """Connectivity read back from the drawing alone (wires, labels, power symbols), as KiCad would: groups of
+    (reference, pin), each with the names that label it. Independent of the generator's own bookkeeping."""
+    parent: dict = {}
+
+    def find(a):
+        parent.setdefault(a, a)
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    def join(a, b):
+        parent[find(a)] = find(b)
+
+    def pt(node):
+        return round(float(node[1]), 3), round(float(node[2]), 3)
+
+    names: dict = {}
+    for page in generated.pages:
+        doc = sexpr.parse(page.text)
+        sheet = page.sheet_id
+        segments = []
+        for w in children(doc, "wire"):
+            a, b = (pt(xy) for xy in children(child(w, "pts"), "xy"))
+            segments.append((a, b))
+            join(("pt", sheet, a), ("pt", sheet, b))
+
+        def on_wire(p, sheet=sheet, segments=segments):
+            for a, b in segments:
+                if min(a[0], b[0]) <= p[0] <= max(a[0], b[0]) and min(a[1], b[1]) <= p[1] <= max(a[1], b[1]):
+                    join(("pt", sheet, p), ("pt", sheet, a))
+
+        for kind in ("label", "global_label"):
+            for lbl in children(doc, kind):
+                p = pt(child(lbl, "at"))
+                on_wire(p)
+                scope = ("label", sheet) if kind == "label" else ("global",)
+                join(("pt", sheet, p), ("name", *scope, unquote(lbl[1])))
+                names.setdefault(find(("pt", sheet, p)), set()).add(unquote(lbl[1]))
+        for sym in children(doc, "symbol"):
+            if unquote(child(sym, "lib_id")[1]).startswith("power:") and "PWR_FLAG" not in unquote(child(sym, "lib_id")[1]):
+                value = next(unquote(p[2]) for p in children(sym, "property") if unquote(p[1]) == "Value")
+                p = pt(child(sym, "at"))  # power symbols have their pin at the origin
+                on_wire(p)
+                join(("pt", sheet, p), ("name", "global", value))
+    for a in generated.anchors:
+        p = (round(a.x, 3), round(a.y, 3))
+        join(("pin", a.reference, a.pin), ("pt", a.sheet, p))
+    groups: dict = {}
+    for a in generated.anchors:
+        groups.setdefault(find(("pin", a.reference, a.pin)), set()).add((a.reference, a.pin))
+    labelled: dict = {}
+    for root, nodes in groups.items():
+        tags = {n for r, ns in names.items() if find(r) == root for n in ns}
+        tags |= {k[-1] for k in parent if k[0] == "name" and find(k) == root}
+        labelled[frozenset(nodes)] = tags
+    return labelled
+
+
+def ir_nets(circuit) -> dict[frozenset, str]:
+    refs = {c.id: c.reference for c in circuit.components}
+    return {frozenset((refs[n.component_id], n.pin) for n in net.nodes): net.name for net in circuit.nets}
+
+
+@pytest.mark.parametrize("make", ["can_node", "ldo_supply", "two_page_led", "rotation_ring"])
+def test_drawing_reproduces_exactly_the_ir_nets(library, make):
+    from . import circuits
+
+    circuit = getattr(circuits, make)()
+    drawn = drawn_nets(generate_schematic(circuit, library))
+    want = ir_nets(circuit)
+    connected = {nodes: tags for nodes, tags in drawn.items() if len(nodes) > 1 or tags}
+    assert set(connected) == set(want)
+    for nodes, name in want.items():
+        assert name in connected[nodes], f"net {name} lost its name"
+
+
+def test_drawing_with_many_parts_keeps_nets_apart(library):
+    from .circuits import many_resistors
+
+    circuit = many_resistors(40)
+    drawn = drawn_nets(generate_schematic(circuit, library))
+    assert set(nodes for nodes in drawn if len(nodes) > 1) == set(ir_nets(circuit))
+
+
+def test_rails_are_power_symbols_and_nearby_pins_are_wired(library):
+    from .circuits import can_node
+
+    g = generate_schematic(can_node(), library)
+    doc = sexpr.parse(g.text)
+    values = {next(unquote(p[2]) for p in children(s, "property") if unquote(p[1]) == "Value")
+              for s in children(doc, "symbol") if unquote(child(s, "lib_id")[1]) in ("power:GND", "power:+3V3")}
+    assert values == {"GND", "+3V3"}
+    labels = [unquote(lbl[1]) for lbl in children(doc, "label")]
+    assert "GND" not in labels and "+3V3" not in labels
+    # Every signal net keeps exactly one name label per wired piece, and some pieces join several pins.
+    assert sorted(set(labels)) == ["CANH", "CANL", "RXD", "TXD"]
+    assert len(list(children(doc, "wire"))) > len(labels)
+
+
+def test_connector_facing_right_is_mirrored_to_keep_pin_1_on_top(library):
+    from .circuits import can_node
+
+    g = generate_schematic(can_node(), library)
+    pins = {(a.reference, a.pin): (a.x, a.y) for a in g.anchors}
+    u1_d = pins[("U1", "1")]
+    # J2 (UART) sits left of the transceiver with its pins facing it, pin 1 above pin 2.
+    j2 = [s for s in children(sexpr.parse(g.text), "symbol")
+          if any(unquote(p[1]) == "Reference" and unquote(p[2]) == "J2" for p in children(s, "property"))][0]
+    assert child(j2, "mirror") == ["mirror", "y"]
+    assert pins[("J2", "1")][0] < u1_d[0] and pins[("J2", "1")][1] < pins[("J2", "2")][1]
+
+
+def test_signal_net_crossing_pages_uses_global_labels(library):
+    from .circuits import two_page_led
+
+    data = two_page_led().model_dump(mode="json")
+    for net in data["nets"]:
+        if net["name"] == "VIN":
+            net["name"] = "LED_SUPPLY"  # not a rail name: drawn as a signal
+    g = generate_schematic(CircuitIR.model_validate(data), library)
+    root, sub = (sexpr.parse(p.text) for p in g.pages)
+    assert [unquote(x[1]) for x in children(root, "global_label")] == ["LED_SUPPLY"]
+    assert [unquote(x[1]) for x in children(sub, "global_label")] == ["LED_SUPPLY"]
+
+
+def test_power_flag_where_a_series_part_feeds_a_rail(library):
+    """+5V reaches the regulator only through R1 from the connector: nothing on the board drives it."""
+    two = [{"number": "1"}, {"number": "2"}]
+    circuit = CircuitIR.model_validate({
+        "project_id": "fed", "components": [
+            {"id": "j1", "reference": "J1", "value": "IN", "symbol_id": "Connector_Generic:Conn_01x02", "pins": two},
+            {"id": "r1", "reference": "R1", "value": "0R", "symbol_id": "Device:R", "pins": two},
+            {"id": "u1", "reference": "U1", "value": "AMS1117-3.3", "symbol_id": "Regulator_Linear:AMS1117-3.3",
+             "pins": [{"number": "1"}, {"number": "2"}, {"number": "3"}]},
+            {"id": "c1", "reference": "C1", "value": "10uF", "symbol_id": "Device:C", "pins": two}],
+        "nets": [
+            {"id": "a", "name": "+12V", "nodes": [{"component_id": "j1", "pin": "1"}, {"component_id": "r1", "pin": "1"}]},
+            {"id": "b", "name": "+5V", "nodes": [{"component_id": "r1", "pin": "2"}, {"component_id": "u1", "pin": "3"}]},
+            {"id": "c", "name": "+3V3", "nodes": [{"component_id": "u1", "pin": "2"}, {"component_id": "c1", "pin": "1"}]},
+            {"id": "d", "name": "GND", "nodes": [{"component_id": "j1", "pin": "2"}, {"component_id": "u1", "pin": "1"},
+                                                 {"component_id": "c1", "pin": "2"}]}]})
+    g = generate_schematic(circuit, library)
+    # +12V: power symbol only (a power input) fed by the connector; +5V: fed through R1; +3V3 is driven by U1.
+    assert sorted(g.power_flags) == ["+12V", "+5V", "GND"]

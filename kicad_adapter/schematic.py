@@ -1,9 +1,10 @@
 """Direct Circuit IR -> KiCad 10 ``.kicad_sch`` generator (ADR-001 option B).
 
-Connectivity strategy (PoC): every connected pin gets a short wire stub that
-points away from the symbol body, and a local label carrying the net name sits
-on the free end of the stub. KiCad joins equal label names on a sheet, so the
-netlist depends only on the IR nets, never on how symbols are arranged.
+Drawing (see ``drawing.py``): rails get KiCad power symbols, nearby pins of a
+signal net are joined with wires where the path is clear, and every other pin
+gets a short stub with a label carrying the net name. KiCad joins equal label
+names, so the netlist depends only on the IR nets; wires are an addition that
+is checked against every other net before it is drawn.
 
 The output is deterministic: UUIDs are derived from the project id and IR ids
 (uuid5), and ordering follows the IR. The same IR always yields the same file.
@@ -22,9 +23,33 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from circuit_core import CircuitIR, Issue, Placement, Severity, validate_circuit
+from circuit_core.datasheets import is_ground_name
 from circuit_core.models import Pin
 
 from . import sexpr
+from .drawing import (
+    OUTWARD,
+    PinView,
+    Port,
+    Router,
+    body_rect,
+    field_rect,
+    grow,
+    label_rect,
+    plan_ports,
+    power_symbol_for,
+    r4,
+    rail_kind,
+    rect_of,
+    rotate_rect,
+    shift,
+    transform,
+    transform_dir,
+    union,
+    upright,
+    wire_page,
+)
+from .layout import PinGeom, plan_groups
 from .sexpr import num, q
 from .symbols import LibField, LibSymbol, SymbolLibrary, SymbolLibraryError
 
@@ -34,16 +59,19 @@ GENERATOR = "ai_circuit_studio"
 GENERATOR_VERSION = "0.1"
 
 GRID = 1.27
-STUB_LENGTH = 2.54
 LABEL_FONT = 1.27
 _UUID_NAMESPACE = uuid.UUID("3b0f6f8e-6a43-4d4e-9a8c-2f6f1d0c5a11")
 _PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 
-_BODY_REACH = 7.62  # generous half-size of a small symbol body around its origin
 _MANDATORY_FIELDS = ("Reference", "Value", "Footprint", "Datasheet", "Description")
 
-# Pin direction (towards body, library frame) -> outward unit vector, sheet frame.
-_OUTWARD = {0: (-1, 0), 90: (0, 1), 180: (1, 0), 270: (0, -1)}
+_RC = re.compile(r"^Device:(R|C|CP)(_.*)?$")
+
+
+def _kind(sym: LibSymbol) -> str:
+    if _RC.match(sym.lib_id):
+        return "rc"
+    return "connector" if sym.lib_id.partition(":")[0].startswith("Connector") else ""
 # Outward direction -> (label angle, justification) so the text reads away from the pin.
 _LABEL_STYLE = {
     (1, 0): (0, ("left", "bottom")),
@@ -161,21 +189,8 @@ def _atomic_write(path: Path, text: str) -> None:
 
 # --- geometry ---------------------------------------------------------------
 
-def _rotate(x: float, y: float, rotation: int) -> tuple[float, float]:
-    """Rotate a sheet-frame vector counter-clockwise (as seen on screen)."""
-    if rotation == 0:
-        return x, y
-    if rotation == 90:
-        return y, -x
-    if rotation == 180:
-        return -x, -y
-    if rotation == 270:
-        return -y, x
-    raise ValueError(f"unsupported rotation {rotation}")
-
-
-def _to_sheet(p: Placement, lx: float, ly: float) -> tuple[float, float]:
-    dx, dy = _rotate(lx, -ly, p.rotation)
+def _to_sheet(p: Placement, lx: float, ly: float, mirror: bool = False) -> tuple[float, float]:
+    dx, dy = transform(lx, -ly, p.rotation, mirror)
     return round(p.x + dx, 4), round(p.y + dy, 4)
 
 
@@ -207,43 +222,44 @@ def _snap_up(v: float, step: float = 2 * GRID) -> float:
     return round(-(-v // step) * step, 4)
 
 
-def _symbol_extent(sym: LibSymbol, comp, net_of: dict, rotation: int = 0) -> Extent:
-    """Space a placed symbol needs: body graphics, pins, stubs with labels, visible fields."""
-    pts: list[tuple[float, float]] = []
-    for sub in sexpr.children(sym.node, "symbol"):
-        for g in sub[2:]:
-            kind = sexpr.head(g)
-            if kind == "rectangle":
-                for corner in ("start", "end"):
-                    n = sexpr.child(g, corner)
-                    pts.append((float(n[1]), -float(n[2])))
-            elif kind in ("polyline", "bezier"):
-                for xy in sexpr.children(sexpr.child(g, "pts") or ["pts"], "xy"):
-                    pts.append((float(xy[1]), -float(xy[2])))
-            elif kind == "circle":
-                c, r = sexpr.child(g, "center"), float(sexpr.child(g, "radius")[1])
-                pts += [(float(c[1]) - r, -float(c[2]) - r), (float(c[1]) + r, -float(c[2]) + r)]
-            elif kind == "arc":
-                for key in ("start", "mid", "end"):
-                    n = sexpr.child(g, key)
-                    pts.append((float(n[1]), -float(n[2])))
+def _pin_views(sym: LibSymbol, comp, net_of: dict, rotation: int, mirror: bool = False) -> list[PinView]:
+    """A part's pins at a rotation (after an optional ``mirror y``), relative to its origin (sheet frame)."""
+    views = []
     for pin in comp.pins:
         lib_pin = sym.pin(pin.number)
-        x, y = lib_pin.x, -lib_pin.y
-        pts.append((x, y))
-        net = net_of.get((comp.id, pin.number))
-        if net:
-            ox, oy = _OUTWARD[lib_pin.angle]
-            reach = STUB_LENGTH + len(net) * LABEL_FONT * 0.9 + 2.0
-            pts.append((x + ox * reach, y + oy * reach))
+        if lib_pin is None:
+            continue
+        x, y = transform(lib_pin.x, -lib_pin.y, rotation, mirror)
+        views.append(PinView(pin.number, r4((x, y)), transform_dir(OUTWARD[lib_pin.angle], rotation, mirror),
+                             net_of.get((comp.id, pin.number)), getattr(pin, "no_connect", False)))
+    return views
+
+
+def _field_rects(sym: LibSymbol, comp, rotation: int, mirror: bool = False) -> list[Extent]:
     shown = {"Reference": comp.reference, "Value": comp.value}
-    for f in sym.fields:
-        if not f.hidden and not f.name.startswith("ki_"):
-            half = max(GRID, len(shown.get(f.name, f.value)) * 0.7)
-            pts += [(f.x - half, -f.y - half), (f.x + half, -f.y + half)]
-    rotated = [_rotate(x, y, rotation) for x, y in pts] or [(0.0, 0.0)]
-    xs, ys = [x for x, _ in rotated], [y for _, y in rotated]
-    return (min(xs) - GRID, min(ys) - GRID, max(xs) + GRID, max(ys) + GRID)
+    return [field_rect(f, shown.get(f.name, f.value), rotation, mirror) for f in sym.fields
+            if not f.hidden and not f.name.startswith("ki_")]
+
+
+def _part_extent(sym: LibSymbol, comp, net_of: dict, power: dict[str, LibSymbol], rotation: int = 0,
+                 quiet: dict[str, float] | None = None, mirror: bool = False) -> Extent:
+    """Space a placed part needs: body, pins, power symbols, labels (or the wires of ``quiet`` pins), fields."""
+    quiet = quiet or {}
+    body = rotate_rect(body_rect(sym), rotation, mirror)
+    views = _pin_views(sym, comp, net_of, rotation, mirror)
+    texts = _field_rects(sym, comp, rotation, mirror)
+    rects = [body, *(r for port in plan_ports(body, views, power, texts) for r in port.rects), *texts]
+    for v in views:
+        if not v.net or v.net in power:
+            continue
+        if v.number not in quiet:
+            rects.append(label_rect(v.end, v.out, v.net))
+        elif quiet[v.number] > 0:
+            far = (v.end[0] + v.out[0] * quiet[v.number], v.end[1] + v.out[1] * quiet[v.number])
+            rects.append(grow(rect_of([v.end, far]), 1.9))
+        else:
+            rects.append((*v.end, *v.end))
+    return grow(union(*rects), GRID)
 
 
 def _layout_page(fixed: dict[str, tuple[Placement, Extent]], auto: list[tuple[str, Extent]]
@@ -346,33 +362,63 @@ PWR_FLAG_ID = "power:PWR_FLAG"
 
 @dataclass
 class _VirtualSymbol:
-    """A symbol the generator adds that is not a part of the circuit (PWR_FLAG)."""
+    """A symbol the generator adds that is not a part of the circuit (PWR_FLAG, power symbols)."""
 
     id: str
     reference: str
     value: str
     net: str
+    feeder: str = ""
+    """For a PWR_FLAG: the part that brings this power in; the flag is drawn next to it."""
     pins: tuple[Pin, ...] = (Pin(number="1"),)
     footprint_id: str | None = None
     manufacturer_part_number: str | None = None
 
 
-def _power_flags(circuit: CircuitIR, symbols: dict[str, LibSymbol], library: SymbolLibrary,
-                 page_of: dict[str, str], net_of: dict, warnings: list[Issue]) -> list[_VirtualSymbol]:
-    """KiCad ERC requires every power input pin to be driven by a power output. Where power
-    enters the board through a connector, nothing on the board drives it, so KiCad's answer is a
-    PWR_FLAG. Add one only to nets that have a power input, no power output, and a connector pin;
-    any other undriven power net is a real problem and stays an ERC error."""
-    needed: list[tuple[str, str]] = []  # (net, connector component id)
+# Parts power can come in through: a connector or battery, or for a supply also a series part from
+# another rail (inductor, ferrite, fuse, diode, resistor, switch, jumper, transistor). Capacitors do not.
+_FEEDS_GROUND = re.compile(r"^(Connector\w*:.*|Device:Battery\w*)$")
+_FEEDS_SUPPLY = re.compile(r"^(Connector\w*:.*|Device:Battery\w*|Device:(L|FerriteBead|Fuse|Polyfuse|R|D)(_\w*)?"
+                           r"|Device:Q_\w+|Diode:.*|Switch:.*|Jumper:.*|Transistor_\w+:.*|Inductor\w*:.*|Fuse:.*)$")
+
+
+def _power_nets(circuit: CircuitIR, symbols: dict[str, LibSymbol], library: SymbolLibrary) -> dict[str, LibSymbol]:
+    """Rails drawn with KiCad power symbols, and the symbol each one uses (none without the power library)."""
+    out: dict[str, LibSymbol] = {}
     for net in circuit.nets:
-        types, connector = [], None
+        types, connector = set(), False
         for node in net.nodes:
-            lib_pin = symbols[node.component_id].pin(node.pin)
+            sym = symbols[node.component_id]
+            lib_pin = sym.pin(node.pin)
+            types.add(lib_pin.electrical_type if lib_pin else "")
+            connector = connector or sym.lib_id.partition(":")[0].startswith("Connector")
+        kind = rail_kind(net.name, bool(types & {"power_in", "power_out"}), connector)
+        sym = power_symbol_for(library, net.name, kind) if kind else None
+        if sym is not None:
+            out[net.name] = sym
+    return out
+
+
+def _power_flags(circuit: CircuitIR, symbols: dict[str, LibSymbol], library: SymbolLibrary,
+                 page_of: dict[str, str], net_of: dict, power: dict[str, LibSymbol],
+                 warnings: list[Issue]) -> list[_VirtualSymbol]:
+    """KiCad ERC requires every power input pin to be driven by a power output, and a power symbol counts
+    as a power input. Where power enters the board through a connector (or reaches a rail through a series
+    part such as an inductor or a diode), nothing on the board drives it, so KiCad's answer is a PWR_FLAG.
+    Add one only to nets with a power input, no power output and such a feeding part; any other undriven
+    power net is a real problem and stays an ERC error."""
+    needed: list[tuple[str, str]] = []  # (net, feeding component id)
+    for net in circuit.nets:
+        types, feeder = [], None
+        feeds = _FEEDS_GROUND if is_ground_name(net.name) else _FEEDS_SUPPLY
+        for node in net.nodes:
+            sym = symbols[node.component_id]
+            lib_pin = sym.pin(node.pin)
             types.append(lib_pin.electrical_type if lib_pin else "")
-            if connector is None and symbols[node.component_id].lib_id.partition(":")[0].startswith("Connector"):
-                connector = node.component_id
-        if "power_in" in types and "power_out" not in types and connector:
-            needed.append((net.name, connector))
+            if feeder is None and feeds.match(sym.lib_id):
+                feeder = node.component_id
+        if ("power_in" in types or net.name in power) and "power_out" not in types and feeder:
+            needed.append((net.name, feeder))
     if not needed:
         return []
     try:
@@ -384,10 +430,11 @@ def _power_flags(circuit: CircuitIR, symbols: dict[str, LibSymbol], library: Sym
                               "KiCad ERC will report these power pins as not driven."))
         return []
     out = []
-    for n, (net, connector) in enumerate(needed, start=1):
-        v = _VirtualSymbol(id=f"#pwr-flag:{net}", reference=f"#FLG{n:02d}", value="PWR_FLAG", net=net)
+    for n, (net, feeder) in enumerate(needed, start=1):
+        v = _VirtualSymbol(id=f"#pwr-flag:{net}", reference=f"#FLG{n:02d}", value="PWR_FLAG", net=net,
+                           feeder=feeder)
         symbols[v.id] = flag
-        page_of[v.id] = page_of[connector]
+        page_of[v.id] = page_of[feeder]
         net_of[(v.id, "1")] = net
         out.append(v)
     return out
@@ -399,7 +446,8 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
 
     One page gives one ``.kicad_sch``. With several pages (``circuit.sheets``), page 1 is
     the root schematic holding a sheet symbol for every other page, each other page is
-    its own file, and nets that appear on more than one page use global labels.
+    its own file, and signal nets that appear on more than one page use global labels (rails are
+    power symbols, which KiCad joins across pages anyway).
     """
     if not _PROJECT_NAME.fullmatch(project_name):
         raise ValueError(f"project name {project_name!r} must match {_PROJECT_NAME.pattern}")
@@ -417,8 +465,14 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
     multi = len(sheets) > 1
     page_of = circuit.page_of()
     net_of = {(n.component_id, n.pin): net.name for net in circuit.nets for n in net.nodes}
-    virtual = _power_flags(circuit, symbols, library, page_of, net_of, warnings)
+    power = _power_nets(circuit, symbols, library)
+    virtual = _power_flags(circuit, symbols, library, page_of, net_of, power, warnings)
     all_comps = [*circuit.components, *virtual]
+    net_nodes: dict[str, list[tuple[str, str]]] = {}
+    for (comp_id, pin_number), net in net_of.items():
+        net_nodes.setdefault(net, []).append((comp_id, pin_number))
+    flag_hints = {v.id: v.feeder for v in virtual}
+    up_of = {net: upright(sym) for net, sym in power.items()}
     net_pages: dict[str, set[str]] = {}
     for (comp_id, _), net in net_of.items():
         net_pages.setdefault(net, set()).add(page_of[comp_id])
@@ -426,16 +480,28 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
 
     # Placement per page -------------------------------------------------------
     placements: dict[str, Placement] = {}
+    mirrored: set[str] = set()
+    """Auto-placed connectors drawn with KiCad's ``mirror y`` so pin 1 stays on top while facing right."""
     papers: dict[str, str] = {}
     sheet_origins: dict[str, tuple[float, float]] = {}
     sheet_sizes = {sh.id: (max(30.48, _snap_up(len(sh.name) * LABEL_FONT * 0.8 + 10.16)), _SHEET_SYMBOL_H)
                    for sh in sheets[1:]}
     for index, sheet in enumerate(sheets):
         comps = [c for c in all_comps if page_of[c.id] == sheet.id]
-        fixed = {c.id: (circuit.layout[c.id], _symbol_extent(symbols[c.id], c, net_of, circuit.layout[c.id].rotation))
+        fixed = {c.id: (circuit.layout[c.id],
+                        _part_extent(symbols[c.id], c, net_of, power, circuit.layout[c.id].rotation))
                  for c in comps if c.id in circuit.layout}
-        auto: list[tuple[str, Extent]] = [(c.id, _symbol_extent(symbols[c.id], c, net_of))
-                                          for c in comps if c.id not in circuit.layout]
+        free = [c for c in comps if c.id not in circuit.layout]
+        by_id = {c.id: c for c in free}
+        groups = plan_groups(
+            [c.id for c in free],
+            {c.id: [PinGeom(p.number, lp.x, -lp.y, OUTWARD[lp.angle], lp.electrical_type)
+                    for p in c.pins if (lp := symbols[c.id].pin(p.number)) is not None] for c in free},
+            lambda cid, rot, quiet, mirror=False, by_id=by_id: _part_extent(symbols[cid], by_id[cid], net_of, power,
+                                                                             rot, quiet, mirror),
+            net_of, net_nodes, flag_hints, {c.id: c.value for c in free}, up_of,
+            {c.id: _kind(symbols[c.id]) for c in free})
+        auto: list[tuple[str, Extent]] = [(f"group:{g.key}", g.extent) for g in groups]
         if index == 0 and multi:
             auto += [(f"sheet:{sh.id}", (0.0, -2 * GRID, sheet_sizes[sh.id][0], _SHEET_SYMBOL_H + 2 * GRID))
                      for sh in sheets[1:]]
@@ -447,9 +513,11 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
         for c in comps:
             if c.id in circuit.layout:
                 placements[c.id] = circuit.layout[c.id]
-            else:
-                ox, oy = origins[c.id]
-                placements[c.id] = Placement(x=ox, y=oy, rotation=0)
+        for g in groups:
+            gx, gy = origins[f"group:{g.key}"]
+            for member, (dx, dy, rot) in g.offsets.items():
+                placements[member] = Placement(x=round(gx + dx, 4), y=round(gy + dy, 4), rotation=rot)
+            mirrored |= g.mirrored
         for key, origin in origins.items():
             if key.startswith("sheet:"):
                 sheet_origins[key[6:]] = origin
@@ -460,70 +528,100 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
 
     # Pages ------------------------------------------------------------------------
     sources = {}
-    for sym in symbols.values():
+    for sym in [*symbols.values(), *power.values()]:
         sources[sym.lib_id] = library.provenance(sym.lib_id.partition(":")[0])
     title = circuit.title or circuit.project_id
     anchors: list[PinAnchor] = []
     pages: list[GeneratedPage] = []
+    power_count = 0
     for index, sheet in enumerate(sheets):
         comps = [c for c in all_comps if page_of[c.id] == sheet.id]
         instance_path = f"/{root_uuid}" if index == 0 else f"/{root_uuid}/{ids('sheet-symbol', sheet.id)}"
-        wires, labels, glabels, placed, no_connects = [], [], [], [], []
-        points: dict[tuple[float, float], set[str]] = {}
-        extent: list[tuple[float, float]] = []
-        segments: list[tuple[tuple[float, float], tuple[float, float], str]] = []
+        labels, glabels, placed, no_connects = [], [], [], []
+        router = Router()
+        terminals: dict[str, list] = {}
+        ports: list[tuple[str, Port]] = []
+        boxes: list[Extent] = []
 
         for comp in comps:
             sym, pl = symbols[comp.id], placements[comp.id]
-            for pin in comp.pins:
-                lib_pin = sym.pin(pin.number)
-                x, y = _to_sheet(pl, lib_pin.x, lib_pin.y)
-                net = net_of.get((comp.id, pin.number))
+            mirror = comp.id in mirrored
+            views = _pin_views(sym, comp, net_of, pl.rotation, mirror)
+            body = rotate_rect(body_rect(sym), pl.rotation, mirror)
+            texts = _field_rects(sym, comp, pl.rotation, mirror)
+            router.blocks.append(shift(body, pl.x, pl.y))
+            boxes += [shift(r, pl.x, pl.y) for r in (body, *texts)]
+            for v in views:
+                x, y = r4((pl.x + v.end[0], pl.y + v.end[1]))
                 if not isinstance(comp, _VirtualSymbol):
-                    anchors.append(PinAnchor(comp.reference, pin.number, x, y, net, sheet.id))
-                points.setdefault((x, y), set()).add(net or f"<unconnected {comp.reference}.{pin.number}>")
-                if net is None:
-                    if pin.no_connect:
+                    anchors.append(PinAnchor(comp.reference, v.number, x, y, v.net, sheet.id))
+                router.pin_points.append((x, y))
+                if v.net is None:
+                    router.add_point((x, y), f"<unconnected {comp.reference}.{v.number}>")
+                    if v.no_connect:
                         no_connects.append(["no_connect", ["at", num(x), num(y)],
-                                            ["uuid", q(ids("no-connect", comp.id, pin.number))]])
+                                            ["uuid", q(ids("no-connect", comp.id, v.number))]])
                     continue
-                ox, oy = _rotate(*_OUTWARD[lib_pin.angle], pl.rotation)
-                ex, ey = round(x + ox * STUB_LENGTH, 4), round(y + oy * STUB_LENGTH, 4)
-                points.setdefault((ex, ey), set()).add(net)
-                segments.append(((x, y), (ex, ey), net))
-                key = (comp.id, pin.number)
-                wires.append([
-                    "wire",
-                    ["pts", ["xy", num(x), num(y)], ["xy", num(ex), num(ey)]],
-                    ["stroke", ["width", "0"], ["type", "default"]],
-                    ["uuid", q(ids("wire", *key))],
-                ])
-                angle, justify = _LABEL_STYLE[(ox, oy)]
-                text_len = len(net) * LABEL_FONT * 0.9 + 1.0
-                extent.append((ex + ox * text_len, ey + oy * text_len))
-                if net in global_nets:
-                    glabels.append(_global_label(net, ex, ey, angle, justify[0], ids("glabel", *key)))
-                else:
-                    labels.append([
-                        "label", q(net),
-                        ["at", num(ex), num(ey), num(angle)],
-                        _effects(LABEL_FONT, justify),
-                        ["uuid", q(ids("label", *key))],
-                    ])
+                router.add_point((x, y), v.net)
+                if v.net not in power:
+                    terminals.setdefault(v.net, []).append(((comp.id, v.number), (x, y), v.out))
+                    router.reserved[(comp.id, v.number)] = (v.net, label_rect((x, y), v.out, v.net))
+            for port in plan_ports(body, views, power, texts):
+                port = port.moved(pl.x, pl.y)
+                ports.append((comp.id, port))
+                router.blocks.append(port.rects[0])
+                boxes += port.rects
+                attach = port.stub_end or port.end
+                if port.stub_end:
+                    router.add_wire(port.end, port.stub_end, port.net)
+                router.add_point(attach, port.net)
+                router.pin_points.append(attach)
             placed.append(_placed_symbol(comp, sym, pl, ids, project_name, instance_path,
-                                         trace=not isinstance(comp, _VirtualSymbol)))
-            extent += [(pl.x - _BODY_REACH, pl.y - _BODY_REACH), (pl.x + _BODY_REACH, pl.y + _BODY_REACH)]
-            shown = {"Reference": comp.reference, "Value": comp.value}
-            for f in sym.fields:
-                if not f.hidden and not f.name.startswith("ki_"):
-                    fx, fy = _to_sheet(pl, f.x, f.y)
-                    half = max(GRID, len(shown.get(f.name, f.value)) * 0.7)
-                    extent += [(fx - half, fy - half), (fx + half, fy + half)]
+                                         trace=not isinstance(comp, _VirtualSymbol), mirror=mirror))
 
-        extent.extend(points)
-        collisions = _find_collisions(points, segments)
+        wiring = wire_page(router, terminals)
+        wires = [[
+            "wire",
+            ["pts", ["xy", num(a[0]), num(a[1])], ["xy", num(b[0]), num(b[1])]],
+            ["stroke", ["width", "0"], ["type", "default"]],
+            ["uuid", q(ids("wire", sheet.id, net, f"{num(a[0])},{num(a[1])}", f"{num(b[0])},{num(b[1])}"))],
+        ] for a, b, net in wiring.wires]
+        junctions = [["junction", ["at", num(x), num(y)], ["diameter", "0"], ["color", "0", "0", "0", "0"],
+                      ["uuid", q(ids("junction", sheet.id, f"{num(x)},{num(y)}"))]] for x, y in wiring.junctions]
+        for lbl in wiring.labels:
+            angle, justify = _LABEL_STYLE[lbl.out]
+            (lx, ly), uid = lbl.at, ids("glabel" if lbl.net in global_nets else "label", *lbl.key)
+            boxes.append(label_rect(lbl.stub_from or lbl.at, lbl.out, lbl.net, 2.54 if lbl.stub_from else 0.0))
+            if lbl.net in global_nets:
+                glabels.append(_global_label(lbl.net, lx, ly, angle, justify[0], uid))
+            else:
+                labels.append(["label", q(lbl.net), ["at", num(lx), num(ly), num(angle)],
+                               _effects(LABEL_FONT, justify), ["uuid", q(uid)]])
+        power_used: dict[str, LibSymbol] = {}
+        for comp_id, port in ports:
+            power_count += 1
+            v = _VirtualSymbol(id=f"#pwr:{comp_id}:{port.pin}", reference=f"#PWR{power_count:02d}", value=port.net,
+                               net=port.net, pins=(Pin(number=port.symbol.pins[0].number),))
+            power_used[port.symbol.lib_id] = port.symbol
+            placed.append(_placed_symbol(v, port.symbol, Placement(x=port.at[0], y=port.at[1], rotation=port.rotation),
+                                         ids, project_name, instance_path, trace=False, value_at=port.value_at))
+
+        # Independent check of the finished page: no geometry may join two nets.
+        points: dict[tuple[float, float], set[str]] = {}
+        for pt, net in router.points.items():
+            points.setdefault(pt, set()).add(net)
+        for comp in comps:
+            pl = placements[comp.id]
+            for v in _pin_views(symbols[comp.id], comp, net_of, pl.rotation, comp.id in mirrored):
+                pt = r4((pl.x + v.end[0], pl.y + v.end[1]))
+                points.setdefault(pt, set()).add(v.net or f"<unconnected {comp.reference}.{v.number}>")
+        for lbl in wiring.labels:
+            points.setdefault(lbl.at, set()).add(lbl.net)
+        collisions = _find_collisions(points, wiring.wires)
         if collisions:
             raise SchematicGenerationError(collisions)
+        extent: list[tuple[float, float]] = [pt for b in boxes for pt in ((b[0], b[1]), (b[2], b[3]))]
+        extent += list(points)
 
         sheet_nodes = []
         if index == 0:
@@ -534,7 +632,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                                                  ids("sheet-symbol", sub.id), project_name, root_uuid))
                 extent += [(sx, sy - 2 * GRID), (sx + w, sy + h + 2 * GRID)]
 
-        used = {symbols[c.id].lib_id: symbols[c.id] for c in comps}
+        used = {symbols[c.id].lib_id: symbols[c.id] for c in comps} | power_used
         lib_symbols = ["lib_symbols"] + [used[k].embedded_node() for k in sorted(used)]
         comments = [
             ["comment", "1", q(f"Generated from Circuit IR '{circuit.project_id}' (schema {circuit.schema_version})")],
@@ -553,6 +651,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
             lib_symbols,
             # KiCad 10 saves items grouped by type and sorted by UUID; doing the same
             # makes a load/save round trip in KiCad a no-op apart from the generator.
+            *sorted(junctions, key=_uuid_of),
             *sorted(no_connects, key=_uuid_of),
             *sorted(wires, key=_uuid_of),
             *sorted(labels, key=_uuid_of),
@@ -634,7 +733,8 @@ def _uuid_of(node: list) -> str:
 
 
 def _placed_symbol(comp, sym: LibSymbol, p: Placement, ids: _Ids, project_name: str,
-                   instance_path: str, trace: bool = True) -> list:
+                   instance_path: str, trace: bool = True, mirror: bool = False,
+                   value_at: tuple[tuple[float, float], float, str] | None = None) -> list:
     def flag(name: str, default: str) -> list:
         node = sexpr.child(sym.node, name)
         return [name, node[1] if node else default]
@@ -643,6 +743,7 @@ def _placed_symbol(comp, sym: LibSymbol, p: Placement, ids: _Ids, project_name: 
         "symbol",
         ["lib_id", q(sym.lib_id)],
         ["at", num(p.x), num(p.y), num(p.rotation)],
+        *([["mirror", "y"]] if mirror else []),
         ["unit", "1"],
         ["body_style", "1"],
         flag("exclude_from_sim", "no"),
@@ -661,8 +762,13 @@ def _placed_symbol(comp, sym: LibSymbol, p: Placement, ids: _Ids, project_name: 
     ordered += [f.name for f in sym.fields if f.name not in _MANDATORY_FIELDS and not f.name.startswith("ki_")]
     for name in ordered:
         f: LibField = lib_fields[name]
-        x, y = _to_sheet(p, f.x, f.y)
-        node.append(_field_node(name, overrides.get(name, f.value), x, y, f.angle, f.hidden, f.effects))
+        x, y = _to_sheet(p, f.x, f.y, mirror)
+        angle, effects = f.angle, f.effects
+        if name == "Value" and value_at is not None:
+            (x, y), angle, justify = value_at
+            effects = [e for e in sexpr.deepcopy(f.effects or _effects(LABEL_FONT)) if sexpr.head(e) != "justify"]
+            effects.append(["justify", justify])
+        node.append(_field_node(name, overrides.get(name, f.value), x, y, angle, f.hidden, effects))
 
     # Extra hidden fields for traceability back to the IR (not on generator-added flags).
     extra = {"AICS_ID": comp.id} if trace else {}
@@ -698,7 +804,7 @@ def _find_collisions(points: dict[tuple[float, float], set[str]],
             inside_y = min(a[1], b[1]) <= py <= max(a[1], b[1])
             if inside_x and inside_y:
                 issues.append(Issue("LAYOUT_COLLISION", Severity.ERROR,
-                                    f"Stub of net '{net}' touches ({num(px)}, {num(py)}) "
+                                    f"Wire of net '{net}' touches ({num(px)}, {num(py)}) "
                                     f"of {', '.join(sorted(nets))}.",
                                     recovery_hint="Move the symbols apart."))
     return issues

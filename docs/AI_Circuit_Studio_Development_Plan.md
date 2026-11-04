@@ -183,6 +183,7 @@ AI-Circuit-Studio/
 ```
 - **(v1.3)** 1.0 구조(프로젝트 폴더에 circuit.json)는 처음 열 때 `boards/a/`(보드 A)로 자동 이관한다.
 - **(v1.3)** 여러 페이지일 때 1페이지가 루트 회로도이고 나머지 페이지는 계층 시트로 연결된다. 페이지를 오가는 Net은 global label, 한 페이지 안의 Net은 local label을 쓴다.
+- **(v1.5)** 자동 배치는 IC를 중심으로 연결된 부품을 묶어 그린다(직렬 부품은 선을 이어서, GND·풀업 부품은 선에 걸쳐서, 전원 사이 부품은 전원 핀 옆에 세워서). 전원·GND는 KiCad 전원 심볼로, 가까운 신호 핀은 wire로 잇고 나머지는 label로 둔다. 커넥터는 IC를 향하도록 회전 대신 좌우 반전(mirror)해 1번 핀이 위에 오게 한다. 연결 정확성은 KiCad Netlist = IR 검사로 보장한다.
 - **(v1.2)** `.kicad_sch`는 반드시 같은 이름의 `.kicad_pro`와 함께 만든다. 단독으로 열면 KiCad가 프로젝트 없이 동작해 무관한 라이브러리 경고가 생긴다(Phase 0 사용자 확인).
 - **(v1.2)** `outputs/`는 "마지막으로 생성한 revision"의 산출물만 둔다. `manifest.json`의 `source_revision`이 현재 revision과 다르면 UI는 "오래됨(stale)"으로 표시한다. revision별 산출물 보관은 Phase 2에서 필요하면 추가한다.
 - **(v1.2)** 프로젝트 원본은 사용자 워크스페이스(기본 `문서/AI Circuit Studio`, 설정 가능)에 두며 앱 설치 폴더와 분리한다.
