@@ -385,7 +385,8 @@ def drawn_nets(generated) -> dict[frozenset, set[str]]:
                 join(("pt", sheet, p), ("name", *scope, unquote(lbl[1])))
                 names.setdefault(find(("pt", sheet, p)), set()).add(unquote(lbl[1]))
         for sym in children(doc, "symbol"):
-            if unquote(child(sym, "lib_id")[1]).startswith("power:") and "PWR_FLAG" not in unquote(child(sym, "lib_id")[1]):
+            lib_id = unquote(child(sym, "lib_id")[1])
+            if lib_id.startswith("power:") and lib_id != "power:PWR_FLAG":
                 value = next(unquote(p[2]) for p in children(sym, "property") if unquote(p[1]) == "Value")
                 p = pt(child(sym, "at"))  # power symbols have their pin at the origin
                 on_wire(p)
@@ -474,6 +475,10 @@ def test_signal_net_crossing_pages_uses_global_labels(library):
 def test_power_flag_where_a_series_part_feeds_a_rail(library):
     """+5V reaches the regulator only through R1 from the connector: nothing on the board drives it."""
     two = [{"number": "1"}, {"number": "2"}]
+
+    def node(c, p):
+        return {"component_id": c, "pin": p}
+
     circuit = CircuitIR.model_validate({
         "project_id": "fed", "components": [
             {"id": "j1", "reference": "J1", "value": "IN", "symbol_id": "Connector_Generic:Conn_01x02", "pins": two},
@@ -482,11 +487,10 @@ def test_power_flag_where_a_series_part_feeds_a_rail(library):
              "pins": [{"number": "1"}, {"number": "2"}, {"number": "3"}]},
             {"id": "c1", "reference": "C1", "value": "10uF", "symbol_id": "Device:C", "pins": two}],
         "nets": [
-            {"id": "a", "name": "+12V", "nodes": [{"component_id": "j1", "pin": "1"}, {"component_id": "r1", "pin": "1"}]},
-            {"id": "b", "name": "+5V", "nodes": [{"component_id": "r1", "pin": "2"}, {"component_id": "u1", "pin": "3"}]},
-            {"id": "c", "name": "+3V3", "nodes": [{"component_id": "u1", "pin": "2"}, {"component_id": "c1", "pin": "1"}]},
-            {"id": "d", "name": "GND", "nodes": [{"component_id": "j1", "pin": "2"}, {"component_id": "u1", "pin": "1"},
-                                                 {"component_id": "c1", "pin": "2"}]}]})
+            {"id": "a", "name": "+12V", "nodes": [node("j1", "1"), node("r1", "1")]},
+            {"id": "b", "name": "+5V", "nodes": [node("r1", "2"), node("u1", "3")]},
+            {"id": "c", "name": "+3V3", "nodes": [node("u1", "2"), node("c1", "1")]},
+            {"id": "d", "name": "GND", "nodes": [node("j1", "2"), node("u1", "1"), node("c1", "2")]}]})
     g = generate_schematic(circuit, library)
     # +12V: power symbol only (a power input) fed by the connector; +5V: fed through R1; +3V3 is driven by U1.
     assert sorted(g.power_flags) == ["+12V", "+5V", "GND"]
