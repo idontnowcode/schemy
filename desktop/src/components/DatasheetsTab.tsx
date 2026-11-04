@@ -2,10 +2,12 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 import { api, errorText, fileToBase64, openDatasheet, waitForJob } from "../api";
 import {
+  AI_SETUP_HINT,
   datasheetLabel,
   externalLabel,
   identityLabel,
   pinMapLabel,
+  providerLabel,
   rangeText,
   ratingsLabel,
   ROW_STATUS,
@@ -150,7 +152,7 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
       const ds = row.datasheet!;
       const ok = window.confirm(
         `AI로 데이터시트 요약\n\n전송할 데이터: ${ds.original_name} (${(ds.bytes / 1024 / 1024).toFixed(1)} MB` +
-          `${ds.page_count ? `, ${ds.page_count}쪽` : ""})\n받는 곳: Google Gemini API (모델 ${ai?.settings.model})\n\n` +
+          `${ds.page_count ? `, ${ds.page_count}쪽` : ""})\n받는 곳: ${providerLabel(ai?.settings.provider)} (모델 ${ai?.settings.model})\n\n` +
           "데이터시트는 공개 문서지만, 어떤 부품을 쓰는지는 전달됩니다. 요약은 원문과 대조한 뒤 '원문 확인함'을 눌러 주세요. 계속할까요?",
       );
       if (!ok) return;
@@ -368,7 +370,7 @@ function ComponentRow({ row, open, busy, aiReady, onToggle, onPdf, onMd, onSumma
                 요약 MD 가져오기
               </button>
               <button className="ghost small-btn" onClick={onSummarize} disabled={busy || !aiReady}
-                title={aiReady ? "Gemini가 데이터시트를 요약합니다" : "설정에서 AI 기능을 켜고 Gemini API 키를 저장하세요"}>
+                title={aiReady ? "AI가 데이터시트를 요약합니다" : AI_SETUP_HINT}>
                 AI로 요약
               </button>
             </>

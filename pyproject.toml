@@ -12,6 +12,7 @@ dependencies = [
     "keyring>=25,<26",
     "google-genai>=2.30,<3",
     "pypdf>=6",
+    "anthropic>=1,<2",
 ]
 
 [project.scripts]
@@ -57,5 +58,7 @@ select = ["E", "F", "W", "B", "I"]
 "backend/design_resolver.py" = ["E501"]
 "ai_engine/*.py" = ["E501"]
 "backend/routes_ai.py" = ["E501"]
+"backend/claude_login.py" = ["E501"]
 "tests/test_schematic_md.py" = ["E501"]
 "tests/test_design.py" = ["E501"]
+"tests/test_ai_claude.py" = ["E501"]

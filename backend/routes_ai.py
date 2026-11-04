@@ -1,4 +1,4 @@
-"""Optional AI features: settings, API key, models, PDF import, substitute suggestions.
+"""Optional AI features: settings, API key or Claude login, models, PDF import, substitute suggestions.
 
 AI is off until the user turns it on and stores a key. Before any call the UI shows
 what will be sent; every call leaves an audit record in the board's ai_runs/ folder.
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from ai_engine import AiError, KeyStoreError
+from ai_engine import DEFAULT_MODELS, AiError, KeyStoreError
 from ai_engine.tasks import suggest_substitutes, suggestion_request, summarize_datasheet, transcribe_pdf
 from circuit_core.datasheet_md import import_datasheet_markdown
 from circuit_core.inventory import match_inventory
@@ -18,6 +18,7 @@ from circuit_core.patch import ReplaceCircuit
 from circuit_core.schematic_md import import_schematic_markdown
 
 from .ai_access import AiAccess, api_error, run_record
+from .claude_login import ClaudeLogin
 from .config import Settings
 from .datasheets import DatasheetError, DatasheetLibrary
 from .errors import ApiError
@@ -28,12 +29,15 @@ from .store import ProjectStore, sha256_bytes
 from .uploads import MB, decode_upload
 
 BOARD = "/api/projects/{project_id}/boards/{board_id}"
+PROVIDERS = ["gemini", "claude"]
 MAX_PDF_BYTES = 50 * MB
 
 
 def build_ai_router(store: ProjectStore, jobs: JobRunner, inventory: InventoryStore, settings: Settings,
-                    pin_lookup, datasheets: DatasheetLibrary, proposal_service=None) -> APIRouter:
+                    pin_lookup, datasheets: DatasheetLibrary, proposal_service=None,
+                    claude_login: ClaudeLogin | None = None) -> APIRouter:
     router = APIRouter()
+    claude_login = claude_login or ClaudeLogin()
 
     access = AiAccess(store, settings)
     ai_settings = access.settings
@@ -45,13 +49,17 @@ def build_ai_router(store: ProjectStore, jobs: JobRunner, inventory: InventorySt
     @router.get("/api/ai/settings")
     def get_ai_settings():
         cfg = ai_settings()
-        return {"settings": cfg, "key": key_status(cfg.provider), "providers": ["gemini"]}
+        return {"settings": cfg, "key": key_status(cfg.provider), "providers": PROVIDERS}
 
     @router.put("/api/ai/settings")
     def put_ai_settings(body: AiSettingsUpdate):
-        cfg = ai_settings().model_copy(update=body.model_dump(exclude_none=True))
+        current = ai_settings()
+        update = body.model_dump(exclude_none=True)
+        if body.provider and body.provider != current.provider and body.model is None:
+            update["model"] = DEFAULT_MODELS[body.provider]
+        cfg = current.model_copy(update=update)
         store.put_setting_json("ai", cfg.model_dump())
-        return {"settings": cfg, "key": key_status(cfg.provider), "providers": ["gemini"]}
+        return {"settings": cfg, "key": key_status(cfg.provider), "providers": PROVIDERS}
 
     @router.put("/api/ai/key")
     def put_key(body: ApiKeyBody):
@@ -59,9 +67,27 @@ def build_ai_router(store: ProjectStore, jobs: JobRunner, inventory: InventorySt
         try:
             settings.keystore.set(cfg.provider, body.api_key.strip())
         except KeyStoreError as exc:
-            raise ApiError(409, "KEYRING_UNAVAILABLE", str(exc),
-                           recovery_hint="GEMINI_API_KEY 환경 변수로 키를 지정하세요.") from exc
+            env = "ANTHROPIC_API_KEY" if cfg.provider == "claude" else "GEMINI_API_KEY"
+            raise ApiError(409, "KEYRING_UNAVAILABLE", str(exc), recovery_hint=f"{env} 환경 변수로 키를 지정하세요.") from exc
         return {"key": key_status(cfg.provider)}
+
+    # --- Claude login through Anthropic's CLI --------------------------------------------------
+
+    @router.get("/api/ai/claude/login")
+    def claude_login_state():
+        return claude_login.status()
+
+    @router.post("/api/ai/claude/login")
+    def claude_login_start():
+        state = claude_login.start()
+        if not state["cli_found"]:
+            raise ApiError(409, "ANT_CLI_NOT_FOUND", "Anthropic CLI(`ant`)를 찾지 못했습니다.",
+                           recovery_hint=state["install_hint"])
+        return state
+
+    @router.post("/api/ai/claude/logout")
+    def claude_logout():
+        return claude_login.logout()
 
     @router.delete("/api/ai/key")
     def delete_key():

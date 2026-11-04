@@ -301,6 +301,13 @@ export function diffSummaryText(s: Record<string, number>): string {
 }
 
 /** Who receives the data when AI is called (for the confirm dialogs). */
+/** What to do when AI is not ready, for buttons' tooltips and notes. */
+export const AI_SETUP_HINT = "설정에서 AI 기능을 켜고 Gemini API 키를 저장하거나 Claude에 로그인하세요";
+
+export function providerShortName(provider: string | undefined | null): string {
+  return provider === "claude" ? "Claude" : "Gemini";
+}
+
 export function providerLabel(provider: string | undefined | null): string {
   return provider === "claude" ? "Anthropic Claude API" : "Google Gemini API";
 }

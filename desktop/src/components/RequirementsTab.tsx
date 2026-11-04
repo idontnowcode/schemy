@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, errorText, waitForJob } from "../api";
+import { providerLabel } from "../format";
 import type { AiStatus, Job, RequirementsSpec } from "../types";
 
 interface Props {
@@ -86,7 +87,7 @@ export function RequirementsTab({ projectId, boardId, boardName, onSaved, onOpen
   const structure = () =>
     run("AI가 요구사항을 정리하는 중…", async () => {
       const ok = window.confirm(
-        `요구사항 정리\n\n전송할 데이터: 요구사항 글(${text.trim().length}자)\n받는 곳: Google Gemini API (모델 ${ai?.settings.model})\n\n계속할까요?`,
+        `요구사항 정리\n\n전송할 데이터: 요구사항 글(${text.trim().length}자)\n받는 곳: ${providerLabel(ai?.settings.provider)} (모델 ${ai?.settings.model})\n\n계속할까요?`,
       );
       if (!ok) return;
       const job = await waitForJob((await api.structureRequirements(projectId)).id, undefined, 1000);
@@ -110,7 +111,7 @@ export function RequirementsTab({ projectId, boardId, boardName, onSaved, onOpen
         `AI 회로 설계 — ${boardName}\n\n전송할 데이터: 요구사항 ${pv.requirements_chars}자` +
           `${pv.spec ? ", 정리한 요구사항" : ""}${instructions.trim() ? ", 추가 요청" : ""}` +
           `${useInventory && pv.inventory_parts ? `, 보유 자재 ${pv.inventory_parts}종의 사양` : ""}, 고른 부품의 KiCad 핀 표와 데이터시트 요약\n` +
-          `받는 곳: Google Gemini API (모델 ${pv.model})\n\n` +
+          `받는 곳: ${providerLabel(pv.provider)} (모델 ${pv.model})\n\n` +
           "결과는 「제안」으로 만들어지며, 승인하기 전에는 회로가 바뀌지 않습니다. 계속할까요?",
       );
       if (!ok) return;
@@ -159,7 +160,7 @@ export function RequirementsTab({ projectId, boardId, boardName, onSaved, onOpen
           <h3>AI 회로 설계</h3>
           {!aiReady ? (
             <p className="small warn-text">
-              설정에서 AI 기능을 켜고 Gemini API 키를 저장하면, 이 요구사항으로 회로를 자동으로 설계하고 검토합니다.
+              설정에서 AI 기능을 켜고 Gemini API 키를 저장하거나 Claude에 로그인하면, 이 요구사항으로 회로를 자동으로 설계하고 검토합니다.
             </p>
           ) : (
             <p className="small">

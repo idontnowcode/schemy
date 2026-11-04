@@ -36,11 +36,29 @@
    - 두 흐름은 Phase 2a에서 proposal 승인 경로로 옮긴다(기획서 1.1절 v1.3 항목).
 7. **호출마다 실행 기록을 남긴다.** 보드 폴더의 `ai_runs/`에 시각, 공급자, 모델, 입력 요약(파일 크기·SHA-256), 사용 토큰, 종료 이유, 결과 요약을 JSON으로 쓴다. 보낸 PDF와 AI가 만든 Markdown 사본은 `imports/`에 둔다.
 
+## 추가 결정 (2026-11): Claude 공급자와 로그인
+
+사용자 요청: "Claude로도 AI 모델을 사용할 수 있었으면 좋겠음. API 키가 아니라 로그인하는 식으로."
+
+1. **두 번째 공급자로 Anthropic Claude API를 추가한다.** 공식 Python SDK `anthropic`(1.x)을 쓰고, 코드는 `ClaudeProvider` 한 곳에 있다.
+   - 기본 모델은 `claude-opus-5-5`, 설정에서 공급자를 바꾸면 그 공급자의 기본 모델로 바뀐다.
+   - 응답은 스트리밍으로 받는다(큰 `max_tokens`에서 HTTP 시간 초과를 피함). JSON 응답은 structured outputs(`output_config.format`, 모든 object에 `additionalProperties: false`)로 고정한다. PDF는 base64 `document` 블록으로 보낸다.
+   - 현재 Claude 모델은 항상 사고(thinking)하므로 온도는 보내지 않고, `output_config.effort`를 `high`로 둔다.
+   - 안전 분류기가 요청을 거절하면 같은 호출 안에서 Anthropic이 권하는 모델로 다시 돌리도록 `fallbacks: "default"`(베타 `server-side-fallback-2026-07-01`)를 켠다. Haiku에는 서버 쪽 대체가 없어 보내지 않는다. 그래도 거절되면 `AI_REFUSED`.
+   - 오류 코드: 401/403 → `AI_AUTH_FAILED`, "credit balance" → `AI_BILLING`, 404 → `AI_MODEL_NOT_FOUND`, 429 → `AI_QUOTA`, 5xx/529 → `AI_UNAVAILABLE`.
+2. **로그인은 Anthropic CLI의 `ant auth login`을 쓴다.** 설정의 **Claude 로그인**이 `ant auth login`을 인자 목록으로(셸 없이) 백그라운드에서 실행하고, 브라우저에서 Claude Console 계정으로 로그인한다. 토큰은 Anthropic CLI 폴더(`%APPDATA%\Anthropic`, `~/.config/anthropic`)에 저장되고 `anthropic` SDK가 직접 읽는다. 앱은 활성 프로필 파일이 있는지만 확인하고 토큰 파일을 열지 않는다.
+   - claude.ai 구독(Pro/Max) 로그인은 Anthropic 정책상 다른 앱이 쓸 수 없다. 그래서 로그인은 Console 계정(API 크레딧 과금)이다. 이 점을 설정 화면과 README에 적었다.
+   - API 키(OS 보안 저장소 또는 `ANTHROPIC_API_KEY`)가 있으면 로그인보다 우선한다. SDK의 인증 순서와 같다.
+   - CLI가 없으면 `409 ANT_CLI_NOT_FOUND`와 설치 안내를 돌려준다. 이때도 API 키로 쓸 수 있다.
+3. 화면의 "받는 곳" 안내와 버튼 설명은 선택한 공급자 이름을 쓴다.
+
+검증: `tests/test_ai_claude.py`. 실제 `anthropic` SDK를 가짜 HTTP 전송으로 돌려 요청 모양(문서 블록, 닫힌 스키마, 대체 설정·베타 헤더, 온도 없음), 스트리밍 결과, 거절, 오류 코드 변환, 모델 목록을 확인한다. 로그인 프로필 감지(경로 조작 이름 거부 포함), CLI 실행 인자, 백엔드 설정 전환도 확인한다. 실제 Claude API 호출은 키가 없어 이 환경에서 하지 않았다.
+
 ## 검토한 다른 안
 
 | 안 | 판단 |
 |---|---|
-| Anthropic Claude API | 사용자가 Gemini를 기본으로 지정했다. 인터페이스가 공급자 중립이라 나중에 어댑터를 추가할 수 있다. |
+| Anthropic Claude API | 처음에는 사용자가 Gemini를 기본으로 지정해 넣지 않았다. 2026-11 사용자 요청으로 두 번째 공급자로 추가했다(위 추가 결정). |
 | OpenAI API | 위와 같음. |
 | 로컬 모델(Ollama 등) | 회로도 PDF를 읽는 비전 성능이 아직 부족하고, 사용자 PC 사양에 따라 달라진다. 사내 반출 제한이 있는 사용자에게는 나중에 후보가 될 수 있다. |
 | 키를 앱 설정 파일에 저장 | 기획서 13장(키는 OS 보안 저장소)에 어긋나므로 쓰지 않는다. |

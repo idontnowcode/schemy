@@ -1,6 +1,7 @@
 import { desktop } from "./desktop";
 import { toErrorBody } from "./format";
 import type {
+  AiProvider,
   AiStatus,
   ApiErrorBody,
   BoardReview,
@@ -8,6 +9,7 @@ import type {
   BoardSummary,
   BomTable,
   CircuitIR,
+  ClaudeLoginStatus,
   DatasheetEntry,
   DatasheetReport,
   DatasheetSummaryResult,
@@ -193,9 +195,13 @@ export const api = {
   }) => request<Job>("POST", `${board(p, b)}/ai/revise`, body),
 
   aiStatus: () => request<AiStatus>("GET", "/ai/settings"),
-  saveAiSettings: (s: Partial<{ enabled: boolean; model: string }>) => request<AiStatus>("PUT", "/ai/settings", s),
+  saveAiSettings: (s: Partial<{ enabled: boolean; model: string; provider: AiProvider }>) =>
+    request<AiStatus>("PUT", "/ai/settings", s),
   saveAiKey: (apiKey: string) => request<{ key: AiStatus["key"] }>("PUT", "/ai/key", { api_key: apiKey }),
   deleteAiKey: () => request<{ key: AiStatus["key"] }>("DELETE", "/ai/key"),
+  claudeLogin: () => request<ClaudeLoginStatus>("GET", "/ai/claude/login"),
+  startClaudeLogin: () => request<ClaudeLoginStatus & { started: boolean }>("POST", "/ai/claude/login"),
+  claudeLogout: () => request<ClaudeLoginStatus>("POST", "/ai/claude/logout"),
   aiModels: () =>
     request<{ models: { name: string; display_name: string | null; output_token_limit: number | null }[]; current: string }>(
       "GET",

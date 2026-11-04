@@ -2,16 +2,53 @@
 
 Windows: Credential Manager, macOS: Keychain, Linux: Secret Service — through the
 ``keyring`` package. Keys never go into project files, the SQLite index or logs.
-``GEMINI_API_KEY`` (or ``GOOGLE_API_KEY``) in the environment is used when set, which
-also covers machines without a usable credential store.
+``GEMINI_API_KEY`` (or ``GOOGLE_API_KEY``) / ``ANTHROPIC_API_KEY`` in the environment is used
+when set, which also covers machines without a usable credential store.
+
+Claude can also use the login of Anthropic's ``ant`` CLI (``ant auth login``). Its tokens live in
+Anthropic's own config folder and are read by the ``anthropic`` SDK; this app only checks that the
+active profile exists and never opens the credentials file.
 """
 
 from __future__ import annotations
 
 import os
+import re
+import sys
+from pathlib import Path
 
 SERVICE = "ai-circuit-studio"
-ENV_VARS = {"gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY")}
+ENV_VARS = {"gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"), "claude": ("ANTHROPIC_API_KEY",)}
+_PROFILE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+
+
+def _anthropic_config_dir() -> Path:
+    """Same rule as the ``anthropic`` SDK and the ``ant`` CLI."""
+    env = os.environ.get("ANTHROPIC_CONFIG_DIR")
+    if env:
+        return Path(env)
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        return (Path(appdata) if appdata else Path.home() / "AppData" / "Roaming") / "Anthropic"
+    return Path.home() / ".config" / "anthropic"
+
+
+def claude_login_status() -> dict:
+    """Whether an ``ant auth login`` profile (or an ``ANTHROPIC_AUTH_TOKEN``) is there for the SDK to use."""
+    if os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+        return {"logged_in": True, "source": "env_token", "profile": None}
+    base = _anthropic_config_dir()
+    profile = os.environ.get("ANTHROPIC_PROFILE") or ""
+    if not profile:
+        try:
+            profile = (base / "active_config").read_text(encoding="utf-8").strip()
+        except OSError:
+            profile = ""
+    profile = profile or "default"
+    if not _PROFILE.fullmatch(profile):
+        return {"logged_in": False, "source": None, "profile": None}
+    present = (base / "configs" / f"{profile}.json").is_file() and (base / "credentials" / f"{profile}.json").is_file()
+    return {"logged_in": present, "source": "ant_login" if present else None, "profile": profile}
 
 
 class KeyStoreError(Exception):

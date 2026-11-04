@@ -86,5 +86,13 @@ test("AI buttons stay off until AI is enabled with a key", async ({ page }) => {
   await expect(page.getByRole("button", { name: "PDF 가져오기 (AI)" })).toBeDisabled();
   await page.getByRole("button", { name: "설정" }).click();
   await expect(page.getByLabel("AI 기능 사용")).not.toBeChecked();
-  await expect(page.getByLabel("Gemini 모델")).toHaveValue("gemini-flash-latest");
+  await expect(page.getByLabel("AI 모델")).toHaveValue("gemini-flash-latest");
+  // Claude: its default model, and a login button (disabled with an install hint when the `ant` CLI is missing).
+  await page.getByRole("radio", { name: "Anthropic Claude API" }).click();
+  await expect(page.getByLabel("AI 모델")).toHaveValue("claude-opus-5-5");
+  await expect(page.getByRole("heading", { name: "Claude 연결" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Claude 로그인" })).toBeDisabled();
+  await expect(page.getByText("Anthropic CLI(`ant`)가 필요합니다", { exact: false })).toBeVisible();
+  await page.getByRole("radio", { name: "Google Gemini API" }).click();
+  await expect(page.getByLabel("AI 모델")).toHaveValue("gemini-flash-latest");
 });

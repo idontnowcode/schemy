@@ -12,7 +12,7 @@
 |---|---|---|
 | Phase 0 — KiCad 생성 PoC | ✅ 완료 | IR → `.kicad_sch`, ERC/Netlist/SVG, 생성 방식 A/B 평가 ([보고서](docs/phase0-report.md)) |
 | Phase 1 — Core MVP | ✅ 완료 | 데스크톱 앱, 프로젝트 저장·복원, revision, 문서·BOM, KiCad 생성 job, 산출물 관리 ([보고서](docs/phase1-report.md)) |
-| Phase 1.5 — 보드·페이지, 가져오기, 보유 자재 | ✅ 완료 | 프로젝트→보드→페이지, PDF 회로도 카피(회로도 MD 가져오기 + Gemini 변환 옵션), 보유 자재 우선 사용 ([보고서](docs/phase1_5-report.md)) |
+| Phase 1.5 — 보드·페이지, 가져오기, 보유 자재 | ✅ 완료 | 프로젝트→보드→페이지, PDF 회로도 카피(회로도 MD 가져오기 + AI 변환 옵션), 보유 자재 우선 사용 ([보고서](docs/phase1_5-report.md)) |
 | Phase 1.6 — 데이터시트 | ✅ 완료 | 제조사가 확실한 부품의 데이터시트 수집(KiCad 심볼 링크·직접 올리기), 요약 MD, 핀맵·전압·외부 부품 대조 ([보고서](docs/phase1_6-report.md)) |
 | Phase 2 — 변경 흐름과 AI 설계·검토 | ✅ 완료 | 요구사항 → AI 회로 설계 → 제안(비교 표·KiCad 검사·AI 검토) → 승인 ([보고서](docs/phase2-report.md)) |
 | Phase 3 — 엔지니어링 템플릿 | 다음 | 다중 유닛 심볼, 검토된 회로 템플릿, 엔지니어 검토 기록 |
@@ -29,7 +29,7 @@
 - **KiCad 생성과 자동 검사.** 보드마다 `.kicad_pro`와 페이지별 `.kicad_sch`를 만들고 ERC, Netlist ↔ IR 비교, SVG 미리보기를 실행합니다. 같은 입력이면 같은 파일이 나옵니다.
 - **PDF 회로도 카피.**
   - 1단계(AI 없음): 코파일럿 등으로 PDF를 "회로도 MD v0.1"로 옮겨 적고([프롬프트](docs/prompts/pdf-schematic-to-markdown.md)), **회로도 MD 가져오기**로 넣습니다.
-  - 2단계(선택): 설정에서 AI를 켜면 **PDF 가져오기 (AI)**가 Gemini로 옮겨 적은 뒤 1단계와 같은 규칙으로 가져옵니다.
+  - 2단계(선택): 설정에서 AI를 켜면 **PDF 가져오기 (AI)**가 Gemini 또는 Claude로 옮겨 적은 뒤 1단계와 같은 규칙으로 가져옵니다.
   - 어느 쪽이든 핀 번호는 KiCad 라이브러리로만 정하고, 결과는 편집기에서 검토한 뒤 저장해야 반영됩니다.
 - **보유 자재 우선 사용.** **보유 자재** 화면에 자재 목록(CSV/XLSX)을 올리면, 각 보드의 **자재** 탭에서 부품마다 보유/대체 가능/미보유를 판정하고 재고를 확인합니다. **보유 자재 적용**은 제조사 품번과 풋프린트를 새 revision으로 저장합니다. AI를 켜면 보유 목록 안에서 대체 자재를 추천받을 수 있습니다.
 - **데이터시트.** 제조사·품번이 확실한 부품(또는 부품 전용 KiCad 심볼)은 보드의 **데이터시트** 탭에서 데이터시트를 받습니다.
@@ -61,9 +61,15 @@ npm start                                 # 빌드 후 Electron 실행 (백엔�
 
 ### AI 기능 켜기 (선택)
 
-1. [Google AI Studio](https://aistudio.google.com/)에서 Gemini API 키를 발급합니다.
-2. 앱의 **설정**에서 키를 저장합니다. 키는 Windows 자격 증명 관리자(macOS 키체인)에만 저장되고, 프로젝트 파일·로그에는 남지 않습니다. 보안 저장소를 쓸 수 없는 환경에서는 환경 변수 `GEMINI_API_KEY`로 지정하고 앱을 다시 시작합니다.
-3. **AI 기능 사용**을 켭니다. 기본 모델은 `gemini-flash-latest`이고, **모델 목록 불러오기**로 바꿀 수 있습니다.
+앱의 **설정**에서 AI 공급자를 고릅니다: **Google Gemini API**(기본) 또는 **Anthropic Claude API**.
+
+- **Gemini**: [Google AI Studio](https://aistudio.google.com/)에서 API 키를 발급해 설정에 저장합니다. 기본 모델은 `gemini-flash-latest`입니다.
+- **Claude**: 두 가지 방법이 있습니다. 기본 모델은 `claude-opus-5-5`입니다.
+  - **로그인**: [Anthropic CLI(`ant`)](https://github.com/anthropics/anthropic-cli/releases)를 설치해 PATH에 두고(또는 `AICS_ANT_CLI`에 경로 지정) 설정의 **Claude 로그인**을 누르면 브라우저에서 Claude Console 계정으로 로그인합니다. 터미널에서 `ant auth login`을 해도 됩니다. 토큰은 Anthropic CLI 폴더에 저장되고, 앱은 그 토큰을 읽지 않습니다(공식 `anthropic` SDK가 사용).
+  - **API 키**: [Claude Console](https://console.anthropic.com/)에서 발급한 키를 설정에 저장합니다.
+  - 사용량은 Console 계정의 API 크레딧으로 과금됩니다. claude.ai 구독(Pro/Max) 로그인은 Anthropic 정책상 다른 앱에서 쓸 수 없습니다. 환경 변수 `ANTHROPIC_API_KEY`가 있으면 로그인보다 우선합니다.
+
+키는 Windows 자격 증명 관리자(macOS 키체인)에만 저장되고, 프로젝트 파일·로그에는 남지 않습니다. 보안 저장소를 쓸 수 없는 환경에서는 환경 변수 `GEMINI_API_KEY` / `ANTHROPIC_API_KEY`로 지정하고 앱을 다시 시작합니다. 그다음 **AI 기능 사용**을 켭니다. **모델 목록 불러오기**로 모델을 바꿀 수 있습니다.
 
 AI를 부를 때마다 무엇을 보내는지 먼저 보여주고 확인을 받습니다. 호출 기록은 보드 폴더의 `ai_runs/`에 남습니다. 회사 회로도를 외부 AI로 보내도 되는지는 사내 규정을 먼저 확인하세요. 결정 근거는 [ADR-004](docs/adr/ADR-004-ai-provider.md)에 있습니다.
 

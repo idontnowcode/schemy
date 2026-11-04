@@ -317,18 +317,35 @@ export interface MarkdownImportResult {
   saved_copy?: string;
 }
 
+export type AiProvider = "gemini" | "claude";
+
 export interface AiSettings {
   enabled: boolean;
-  provider: "gemini";
+  provider: AiProvider;
   model: string;
   max_output_tokens: number;
   timeout_s: number;
 }
 
+export interface ClaudeLoginStatus {
+  logged_in: boolean;
+  source: "ant_login" | "env_token" | null;
+  profile: string | null;
+  cli_found?: boolean;
+  running?: boolean;
+  last_error?: string | null;
+  install_hint?: string;
+}
+
 export interface AiStatus {
   settings: AiSettings;
-  key: { configured: boolean; source: "env" | "keyring" | null; keyring_available: boolean };
-  providers: string[];
+  key: {
+    configured: boolean;
+    source: "env" | "keyring" | "login" | null;
+    keyring_available: boolean;
+    login?: ClaudeLoginStatus;
+  };
+  providers: AiProvider[];
 }
 
 // --- datasheets --------------------------------------------------------------------------

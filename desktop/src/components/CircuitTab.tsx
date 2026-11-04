@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, ApiError, errorText, fileToBase64, waitForJob } from "../api";
-import { addPage, moveToPage, pagesOf, parseJson, prettyJson, removePage, renamePage } from "../format";
+import { addPage, AI_SETUP_HINT, moveToPage, pagesOf, parseJson, prettyJson, providerLabel, removePage, renamePage } from "../format";
 import type { AiStatus, CircuitIR, Example, MarkdownImportResult, ValidationReport } from "../types";
 import { ImportReport } from "./ImportReport";
 import { IssueList } from "./IssueList";
@@ -153,7 +153,7 @@ export function CircuitTab({ projectId, boardId, circuit, revision, onSaved, onO
     const ok = window.confirm(
       `PDF를 AI로 회로도 Markdown으로 바꿉니다.\n\n` +
         `전송할 데이터: '${file.name}' (${(file.size / 1024 / 1024).toFixed(2)} MB) 전체와 변환 지시문\n` +
-        `받는 곳: Google Gemini API (모델 ${ai.settings.model})\n\n` +
+        `받는 곳: ${providerLabel(ai.settings.provider)} (모델 ${ai.settings.model})\n\n` +
         `회사 규정상 외부 AI로 보내도 되는 도면인지 확인하세요. 계속할까요?`,
     );
     if (!ok) return;
@@ -209,7 +209,7 @@ export function CircuitTab({ projectId, boardId, circuit, revision, onSaved, onO
             className="ghost"
             onClick={() => pdfInput.current?.click()}
             disabled={!aiReady}
-            title={aiReady ? "Gemini로 PDF를 읽어 회로도 Markdown으로 바꿉니다" : "설정에서 AI 기능을 켜고 Gemini API 키를 저장하세요"}
+            title={aiReady ? "AI로 PDF를 읽어 회로도 Markdown으로 바꿉니다" : AI_SETUP_HINT}
           >
             PDF 가져오기 (AI)
           </button>
@@ -242,7 +242,7 @@ export function CircuitTab({ projectId, boardId, circuit, revision, onSaved, onO
         </div>
         <div className="muted small">
           {busy ?? (dirty ? "저장되지 않은 변경" : revision ? `revision ${revision}` : "저장된 회로 없음")}
-          {!aiReady && " · PDF 가져오기는 설정에서 AI(Gemini)를 켜면 쓸 수 있습니다. 코파일럿으로 만든 회로도 Markdown은 「회로도 MD 가져오기」로 바로 넣을 수 있습니다."}
+          {!aiReady && " · PDF 가져오기는 설정에서 AI(Gemini 또는 Claude)를 켜면 쓸 수 있습니다. 코파일럿으로 만든 회로도 Markdown은 「회로도 MD 가져오기」로 바로 넣을 수 있습니다."}
         </div>
         <textarea
           className="editor code"

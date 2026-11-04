@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, errorText, proposalFileText, waitForJob } from "../api";
 import {
+  AI_SETUP_HINT,
   automatedLabel,
   cropSvg,
   diffFieldLabel,
@@ -173,7 +174,7 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
         {revision && (
           <div className="toolbar">
             <button className="ghost" onClick={reviewBoard} disabled={!aiReady || busy !== null}
-              title={aiReady ? "저장된 회로를 요구사항·검사 결과와 함께 AI가 검토합니다" : "설정에서 AI 기능을 켜고 Gemini API 키를 저장하세요"}>
+              title={aiReady ? "저장된 회로를 요구사항·검사 결과와 함께 AI가 검토합니다" : AI_SETUP_HINT}>
               현재 회로 AI 검토
             </button>
           </div>

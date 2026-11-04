@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, errorText, waitForJob } from "../api";
-import { matchLabel } from "../format";
+import { AI_SETUP_HINT, matchLabel, providerLabel } from "../format";
 import type { AiStatus, InventoryMatch, Suggestion } from "../types";
 import { Chip } from "./Chip";
 
@@ -97,7 +97,7 @@ export function MaterialsTab({ projectId, boardId, revision, onApplied }: Props)
       }
       const ok = window.confirm(
         `AI 대체 자재 추천\n\n전송할 데이터: BOM ${preview.line_count}줄의 부품 사양(기호·값·풋프린트)과 보유 자재 후보 ${preview.candidate_count}개\n` +
-          `받는 곳: Google Gemini API (모델 ${preview.model})\n\n추천은 제안일 뿐이며, 고른 것만 적용됩니다. 계속할까요?`,
+          `받는 곳: ${providerLabel(preview.provider)} (모델 ${preview.model})\n\n추천은 제안일 뿐이며, 고른 것만 적용됩니다. 계속할까요?`,
       );
       if (!ok) return;
       setBusy("AI가 대체 자재를 고르는 중…");
@@ -153,7 +153,7 @@ export function MaterialsTab({ projectId, boardId, revision, onApplied }: Props)
             className="ghost"
             onClick={suggest}
             disabled={!aiReady || busy !== null}
-            title={aiReady ? "미보유·대체 줄에 쓸 보유 자재를 Gemini가 추천합니다" : "설정에서 AI 기능을 켜고 Gemini API 키를 저장하세요"}
+            title={aiReady ? "미보유·대체 줄에 쓸 보유 자재를 AI가 추천합니다" : AI_SETUP_HINT}
           >
             AI 대체 추천
           </button>
