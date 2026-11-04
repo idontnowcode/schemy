@@ -1,7 +1,7 @@
 # AI Circuit Studio
 
 자연어 회로 요구사항 → AI 설계안 → 사용자 승인 → Circuit IR(JSON) → Markdown 문서 + KiCad 회로도를 만드는 Windows 우선 데스크톱 앱입니다.
-기획서는 [`docs/AI_Circuit_Studio_Development_Plan.md`](docs/AI_Circuit_Studio_Development_Plan.md)(v1.4)에 있습니다.
+기획서는 [`docs/AI_Circuit_Studio_Development_Plan.md`](docs/AI_Circuit_Studio_Development_Plan.md)(v1.5)에 있습니다.
 궁극적인 목표는 **하나의 입력 창**에서 회로도, 아트웍(PCB), 펌웨어까지 다루는 것입니다(기획서 1장 제품 비전).
 
 ![AI Circuit Studio — 회로도·검증 화면](docs/images/phase1-schematic.png)
@@ -14,11 +14,16 @@
 | Phase 1 — Core MVP | ✅ 완료 | 데스크톱 앱, 프로젝트 저장·복원, revision, 문서·BOM, KiCad 생성 job, 산출물 관리 ([보고서](docs/phase1-report.md)) |
 | Phase 1.5 — 보드·페이지, 가져오기, 보유 자재 | ✅ 완료 | 프로젝트→보드→페이지, PDF 회로도 카피(회로도 MD 가져오기 + Gemini 변환 옵션), 보유 자재 우선 사용 ([보고서](docs/phase1_5-report.md)) |
 | Phase 1.6 — 데이터시트 | ✅ 완료 | 제조사가 확실한 부품의 데이터시트 수집(KiCad 심볼 링크·직접 올리기), 요약 MD, 핀맵·전압·외부 부품 대조 ([보고서](docs/phase1_6-report.md)) |
-| Phase 2a — 변경 흐름(LLM 없음) | 다음 | patch·diff·proposal·승인 게이트 |
-| Phase 2b — AI 설계 흐름 | 대기 | 통합 입력 창, 요구사항 구조화, 설계안 → proposal |
+| Phase 2 — 변경 흐름과 AI 설계·검토 | ✅ 완료 | 요구사항 → AI 회로 설계 → 제안(비교 표·KiCad 검사·AI 검토) → 승인 ([보고서](docs/phase2-report.md)) |
+| Phase 3 — 엔지니어링 템플릿 | 다음 | 다중 유닛 심볼, 검토된 회로 템플릿, 엔지니어 검토 기록 |
 
 ## 지금 할 수 있는 것
 
+- **요구사항 → AI 회로 설계 → 제안 → 승인.** 「요구사항」 탭에 만들 회로를 적고 **AI로 회로 설계**를 누릅니다(AI 기능 필요).
+  1. AI가 부품을 고르면 앱이 설치된 KiCad 라이브러리에서 실제 심볼과 핀 번호로 바꿉니다.
+  2. AI가 그 핀 번호로만 연결을 정합니다. 앱이 모든 핀을 검사하고, 틀리면 AI에게 다시 고치게 합니다(최대 2회).
+  3. 결과는 「제안」 탭에 나옵니다. 앱이 계산한 비교 표, 제안 전용 폴더에서 돌린 KiCad ERC·Netlist 검사, 데이터시트 대조, AI 검토 의견을 보고 **승인**하면 회로가 저장되고 회로도가 다시 생성됩니다. **거부**하면 아무것도 바뀌지 않습니다.
+  4. 검토 의견을 반영한 **수정안**도 만들 수 있고, 저장된 회로를 **AI 검토**할 수도 있습니다. 직접 값을 바꾸는 제안(예: R1 330→1k)도 같은 화면에서 만듭니다.
 - **프로젝트 → 보드(A, B, …) → 페이지.** 보드 하나가 회로 하나, revision 이력 하나, KiCad 프로젝트 하나입니다. 보드 안의 회로는 여러 페이지로 나눌 수 있고, 페이지를 오가는 Net은 자동으로 연결됩니다.
 - **회로 편집과 검사.** Circuit IR(JSON)을 넣거나 편집하면 규칙 검사와 KiCad 라이브러리 핀 대조를 하고, 저장할 때마다 revision을 남깁니다.
 - **KiCad 생성과 자동 검사.** 보드마다 `.kicad_pro`와 페이지별 `.kicad_sch`를 만들고 ERC, Netlist ↔ IR 비교, SVG 미리보기를 실행합니다. 같은 입력이면 같은 파일이 나옵니다.
@@ -34,7 +39,7 @@
   - 대조 결과는 자동 검사 근거일 뿐이며 회로를 바꾸지 않습니다. 데이터시트는 모든 프로젝트가 함께 씁니다(사이드바 **데이터시트**).
 - **문서.** 저장한 IR에서 Markdown 설명서와 BOM(CSV, 제조사·품번 포함)을 만듭니다.
 
-AI는 선택 기능이며 기본은 꺼져 있습니다. 끈 상태에서도 위 기능은 PDF 가져오기 (AI), AI 대체 추천, AI로 요약을 빼고 모두 동작합니다.
+AI는 선택 기능이며 기본은 꺼져 있습니다. 끈 상태에서도 AI 회로 설계·검토, PDF 가져오기 (AI), AI 대체 추천, AI로 요약을 빼고 모두 동작합니다.
 
 ## 데스크톱 앱 실행
 
@@ -123,11 +128,13 @@ uv run aics generate examples/led-resistor-connector/circuit.json \
   index.sqlite             # 프로젝트 목록·작업 이력·앱 설정 (폴더에서 다시 만들 수 있는 캐시)
   .trash/                  # 삭제한 프로젝트·보드 (복구 가능)
   inventory/               # 보유 자재 목록 (모든 프로젝트 공통): inventory.json, 원본 파일
+  cache/symbol_index.json  # KiCad 심볼 색인 (AI 설계용, 지워도 다시 만듦)
   datasheets/              # 데이터시트 라이브러리 (모든 프로젝트 공통): index.json, ds-<해시>.pdf,
                            #   요약 원문(.summary.md), 앱이 읽은 결과(.facts.json), AI 기록(ai_runs/)
   projects/<project-id>/
     project.json           # 이름, 보드 순서
     requirements.md
+    requirements.spec.json # AI로 정리하고 사용자가 저장한 요구사항 (선택)
     design_notes.md
     boards/<board-id>/     # 보드 = 회로 하나 = KiCad 프로젝트 하나 (첫 보드는 a, "보드 A")
       board.json           # 보드 이름, 현재 revision
@@ -135,6 +142,8 @@ uv run aics generate examples/led-resistor-connector/circuit.json \
       revisions/0001.circuit.json, 0001.meta.json, …
       imports/             # 가져온 Markdown·PDF, AI가 만든 Markdown 사본
       ai_runs/             # AI 호출 기록 (API 키는 기록하지 않음)
+      ai_reviews/          # 저장된 회로에 대한 최근 AI 검토
+      proposals/<번호>/    # 제안: proposal.json, candidate.circuit.json, outputs/(검사용 KiCad 파일)
       outputs/             # 마지막으로 생성한 revision의 산출물
         manifest.json      # 파일별 유형·revision·도구 버전·SHA-256·검사 상태, 페이지 목록
         <프로젝트>-<보드>.kicad_pro / .kicad_sch          # 1페이지(루트)
@@ -145,7 +154,8 @@ uv run aics generate examples/led-resistor-connector/circuit.json \
 
 - Phase 1 구조(프로젝트 폴더 바로 아래 `circuit.json`)는 처음 열 때 `boards/a/`로 자동으로 옮깁니다.
 
-- 회로를 저장하면 내용이 바뀐 경우에만 새 revision을 만듭니다. 복원과 보유 자재 적용도 새 revision으로 기록하므로 이력이 지워지지 않습니다.
+- 회로를 저장하면 내용이 바뀐 경우에만 새 revision을 만듭니다. 복원, 보유 자재 적용, 제안 승인도 새 revision으로 기록하므로 이력이 지워지지 않습니다.
+- 제안은 만든 시점의 revision을 기준으로 합니다. 그 사이 회로가 바뀌면 「기준 회로 바뀜」이 되어 승인할 수 없습니다.
 - 생성은 임시 폴더에서 진행합니다. 모두 성공했을 때만 `outputs/`를 교체합니다.
 - 생성 이후 회로가 바뀌면 산출물을 **오래됨**으로 표시합니다.
 - 생성된 파일을 KiCad 등에서 수정하면 **외부에서 수정됨**으로 표시하고, 다시 생성하기 전에 확인을 받습니다.
@@ -153,11 +163,13 @@ uv run aics generate examples/led-resistor-connector/circuit.json \
 ## 저장소 구조
 
 ```text
-circuit_core/     Circuit IR 모델(Pydantic), 규칙 검사, Markdown/JSON/BOM 생성,
+circuit_core/     Circuit IR 모델(Pydantic), 규칙 검사, Markdown/JSON/BOM 생성, patch 연산·비교 표,
                   회로도 MD 가져오기, 보유 자재 목록 읽기·대조, 데이터시트 요약 읽기·대조
-kicad_adapter/    .kicad_sch 생성기(여러 페이지), 심볼 라이브러리 읽기, kicad-cli 실행, Netlist/ERC 파싱
-ai_engine/        AI 공급자(Gemini) 어댑터, API 키 저장소, PDF 변환·대체 추천·데이터시트 요약 작업과 프롬프트
-backend/          FastAPI 로컬 API: 프로젝트·보드·revision·생성 job·산출물·자재·데이터시트·AI (127.0.0.1 + 토큰)
+kicad_adapter/    .kicad_sch 생성기(여러 페이지, no-connect, PWR_FLAG, 파생 심볼), 심볼 라이브러리 읽기·색인,
+                  kicad-cli 실행, Netlist/ERC 파싱
+ai_engine/        AI 공급자(Gemini) 어댑터, API 키 저장소, AI 회로 설계·검토·요구사항 정리,
+                  PDF 변환·대체 추천·데이터시트 요약 작업과 프롬프트
+backend/          FastAPI 로컬 API: 프로젝트·보드·revision·제안·생성 job·산출물·자재·데이터시트·AI (127.0.0.1 + 토큰)
 desktop/          Electron 셸 + React UI (Vite), e2e 테스트(Playwright)
 examples/         예제 IR과 KiCad 프로젝트 (golden 파일 겸용)
 experiments/      ADR 실험 기록 (SKiDL/schematizer)
@@ -174,7 +186,7 @@ uvx ruff@0.14.0 check .                            # Python lint
 
 cd desktop
 npm run typecheck && npm test                      # TypeScript 타입 검사, Vitest
-npm run build && npx playwright test e2e/app.spec.ts e2e/boards.spec.ts e2e/datasheets.spec.ts   # 브라우저 e2e
+npm run build && npx playwright test e2e/app.spec.ts e2e/boards.spec.ts e2e/datasheets.spec.ts e2e/proposals.spec.ts
 xvfb-run -a npx playwright test e2e/electron.spec.ts       # Electron 셸 e2e (Linux는 xvfb 필요)
 ```
 
@@ -185,6 +197,7 @@ xvfb-run -a npx playwright test e2e/electron.spec.ts       # Electron 셸 e2e (L
 - **연결은 KiCad 심볼의 핀 번호로만 저장합니다.** 예를 들어 `Device:LED`는 1=K, 2=A입니다. 핀 이름은 근거로만 기록하고, 생성 전에 라이브러리와 대조해 다르면 파일을 만들지 않습니다.
 - 부품의 모든 핀이 라이브러리 심볼과 정확히 일치해야 합니다. 빠진 핀, 없는 핀, 이름 불일치는 모두 오류입니다.
 - IR 규칙 오류(중복 참조, 없는 핀 등)가 있으면 저장되지 않습니다. 라이브러리 핀 불일치는 저장은 되지만 회로도 생성이 거부됩니다.
+- 일부러 비워 두는 핀은 `"no_connect": true`로 표시합니다. 회로도에 no-connect 표시가 들어가고, KiCad ERC가 미연결 오류를 내지 않습니다.
 - 배치(`layout`)는 연결과 분리되어 있습니다. 배치 때문에 서로 다른 Net이 맞닿으면 생성을 거부합니다. 좌표가 없는 부품은 자동 배치하고, 넘치면 더 큰 용지(A4→A0)를 고릅니다.
 - 페이지(`sheets`)는 그리기 단위일 뿐입니다. Net은 보드 전체 기준이고, 페이지를 어떻게 나눠도 Netlist는 같습니다.
 - 생성된 심볼에는 숨김 필드 `AICS_ID`(IR component id)가 들어갑니다.
@@ -195,18 +208,19 @@ xvfb-run -a npx playwright test e2e/electron.spec.ts       # Electron 셸 e2e (L
 |---|---|---|
 | 자동 검사 | Not checked / Automated checks passed / failed | kicad-cli ERC와 Netlist ↔ IR 비교 결과. **설계가 맞다는 뜻이 아님** |
 | 엔지니어링 검토 | 미확인 / 검토 필요 / Engineer reviewed | 사람만 바꿀 수 있음. 앱과 자동 검사는 바꾸지 않음 |
-| 승인 | (Phase 2부터) | AI 제안의 승인/거부 |
+| 승인 | 승인 대기 / 승인됨 / 거부됨 / 기준 회로 바뀜 | 「제안」 탭. 회로를 바꾸는 AI 결과는 모두 여기를 거침 |
 
 ## 현재 제약
 
 - **Windows 11에서는 아직 실행해 보지 않았습니다.** 검증은 Linux 컨테이너(KiCad 10.0.8 Docker, Electron 45 + Xvfb)에서 했습니다.
 - **Gemini API는 실제로 호출해 보지 않았습니다.** 개발 환경에 키가 없어 가짜 공급자로만 시험했습니다. PDF 변환 정확도도 실제 회로도로 재지 않았습니다([Phase 1.5 보고서](docs/phase1_5-report.md)).
-- AI 결과는 지금은 편집기에서 검토 후 저장(PDF), 고른 것만 적용(대체 추천)하는 방식입니다. Phase 2a에서 proposal 승인 경로로 옮깁니다.
+- **AI 회로 설계·검토는 실제 Gemini로 시험하지 않았습니다.** 흐름과 검사는 각본대로 답하는 가짜 AI로 확인했습니다. 실제 모델의 설계 품질은 키를 넣고 확인해야 합니다.
+- AI 설계는 KiCad 라이브러리에 있는 단일 유닛 심볼만 씁니다. OP앰프 같은 다중 유닛 부품은 아직 설계하지 못하고, 그 이유를 보여 줍니다.
 - **데이터시트를 실제 제조사 사이트에서 받아 보지 않았습니다.** 개발 환경에서 외부 사이트가 막혀 있어 로컬 테스트 서버로만 시험했습니다. 사이트가 자동 다운로드를 막으면 브라우저로 받아 **PDF 올리기**로 넣으세요.
 - 데이터시트 전압 점검은 Net 이름에 전압이 있을 때만 합니다(+3V3, +5V, VCC_12V). 패키지가 여러 개인 부품은 핀 수와 풋프린트로 고르고, 못 고르면 풋프린트를 지정해야 합니다.
 - **설치 패키지가 아직 없습니다.** 지금은 소스에서 실행하며, 앱이 `uv`로 백엔드를 띄웁니다([ADR-003](docs/adr/ADR-003-desktop-shell.md)).
 - KiCad 10.0.x만 지원합니다([ADR-002](docs/adr/ADR-002-kicad-version.md)).
-- 생성기가 지원하지 않는 것: 파생 심볼(`extends`), 다중 유닛 심볼, 미러, 전원 심볼, no-connect 표시. 만나면 오류를 냅니다. 계층 시트는 페이지 나누기 용도로만 씁니다.
+- 생성기가 지원하지 않는 것: 다중 유닛 심볼, 미러, 전원 심볼. 만나면 오류를 냅니다. 계층 시트는 페이지 나누기 용도로만 씁니다. no-connect 표시, PWR_FLAG(커넥터로 전원이 들어오는 Net에 자동), 파생 심볼은 지원합니다.
 - 연결은 핀마다 짧은 선과 Net 라벨을 붙이는 방식이라, 부품 사이를 직접 잇는 배선이 없습니다. 자동 배치는 부품 크기만 고려하고 신호 흐름은 고려하지 않습니다.
 - 보유 자재 대조는 값·패키지·종류·품번만 봅니다. 정격(전압·전력)과 허용오차는 비교하지 않습니다.
 - 실행 중인 생성 작업은 취소할 수 없습니다. 필드형 요구사항은 Phase 2에서 추가합니다.

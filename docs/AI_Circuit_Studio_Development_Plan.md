@@ -1,13 +1,14 @@
-# AI Circuit Studio — 앱 개발 기획서 v1.4
+# AI Circuit Studio — 앱 개발 기획서 v1.5
 
 - 작성일: 2026-11-04
 - 목적: Claude Code에서 개발 착수 가능한 PRD + 기술 설계 + 구현 순서
 - 대상: Windows 우선 로컬 데스크톱 앱
-- 상태: v1.4. 실제 부품 선정과 회로 검증은 별도 승인 필요.
+- 상태: v1.5. 실제 부품 선정과 회로 검증은 별도 승인 필요.
 - v1.1 개정 취지: AI EDA Agent의 제한된 도구 실행, 검증-수정 반복, 확장 가능한 PCB/FW 데이터 구조 추가.
 - v1.2 개정 취지: v1.1 검토 결과 반영. 승인 경로 단일화, 상태 3축 분리, Agent 상태 머신 보완, 승인 범위 정의, 격리 작업공간 정의, 단계 순서 정리, Phase 0 결과 반영.
 - v1.3 개정 취지: 사용자 요청 반영. 프로젝트→보드→페이지 구조, PDF 회로도 카피(Markdown 가져오기 + AI 변환 옵션), 보유 자재 우선 사용, AI 공급자 결정(Gemini 기본, 옵션), 제품 비전(하나의 입력 창에서 회로도·아트웍·펌웨어).
 - v1.4 개정 취지: 사용자 요청 반영. 제조사가 확실한 부품의 데이터시트를 자동으로 받아 회로 분석(핀맵·정격·외부 부품)에 쓰고, 이후 회로 작성의 근거로 쓴다.
+- v1.5 개정 취지: Phase 2 완료. 사용자 목표 "요구사항 적기 → AI가 회로도 자동 작성·검토"를 제안(proposal) 승인 경로 위에 구현. AI 설계 회로가 KiCad 검사를 통과하도록 생성기 항목 일부(no-connect, PWR_FLAG, 파생 심볼)를 Phase 3에서 앞당김.
 - 변경 원칙: v1.0의 Phase 0 및 기존 MVP 범위를 보존하고 단계적 확장.
 
 ## 1. 제품 목표
@@ -37,6 +38,7 @@
 - **(v1.2) 사용자가 직접 편집한 IR**(Phase 1의 JSON 편집 등)은 사용자 자신의 행위이므로 proposal 없이 저장하되, 저장마다 revision을 남긴다.
 - **(v1.3) 프로젝트 → 보드(A, B, …) → 페이지.** 보드 하나가 Circuit IR 하나, revision 이력 하나, KiCad 프로젝트 하나다. 페이지는 IR 안의 `sheets`로, 그리기 단위일 뿐 연결(Net)은 보드 전체 기준이다.
 - **(v1.3) AI는 선택 기능이다.** 기본은 꺼져 있고, 켜면 Google Gemini API를 쓴다(공급자 교체 가능). 호출 전에 보낼 데이터를 보여주고 확인을 받으며, 키는 OS 보안 저장소에만 둔다.
+- **(v1.5) AI 설계는 세 단계로 나눈다(ADR-006).** AI는 ① 부품 계획(역할·값·품번·KiCad 심볼 추정) ③ 연결(코드가 준 핀 번호만 사용)만 답하고, ② 부품을 실제 KiCad 심볼·핀으로 바꾸는 일과 모든 핀 참조 검사는 코드가 한다. 문제는 AI에게 돌려보내 최대 2회 고치게 한다. 결과는 항상 proposal이다.
 - **(v1.4) 데이터시트는 요약을 거쳐서만 쓴다.** PDF는 원문으로 보관하고, 앱이 쓰는 것은 쪽 번호가 붙은 "데이터시트 요약 MD"(코파일럿·사람·AI가 작성)다. 판정(핀맵·정격·외부 부품)은 코드가 하고, 결과는 자동 검사 근거일 뿐 회로를 바꾸거나 엔지니어링 검토 상태를 바꾸지 않는다. 다운로드는 KiCad 심볼에 이미 들어 있는 제조사 링크만, 사용자 확인 후 HTTPS로 한다(ADR-005).
 - **(v1.3) Phase 2a 전의 AI 결과 승인 방식:** PDF 변환 결과는 편집기에 불러와 사용자가 검토 후 저장하고, 자재 추천은 사용자가 고른 것만 적용한다. 이 두 흐름은 Phase 2a에서 proposal 승인 경로로 옮긴다.
 
@@ -55,27 +57,27 @@
 |---|---|---|---|---|
 | FR-01 | 프로젝트 생성/열기/저장 | P0 | 로컬 프로젝트 재열기 시 상태 복원 | 1 |
 | FR-02 | 요구사항 입력·편집 | P0 | 텍스트(1단계)와 필드형 사양(2단계) 저장 | 1, 2 |
-| FR-03 | AI 요구사항 구조화 | P0 | 스키마 검증 가능한 결과 반환 | 2 |
-| FR-04 | 설계안 제안 및 승인 | P0 | 승인 전 원본 변경 없음 | 2 |
+| FR-03 | AI 요구사항 구조화 | P0 | 스키마 검증 가능한 결과 반환 | 2 ✅ |
+| FR-04 | 설계안 제안 및 승인 | P0 | 승인 전 원본 변경 없음 | 2 ✅ |
 | FR-05 | Circuit IR 관리 | P0 | component/pin/net ID 안정적 유지 | 1 |
 | FR-06 | Markdown/JSON 내보내기 | P0 | 동일 IR에서 결정적 생성 | 1 |
 | FR-07 | KiCad 회로도 생성 | P0 | 지원 회로에서 KiCad 프로젝트가 열림 | 0, 1 |
 | FR-08 | ERC·Netlist·SVG 결과 표시 | P0 | 실행 결과와 오류를 UI에서 확인 | 1 |
-| FR-09 | 변경 diff·버전 이력 | P1 | 승인/취소/롤백 가능 | 1(이력), 2(diff·승인) |
+| FR-09 | 변경 diff·버전 이력 | P1 | 승인/취소/롤백 가능 | 1(이력), 2(diff·승인) ✅ |
 | FR-10 | BOM CSV | P1 | ref/value/MPN/footprint 포함 | 1 |
 | FR-11 | 검증 상태 추적 | P0 | 상태 3축(10.1절) 구분 표시 | 1 |
 | FR-12 | 데이터시트 수집·첨부 | P1 | (v1.4) KiCad 심볼 링크로 받기 또는 직접 올리기. PDF 본문에서 품번 확인, 출처 URL·해시 기록. 워크스페이스 공통 라이브러리 | 1.6 ✅ |
 | FR-13 | Agent 작업 계획/도구 호출 기록 | P1 | 입력·결과·시각·revision 연계 | 4 |
 | FR-14 | 제한된 EDA 도구 실행 | P1 | 허용된 명령만 실행, 작업별 타임아웃 | 4 |
 | FR-15 | 자동 재검증 루프 | P1 | 제한 횟수 내 수정 제안·재검증·보고 | 4 |
-| FR-16 | 승인 게이트 | P0 | 승인 없는 원본 덮어쓰기·제조 산출물 확정 금지. 승인 경로는 하나 | 2 |
+| FR-16 | 승인 게이트 | P0 | 승인 없는 원본 덮어쓰기·제조 산출물 확정 금지. 승인 경로는 하나 | 2 ✅ |
 | FR-17 | PCB/FW 확장용 아티팩트 참조 | P2 | 회로 revision과 결과 파일 연결 | 1(스키마), 5 |
 | FR-18 | 여러 보드·여러 페이지 | P0 | 프로젝트에 보드 여러 개, 보드마다 페이지 여러 장. 페이지를 나눠도 Netlist 동일 | 1.5 ✅ |
 | FR-19 | PDF 회로도 카피 1단계: 회로도 MD 가져오기 | P0 | 코파일럿 등이 만든 "회로도 MD v0.1"을 IR로 변환, 라이브러리 핀 대조, 불확실 항목은 검토 필요 | 1.5 ✅ |
 | FR-20 | PDF 회로도 카피 2단계: AI 변환(옵션) | P1 | Gemini로 PDF → 회로도 MD → 1단계와 같은 가져오기. 전송 확인·실행 기록 | 1.5 ✅ |
 | FR-21 | 보유 자재 우선 사용 | P0 | 자재 목록(CSV/XLSX) 대조: 보유/대체 가능/미보유, 재고 확인, 품번·풋프린트 적용(revision) | 1.5 ✅ |
 | FR-22 | AI 대체 자재 추천(옵션) | P1 | 보유 자재 목록 안에서만 추천, 사용자가 고른 것만 적용 | 1.5 ✅ |
-| FR-23 | 통합 입력 창 | P1 | 하나의 입력 창에서 요구사항·변경 요청 → proposal. 이후 아트웍·펌웨어로 확장 | 2, 5 |
+| FR-23 | 통합 입력 창 | P1 | 하나의 입력 창에서 요구사항·변경 요청 → proposal. 이후 아트웍·펌웨어로 확장 | 2 ✅(회로도: 요구사항 탭 → AI 설계 → 제안), 5(아트웍·펌웨어) |
 | FR-24 | 데이터시트 활용 (v1.4) | P1 | 데이터시트 요약 MD(코파일럿 프롬프트 제공, AI 요약 옵션)로 핀맵 대조, 전원 전압 ↔ 정격 점검, 외부 부품 체크리스트. 응용 회로 메모는 회로 작성 근거로 보관 | 1.6 ✅ (작성 활용은 2b) |
 | FR-25 | 제조사 정보 (v1.4) | P1 | IR 부품에 `manufacturer`. 회로도 MD·보유 자재 적용·BOM에 반영 | 1.6 ✅ |
 
@@ -221,6 +223,7 @@ AI-Circuit-Studio/
 - `GET /jobs/{job_id}` : 오래 걸리는 작업 상태
 - `POST /projects/{id}/proposals` : AI 설계 제안 (적용하지 않음, Phase 2)
 - `POST /projects/{id}/proposals/{proposal_id}/approve|reject` : **유일한 승인 경로** (Phase 2)
+> **(v1.5)** 구현: `GET|POST …/boards/{board}/proposals`, `GET …/proposals/{id}`, `POST …/proposals/{id}/check|approve|reject`, `GET …/proposals/{id}/files/{name}`. AI: `GET|PUT /projects/{id}/requirements/spec`, `POST /projects/{id}/requirements/structure`(job), `GET …/boards/{board}/ai/design/preview`, `POST …/ai/design`(job), `POST …/ai/review`(job), `GET …/ai/review`, `POST …/ai/revise`(job).
 - `POST /projects/{id}/agent-runs` : 격리된 Agent 실행 생성 (기본 dry-run, Phase 4). 결과는 proposal로 제출된다.
 - `GET /projects/{id}/agent-runs/{run_id}` : 계획, 도구 실행, 로그, 검증 결과
 - `POST /projects/{id}/agent-runs/{run_id}/cancel` : 실행 취소
@@ -230,7 +233,7 @@ AI-Circuit-Studio/
 > v1.1의 `POST /agent-runs/{run_id}/approve`는 삭제했다. Agent 결과의 승인은 그 run이 제출한 proposal의 승인으로 한다.
 
 ## 9. 설계 변경 처리
-1. 변경은 `add_component`, `remove_component`, `update_property`, `connect`, `disconnect`, `move`(배치) 등 허용된 연산의 patch로 표현한다.
+1. 변경은 `add_component`, `remove_component`, `update_property`, `connect`, `disconnect`, `move`(배치) 등 허용된 연산의 patch로 표현한다. **(v1.5)** 구현 이름: `set_property`(=update_property), `add_component`, `remove_component`, `connect`, `disconnect`, `rename_net`, `set_no_connect`, `move`, `replace_circuit`(첫 설계·가져오기). 각 연산은 precondition(현재 값, 기호)을 갖고 하나라도 맞지 않으면 patch 전체를 거부한다.
 2. 서버가 patch의 base revision과 현재 revision, precondition을 확인한다.
 3. schema/참조/핀/Net 규칙을 검증한다.
 4. UI에서 영향 범위와 before/after diff를 제공한다. diff는 서버 코드가 IR에서 계산한다.
@@ -329,14 +332,16 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - Gate: 대조는 회로를 바꾸지 않음, 보드 심볼에 없는 링크는 받지 않음, 일반 심볼(Device:R 등)에는 데이터시트를 연결하지 않음, AI 실행 기록에 API 키를 남기지 않음.
 - 결과: `docs/phase1_6-report.md`, ADR-005, `docs/prompts/datasheet-summary.md`.
 
-### Phase 2 — Change Workflow → AI Workflow (3~5주 목표)
+### Phase 2 — Change Workflow → AI Workflow (완료: 2026-11-04)
 - **2a (LLM 없음, v1.2 추가):** patch 연산, diff, proposal, 승인/거부, revision, 격리 작업공간, 재생성·재검증, 작업 기록. 수직 슬라이스: LED 회로 저항값 330→1k patch → diff → 승인 → 생성 → ERC → Netlist 비교.
   - 통합 테스트: 승인 시 Netlist 부품값 변경 확인. 거부·실패 시 원본 파일 해시 불변.
 - **2b:** LLM 공급자 어댑터, 요구사항 구조화(필드형 사양), 설계안 생성. LLM은 2a의 proposal을 만드는 역할만 한다. **(v1.4)** 설계안은 데이터시트 요약(응용 회로 메모, 외부 부품, 정격)을 쪽 번호와 함께 근거로 인용하고, 제안 후 같은 데이터시트 대조를 다시 통과해야 한다.
 - Gate: 승인 전 데이터 불변, 거부 시 변경 없음, 수정 후 재검증.
+- **(v1.5) 구현:** 요구사항 탭 → (AI 요구사항 정리) → AI 회로 설계(부품 계획 → KiCad 심볼·핀 확정 → 연결 → 코드 검사·최대 2회 수정) → proposal → 격리 검사(IR 규칙, KiCad ERC·Netlist, 데이터시트) → AI 검토 → 승인 → revision·재생성. AI 검토 의견으로 수정안 만들기. PDF 가져오기(AI)도 proposal로.
+- 결과: `docs/phase2-report.md`, ADR-006.
 
 ### Phase 3 — Engineering Templates (4~8주 목표)
-- 생성기 확장: 전원 심볼·PWR_FLAG, 다중 유닛 심볼, no-connect 표시(MCU 회로의 전제).
+- 생성기 확장: 전원 심볼·PWR_FLAG, 다중 유닛 심볼, no-connect 표시(MCU 회로의 전제). **(v1.5)** no-connect, PWR_FLAG 자동 추가(커넥터로 전원이 들어오는 Net), 파생 심볼(`extends`)은 Phase 2에서 완료. 남은 것: 다중 유닛 심볼(OP앰프, 일부 MCU), 전원 심볼, 부품 사이 직접 배선과 블록 단위 배치.
 - 전원부, MCU 최소 회로, CAN 회로 템플릿 확장.
 - 실제 데이터시트 기반 핀맵/정격 검토 프로세스. **(v1.4)** 자동 사전 점검(Phase 1.6) 위에 엔지니어 검토 기록(누가, 어느 데이터시트 개정, 어느 쪽)을 더한다.
 - Gate: 각 템플릿에 근거와 검증 체크리스트 첨부.
@@ -436,6 +441,11 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 | 템플릿의 검증/승인 책임과 출처 관리 정책 | 미정. Phase 3 시작 전 결정 필요 |
 
 ## 19. 변경 이력
+### v1.5 (2026-11-04)
+- Phase 2 완료(2a 변경 흐름, 2b AI 설계·검토). FR-03·04·09·16 완료, FR-23은 회로도 범위 완료.
+- AI 설계 방식 결정(1.1, ADR-006). 구현 API와 patch 연산 이름(8, 9장).
+- 생성기 항목 일부를 Phase 3에서 앞당김(no-connect, PWR_FLAG, 파생 심볼). IR 부품 핀에 `no_connect`.
+
 ### v1.4 (2026-11-04)
 - 데이터시트 수집·활용 추가(1.1, FR-12 확장, FR-24·25, 7장 워크스페이스 `datasheets/`, 8장 API, 10장 L3 사전 점검, 13장 위험, 18장 결정, ADR-005).
 - Phase 1.6 추가(완료). Phase 2b·3에 데이터시트 근거 사용을 명시.
@@ -466,15 +476,14 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - 유지: Circuit IR 단일 기준 원본, Markdown 문서화, KiCad 생성 PoC 우선, 단계별 Gate, ERC와 엔지니어링 검증 구분.
 - 외부 사례: 사용자가 공유한 AI Times 기사(https://www.aitimes.com/news/articleView.html?idxno=216989) 및 관련 AI 기반 물리적 엔지니어링 워크플로의 아이디어를 참고. 특정 모델 성능이나 실물 제작 성과는 본 프로젝트에서 검증된 사실로 간주하지 않음.
 
-## 20. Claude Code 후속 개발 프롬프트 (Phase 1.6 완료 후 사용)
+## 20. Claude Code 후속 개발 프롬프트 (Phase 2 완료 후 사용)
 ```text
-docs/AI_Circuit_Studio_Development_Plan.md(v1.4)를 읽고 현재 저장소의 Phase 1.6 완료 여부를 실제 파일과 테스트로 검증하세요.
-완료된 경우 Phase 2a(LLM 없는 변경 흐름)를 보드 단위로 진행하세요.
-1. patch 연산(update_property, connect, disconnect, add_component, remove_component, move)과 precondition을 Pydantic으로 정의하세요.
-2. proposal 모델과 단일 승인 경로(approve/reject)를 구현하세요. 승인 전에는 proposals/ 아래 격리 공간에서만 파일을 만드세요.
-3. diff는 IR에서 코드로 계산하고 UI에 before/after로 보여주세요.
-4. LED 회로의 저항값 330→1k 변경 → diff → 승인 → 생성 → ERC → Netlist 비교 통합 테스트와, 거부·실패 시 원본 해시 불변 테스트를 작성하세요.
+docs/AI_Circuit_Studio_Development_Plan.md(v1.5)를 읽고 현재 저장소의 Phase 2 완료 여부를 실제 파일과 테스트로 검증하세요.
+완료된 경우 Phase 3(엔지니어링 템플릿)을 진행하세요.
+1. 생성기에 다중 유닛 심볼을 지원하고(유닛별 배치, 숨은 전원 핀), KiCad 10에서 ERC·Netlist·재저장 무손실을 확인하세요.
+2. 전원부(LDO, 벅), MCU 최소 회로, CAN 회로를 검토된 템플릿으로 만들고, 각 템플릿에 데이터시트 근거(쪽 번호)와 검증 체크리스트를 붙이세요.
+3. AI 설계가 템플릿을 우선 쓰도록 하고, 템플릿을 쓴 부분과 AI가 새로 만든 부분을 제안 화면에서 구분해 보여 주세요.
+4. 엔지니어 검토 기록(누가, 어느 데이터시트 개정, 어느 쪽, 무엇을 확인)을 보드 revision에 남기는 화면을 만드세요. 이것만이 「엔지니어링 검토」 상태를 바꿉니다.
 5. 실제 KiCad CLI 옵션은 로컬 설치 버전에서 확인하고, 검증되지 않은 동작은 구현 완료로 보고하지 마세요.
-6. PDF 가져오기와 AI 대체 추천의 결과도 proposal로 제출되게 바꾸세요(1.1절 v1.3 항목).
-통합 입력 창(2b), Agent(Phase 4), PCB 자동 설계, 펌웨어 생성은 시작하지 마세요.
+Agent(Phase 4), PCB 자동 설계, 펌웨어 생성은 시작하지 마세요.
 ```
