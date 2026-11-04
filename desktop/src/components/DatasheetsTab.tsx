@@ -58,6 +58,7 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
 
   const aiReady = Boolean(ai?.settings.enabled && ai.key.configured);
   const rows = report.components.filter((r) => showAll || r.relevant);
+  const hint = fetchHint(report);
 
   const run = async (label: string, fn: () => Promise<void>) => {
     setMessage(null);
@@ -196,6 +197,11 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
             <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> 모든 부품 보기
           </label>
         </div>
+        {hint && (
+          <p className="small warn-text" role="note">
+            {hint}
+          </p>
+        )}
         <p className="muted small">
           대조 결과는 「요약이 맞다면」 성립하는 자동 검사입니다. 회로를 바꾸지 않고, 엔지니어링 검토 상태도 바꾸지 않습니다. 제조사·품번은 회로
           (IR)에서 <code>manufacturer</code>, <code>manufacturer_part_number</code>로 넣거나 「보유 자재 적용」으로 채울 수 있습니다.
@@ -259,6 +265,23 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
       </div>
     </div>
   );
+}
+
+/** Why "링크로 받기" has nothing to fetch, in words the user can act on. */
+export function fetchHint(report: DatasheetReport): string | null {
+  if (report.fetchable.length > 0) return null;
+  if (!report.library_available) {
+    return "KiCad 심볼 라이브러리를 찾지 못해 데이터시트 링크를 읽을 수 없습니다. 설정 › 환경의 「심볼 라이브러리」를 확인하세요 (KiCad 10 기본 위치: C:\\Program Files\\KiCad\\10.0\\share\\kicad\\symbols).";
+  }
+  const sure = report.components.filter((c) => c.identity !== "generic");
+  if (sure.length === 0) {
+    return "받을 부품이 없습니다. 제조사·품번이 있거나 부품 전용 KiCad 심볼(예: MCU, CAN 트랜시버, 레귤레이터)을 쓰는 부품이 없습니다. 저항·콘덴서·커넥터 같은 일반 부품은 자동으로 받지 않습니다.";
+  }
+  const noLink = sure.filter((c) => !c.datasheet && !c.symbol_datasheet_url).map((c) => c.reference);
+  if (noLink.length > 0) {
+    return `${noLink.join(", ")}: KiCad 심볼에 데이터시트 링크가 없습니다. 제조사 사이트에서 받은 PDF를 「PDF 올리기」로 넣으세요.`;
+  }
+  return "링크가 있는 부품은 모두 데이터시트를 이미 받았습니다.";
 }
 
 interface RowProps {

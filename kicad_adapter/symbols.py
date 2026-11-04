@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import platform
 import re
+import shutil
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -138,16 +139,32 @@ def _parse_symbol(lib_id: str, node: list, source: Path) -> LibSymbol:
     return LibSymbol(lib_id, node, tuple(pins), tuple(fields), source)
 
 
+def windows_kicad_roots() -> list[Path]:
+    """KiCad 10 install folders on Windows: all-users (Program Files) and per-user (AppData) installs."""
+    roots = []
+    for base in (os.environ.get("ProgramFiles", r"C:\Program Files"), os.environ.get("ProgramW6432"),
+                 os.path.join(os.environ["LOCALAPPDATA"], "Programs") if os.environ.get("LOCALAPPDATA") else None):
+        if base:
+            root = Path(base) / "KiCad" / "10.0"
+            if root not in roots:
+                roots.append(root)
+    return roots
+
+
 def default_symbol_dirs() -> list[Path]:
     """Candidate KiCad 10 symbol directories for this machine (may not exist)."""
     dirs: list[Path] = []
     for var in ("KICAD10_SYMBOL_DIR", "KICAD_SYMBOL_DIR"):
         if os.environ.get(var):
             dirs.append(Path(os.environ[var]))
+    # Next to the kicad-cli the app uses: <KiCad>/bin/kicad-cli(.exe) -> <KiCad>/share/kicad/symbols.
+    for exe in (os.environ.get("AICS_KICAD_CLI"), shutil.which("kicad-cli")):
+        if exe:
+            dirs.append(Path(exe).resolve().parent.parent / "share" / "kicad" / "symbols")
     system = platform.system()
     if system == "Windows":
-        pf = os.environ.get("ProgramFiles", r"C:\Program Files")
-        dirs.append(Path(pf) / "KiCad" / "10.0" / "share" / "kicad" / "symbols")
+        for root in windows_kicad_roots():
+            dirs.append(root / "share" / "kicad" / "symbols")
     elif system == "Darwin":
         dirs.append(Path("/Applications/KiCad/KiCad.app/Contents/SharedSupport/symbols"))
     else:

@@ -92,9 +92,13 @@ class DockerRunner:
 def _windows_default() -> Path | None:
     if platform.system() != "Windows":
         return None
-    pf = os.environ.get("ProgramFiles", r"C:\Program Files")
-    candidate = Path(pf) / "KiCad" / "10.0" / "bin" / "kicad-cli.exe"
-    return candidate if candidate.is_file() else None
+    from .symbols import windows_kicad_roots
+
+    for root in windows_kicad_roots():
+        candidate = root / "bin" / "kicad-cli.exe"
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 class KiCadCli:
