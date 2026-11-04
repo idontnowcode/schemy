@@ -215,6 +215,12 @@
           "default": null,
           "description": "Expected pin name in the KiCad symbol (evidence only; checked against the library, never used for connectivity).",
           "title": "Name"
+        },
+        "no_connect": {
+          "default": false,
+          "description": "Intentionally left unconnected; the schematic gets a no-connect marker on this pin.",
+          "title": "No Connect",
+          "type": "boolean"
         }
       },
       "required": [

@@ -51,3 +51,17 @@ def test_layout_checks(led_circuit_data):
     led_circuit_data["layout"]["ghost"] = {"x": 0, "y": 0}
     result = validate_circuit(CircuitIR.model_validate(led_circuit_data))
     assert codes(result) == ["LAYOUT_UNKNOWN_COMPONENT", "UNSUPPORTED_ROTATION"]
+
+
+def test_no_connect_pins(led_circuit_data):
+    data = led_circuit_data
+    data["nets"] = [n for n in data["nets"] if n["name"] != "VIN"]  # J1.1 and R1.1 now open
+    j1 = next(c for c in data["components"] if c["reference"] == "J1")
+    j1["pins"][0]["no_connect"] = True
+    issues = validate_circuit(CircuitIR.model_validate(data)).issues
+    open_pins = {(i.error_code, i.affected_component_ids) for i in issues if i.error_code == "UNCONNECTED_PIN"}
+    assert ("UNCONNECTED_PIN", ("conn-001",)) not in open_pins and len(open_pins) == 1  # only R1.1 is reported
+    r1 = next(c for c in data["components"] if c["reference"] == "R1")
+    r1["pins"][1]["no_connect"] = True  # R1.2 is in LED_A
+    codes = {i.error_code for i in validate_circuit(CircuitIR.model_validate(data)).issues}
+    assert "NO_CONNECT_PIN_IN_NET" in codes

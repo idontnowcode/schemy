@@ -19,8 +19,8 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 SCHEMA_VERSION = "0.3.0"
-"""0.2.0 added optional ``sheets`` (pages); 0.3.0 added optional ``Component.manufacturer``.
-Older documents are still valid."""
+"""0.2.0 added optional ``sheets`` (pages); 0.3.0 added optional ``Component.manufacturer`` and
+``Pin.no_connect``. Older documents are still valid."""
 
 StableId = Annotated[
     str,
@@ -64,6 +64,10 @@ class Pin(_Model):
         default=None,
         description="Expected pin name in the KiCad symbol (evidence only; "
         "checked against the library, never used for connectivity).",
+    )
+    no_connect: bool = Field(
+        default=False,
+        description="Intentionally left unconnected; the schematic gets a no-connect marker on this pin.",
     )
 
 

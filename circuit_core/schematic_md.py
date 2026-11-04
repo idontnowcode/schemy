@@ -272,6 +272,7 @@ def import_schematic_markdown(text: str, pin_lookup: PinLookup, *, project_id: s
                                       [ref], comp["line"]))
         lib_names = dict(lib_pins or [])
         pins: dict[str, str | None] = {}  # number -> name for the IR
+        no_connect: set[str] = set()  # Net "NC": the drawing marks the pin as unconnected on purpose
         nets_of_pin: dict[str, str] = {}
         evidence: list[str] = []
         for line, row in rows_by_ref.get(ref, []):
@@ -322,6 +323,8 @@ def import_schematic_markdown(text: str, pin_lookup: PinLookup, *, project_id: s
                 net = _net_name(net_raw, net_names, issues, line)
                 nets_of_pin[number] = net_raw
                 connections[net].append((ref, number))
+            elif net_raw.upper() == "NC":
+                no_connect.add(number)
             elif net_raw == "?":
                 review = True
                 nets_of_pin[number] = "?"
@@ -352,7 +355,7 @@ def import_schematic_markdown(text: str, pin_lookup: PinLookup, *, project_id: s
             "footprint_id": comp["footprint_id"],
             "manufacturer": comp["manufacturer"] if comp["manufacturer"] not in ("", "?") else None,
             "manufacturer_part_number": comp["mpn"] if comp["mpn"] not in ("", "?") else None,
-            "pins": [{"number": n, "name": nm} for n, nm in pins.items()],
+            "pins": [{"number": n, "name": nm, "no_connect": n in no_connect} for n, nm in pins.items()],
             "pin_map_evidence": {
                 "status": "unverified",
                 "source": f"PDF 전사: {source}" + (f", p.{comp['page']}" if comp["page"] else ""),

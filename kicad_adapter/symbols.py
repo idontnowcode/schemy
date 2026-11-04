@@ -4,8 +4,10 @@ Pin numbers, names and positions always come from the real ``.kicad_sym``
 file; nothing about a symbol is assumed. The parsed symbol is also what gets
 embedded into the generated schematic's ``lib_symbols`` cache.
 
+Derived symbols (``extends``) are flattened onto their parent, as KiCad does in a schematic.
+
 PoC limits (reported as errors, never silently ignored):
-- derived symbols (``extends``) and multi-unit symbols are not supported;
+- multi-unit symbols are not supported;
 - only the KiCad 6+ single-file ``.kicad_sym`` library format is read
   (KiCad 10 ``.kicad_symdir`` directories are not).
 """
@@ -139,6 +141,47 @@ def _parse_symbol(lib_id: str, node: list, source: Path) -> LibSymbol:
     return LibSymbol(lib_id, node, tuple(pins), tuple(fields), source)
 
 
+def _flatten(table: dict[str, list], name: str, path: Path, depth: int = 0) -> list:
+    """A derived symbol (``extends``) as one self-contained definition, the way KiCad stores it in a
+    schematic's symbol cache: the parent's graphics and pins under the derived name, with the derived
+    symbol's own properties and flags taking precedence."""
+    node = table[name]
+    ext = child(node, "extends")
+    if ext is None:
+        return node
+    parent_name = unquote(ext[1])
+    if depth > 4 or parent_name not in table:
+        raise SymbolLibraryError(f"{path.name}:{name}: parent symbol '{parent_name}' not found")
+    parent = sexpr.deepcopy(_flatten(table, parent_name, path, depth + 1))
+    own_props = {unquote(p[1]): p for p in children(node, "property")}
+    own_flags = {head(n): n for n in node[2:]
+                 if isinstance(n, list) and head(n) not in ("property", "extends", "symbol")}
+    flat: list = ["symbol", sexpr.q(name)]
+    used_props: set[str] = set()
+    for item in parent[2:]:
+        kind = head(item) if isinstance(item, list) else None
+        if kind == "property":
+            pname = unquote(item[1])
+            flat.append(sexpr.deepcopy(own_props.get(pname, item)))
+            used_props.add(pname)
+        elif kind == "symbol":
+            sub = sexpr.deepcopy(item)
+            m = _UNIT_RE.match(unquote(sub[1]))
+            if m:
+                sub[1] = sexpr.q(f"{name}_{m.group('unit')}_{m.group('style')}")
+            flat.append(sub)
+        elif kind in own_flags:
+            flat.append(sexpr.deepcopy(own_flags[kind]))
+        else:
+            flat.append(sexpr.deepcopy(item))
+    # Properties only the derived symbol has go after the parent's, before the unit sub-symbols.
+    extra = [sexpr.deepcopy(p) for n, p in own_props.items() if n not in used_props]
+    if extra:
+        first_sub = next((i for i, it in enumerate(flat) if isinstance(it, list) and head(it) == "symbol"), len(flat))
+        flat[first_sub:first_sub] = extra
+    return flat
+
+
 def windows_kicad_roots() -> list[Path]:
     """KiCad 10 install folders on Windows: all-users (Program Files) and per-user (AppData) installs."""
     roots = []
@@ -211,7 +254,7 @@ class SymbolLibrary:
             path, table, _ = self._load_file(nickname)
             if name not in table:
                 raise SymbolLibraryError(f"symbol '{name}' not found in {path}")
-            self._symbols[lib_id] = _parse_symbol(lib_id, table[name], path)
+            self._symbols[lib_id] = _parse_symbol(lib_id, _flatten(table, name, path), path)
         return self._symbols[lib_id]
 
     def properties(self, lib_id: str) -> dict[str, str]:

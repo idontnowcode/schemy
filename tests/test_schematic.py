@@ -262,3 +262,68 @@ def test_auto_layout_picks_a_bigger_sheet_when_needed(library):
     # No two symbols share an origin and every pin is inside the sheet.
     width, height = {"A3": (420, 297), "A2": (594, 420), "A1": (841, 594)}[big.pages[0].paper]
     assert all(0 < a.x < width and 0 < a.y < height for a in big.anchors)
+
+
+# --- no-connect markers, automatic PWR_FLAG, derived symbols ------------------------------------
+
+def test_no_connect_pins_get_a_marker(library):
+    from .circuits import can_node
+
+    generated = generate_schematic(can_node(), library)
+    text = generated.text
+    assert text.count("(no_connect") == 1  # U1 pin 5 (Vref)
+    from kicad_adapter import sexpr
+
+    vref = next(a for a in generated.anchors if a.reference == "U1" and a.pin == "5")
+    marker = sexpr.child(sexpr.parse(text), "no_connect")
+    assert (float(marker[1][1]), float(marker[1][2])) == (vref.x, vref.y) and vref.net is None
+
+
+def test_power_flags_only_where_power_enters_through_a_connector(library):
+    from .circuits import can_node, ldo_supply
+
+    can = generate_schematic(can_node(), library)
+    assert can.power_flags == ["+3V3", "GND"]
+    assert can.text.count('(lib_id "power:PWR_FLAG")') == 2 and '"#FLG01"' in can.text
+    assert "AICS_ID" not in can.text.split('(lib_id "power:PWR_FLAG")', 1)[1].split("(instances", 1)[0]
+    # The regulator output drives +3V3 itself: only the input and GND get a flag.
+    assert generate_schematic(ldo_supply(), library).power_flags == ["+5V", "GND"]
+    # Without a connector nothing marks the entry point, so no flag hides the problem.
+    data = can_node().model_dump(mode="json")
+    data["components"] = [c for c in data["components"] if c["id"] != "j3"]
+    for net in data["nets"]:
+        net["nodes"] = [n for n in net["nodes"] if n["component_id"] != "j3"]
+    assert generate_schematic(CircuitIR.model_validate(data), library).power_flags == []
+
+
+def test_missing_power_library_is_a_warning(tmp_path):
+    import shutil
+
+    from kicad_adapter import SymbolLibrary
+
+    from .circuits import can_node
+    from .conftest import SYMBOL_DIR
+
+    for f in SYMBOL_DIR.glob("*.kicad_sym"):
+        if f.name != "power.kicad_sym":
+            shutil.copy(f, tmp_path / f.name)
+    generated = generate_schematic(can_node(), SymbolLibrary([tmp_path]))
+    assert generated.power_flags == [] and "PWR_FLAG_UNAVAILABLE" in {w.error_code for w in generated.warnings}
+
+
+def test_derived_symbol_is_flattened(library):
+    from .circuits import ldo_supply
+
+    sym = library.get("Regulator_Linear:AMS1117-3.3")
+    assert [(p.number, p.name, p.electrical_type) for p in sym.pins] == [
+        ("1", "GND", "power_in"), ("2", "VO", "power_out"), ("3", "VI", "power_in")]
+    assert sym.field("Value").value == "AMS1117-3.3" and "SOT-223" in sym.field("Footprint").value
+    subs = [n[1] for n in sym.node[2:] if isinstance(n, list) and n[0] == "symbol"]
+    assert subs == ['"AMS1117-3.3_0_1"', '"AMS1117-3.3_1_1"'] and sexpr_child(sym.node, "extends") is None
+    assert '(symbol "Regulator_Linear:AMS1117-3.3"' in generate_schematic(ldo_supply(), library).text
+
+
+def sexpr_child(node, name):
+    from kicad_adapter import sexpr
+
+    return sexpr.child(node, name)

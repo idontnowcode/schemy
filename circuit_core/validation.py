@@ -129,8 +129,14 @@ def validate_circuit(circuit: CircuitIR) -> ValidationResult:
 
     for comp in circuit.components:
         for pin in comp.pins:
-            if (comp.id, pin.number) not in pin_owner:
+            connected = (comp.id, pin.number) in pin_owner
+            if pin.no_connect and connected:
+                r.add("NO_CONNECT_PIN_IN_NET", E,
+                      f"{comp.reference} pin {pin.number} is marked no-connect but is in net "
+                      f"'{pin_owner[(comp.id, pin.number)]}'.", (comp.id,),
+                      "Remove it from the net or clear no_connect.")
+            elif not connected and not pin.no_connect:
                 r.add("UNCONNECTED_PIN", W, f"{comp.reference} pin {pin.number} is not connected.",
-                      (comp.id,), "Connect it or mark it as intentionally unconnected (not supported yet).")
+                      (comp.id,), "Connect it, or set \"no_connect\": true on the pin if it is unused on purpose.")
 
     return r

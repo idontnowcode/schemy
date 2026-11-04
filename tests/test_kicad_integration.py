@@ -116,3 +116,25 @@ def test_two_pages_with_kicad(library, kicad_cli, workdir):
 
     kicad_cli.export_svg(sch, workdir)
     assert sorted(p.name for p in workdir.glob("*.svg")) == ["schematic-LED 출력 (부하).svg", "schematic.svg"]
+
+
+def test_ic_circuits_pass_erc_with_no_connect_and_power_flags(library, kicad_cli, workdir):
+    """A transceiver with an unused pin and a regulator built from a derived symbol: clean ERC,
+    netlist = IR (PWR_FLAGs are not parts), lossless KiCad round trip."""
+    from .circuits import can_node, ldo_supply
+
+    for circuit in (can_node(), ldo_supply()):
+        out = workdir / circuit.project_id
+        generated = generate_schematic(circuit, library)
+        sch = generated.write(out)
+        erc = kicad_cli.erc(sch, out / "erc.json")
+        assert erc.violations == (), erc.summary()
+        diff = compare_with_ir(circuit, parse_kicad_netlist(kicad_cli.export_netlist(sch, out / "x.net")))
+        assert diff.ok, diff.describe()
+        ours = generated.text.splitlines()
+        kicad_cli.upgrade(sch)
+        resaved = sch.read_text(encoding="utf-8").splitlines()
+        assert [(a, b) for a, b in zip(ours, resaved, strict=True) if a != b] == [
+            ('\t(generator "ai_circuit_studio")', '\t(generator "eeschema")'),
+            ('\t(generator_version "0.1")', '\t(generator_version "10.0")'),
+        ]

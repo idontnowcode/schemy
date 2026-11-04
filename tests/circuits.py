@@ -77,7 +77,7 @@ def can_node(supply: str = "+3V3", decoupling: str | None = "100nF", termination
     """SN65HVD230 CAN transceiver with a decoupling capacitor and a bus termination resistor.
 
     ``supply`` names the supply net (the voltage is read from the name); ``None`` leaves a part out.
-    Rs (pin 8) goes straight to GND and Vref (pin 5) is left open.
+    Rs (pin 8) goes straight to GND and Vref (pin 5) is marked no-connect.
     """
     lib_pins = [("1", "D"), ("2", "GND"), ("3", "VCC"), ("4", "R"), ("5", "Vref"), ("6", "CANL"), ("7", "CANH"),
                 ("8", "Rs")]
@@ -86,7 +86,8 @@ def can_node(supply: str = "+3V3", decoupling: str | None = "100nF", termination
     components = [
         {"id": "u1", "reference": "U1", "value": "SN65HVD230", "symbol_id": "Interface_CAN_LIN:SN65HVD230",
          "footprint_id": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm", "manufacturer": "Texas Instruments",
-         "manufacturer_part_number": "SN65HVD230DR", "pins": [{"number": n, "name": nm} for n, nm in lib_pins]},
+         "manufacturer_part_number": "SN65HVD230DR",
+         "pins": [{"number": n, "name": nm, "no_connect": n == "5"} for n, nm in lib_pins]},
         {"id": "j1", "reference": "J1", "value": "CAN", "symbol_id": "Connector_Generic:Conn_01x02", "pins": conn},
         {"id": "j2", "reference": "J2", "value": "UART", "symbol_id": "Connector_Generic:Conn_01x02", "pins": conn},
         {"id": "j3", "reference": "J3", "value": "PWR", "symbol_id": "Connector_Generic:Conn_01x02", "pins": conn},
@@ -110,4 +111,27 @@ def can_node(supply: str = "+3V3", decoupling: str | None = "100nF", termination
         "components": components,
         "nets": [{"id": f"net-{i}", "name": name, "nodes": [{"component_id": c, "pin": p} for c, p in nodes]}
                  for i, (name, nodes) in enumerate(nets.items())],
+    })
+
+
+def ldo_supply() -> CircuitIR:
+    """5 V in -> AMS1117-3.3 (a derived KiCad symbol) -> 3.3 V out, with input and output capacitors."""
+    two = [{"number": "1", "name": None}, {"number": "2", "name": None}]
+    conn = [{"number": "1", "name": "Pin_1"}, {"number": "2", "name": "Pin_2"}]
+    components = [
+        {"id": "j1", "reference": "J1", "value": "5V_IN", "symbol_id": "Connector_Generic:Conn_01x02", "pins": conn},
+        {"id": "j2", "reference": "J2", "value": "3V3_OUT", "symbol_id": "Connector_Generic:Conn_01x02", "pins": conn},
+        {"id": "u1", "reference": "U1", "value": "AMS1117-3.3", "symbol_id": "Regulator_Linear:AMS1117-3.3",
+         "footprint_id": "Package_TO_SOT_SMD:SOT-223-3_TabPin2",
+         "pins": [{"number": "1", "name": "GND"}, {"number": "2", "name": "VO"}, {"number": "3", "name": "VI"}]},
+        {"id": "c1", "reference": "C1", "value": "10uF", "symbol_id": "Device:C", "pins": two},
+        {"id": "c2", "reference": "C2", "value": "22uF", "symbol_id": "Device:C", "pins": two},
+    ]
+    nets = {"+5V": [("j1", "1"), ("u1", "3"), ("c1", "1")],
+            "+3V3": [("u1", "2"), ("c2", "1"), ("j2", "1")],
+            "GND": [("j1", "2"), ("u1", "1"), ("c1", "2"), ("c2", "2"), ("j2", "2")]}
+    return CircuitIR.model_validate({
+        "project_id": "ldo-supply", "title": "5 V to 3.3 V LDO", "components": components,
+        "nets": [{"id": f"net-{i}", "name": n, "nodes": [{"component_id": c, "pin": p} for c, p in nodes]}
+                 for i, (n, nodes) in enumerate(nets.items())],
     })

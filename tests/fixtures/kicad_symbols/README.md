@@ -9,6 +9,7 @@ the generator tests run without a KiCad installation.
 | `Connector_Generic.kicad_sym` | `Conn_01x02` | KiCad 10.0.8 `/usr/share/kicad/symbols/Connector_Generic.kicad_sym` |
 | `Interface_CAN_LIN.kicad_sym` | `SN65HVD230` | KiCad 10.0.8 `/usr/share/kicad/symbols/Interface_CAN_LIN.kicad_sym` (an IC with a datasheet link, for datasheet tests) |
 | `Regulator_Linear.kicad_sym` | `AP1117-15`, `AMS1117-3.3` | KiCad 10.0.8 `/usr/share/kicad/symbols/Regulator_Linear.kicad_sym` (`AMS1117-3.3` is a derived symbol) |
+| `power.kicad_sym` | `PWR_FLAG` | KiCad 10.0.8 `/usr/share/kicad/symbols/power.kicad_sym` (the generator adds it where power enters through a connector) |
 
 The symbols are unmodified. They were copied with:
 
@@ -17,6 +18,7 @@ python scripts/extract_symbol_subset.py <KiCad>/symbols/Device.kicad_sym tests/f
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Connector_Generic.kicad_sym tests/fixtures/kicad_symbols/Connector_Generic.kicad_sym Conn_01x02
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Interface_CAN_LIN.kicad_sym tests/fixtures/kicad_symbols/Interface_CAN_LIN.kicad_sym SN65HVD230
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Regulator_Linear.kicad_sym tests/fixtures/kicad_symbols/Regulator_Linear.kicad_sym AP1117-15 AMS1117-3.3
+python scripts/extract_symbol_subset.py <KiCad>/symbols/power.kicad_sym tests/fixtures/kicad_symbols/power.kicad_sym PWR_FLAG
 ```
 
 `tests/test_sexpr.py` checks that these files survive a parse/write round trip byte for byte.

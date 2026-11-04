@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from circuit_core import CircuitIR, Issue, Placement, Severity, validate_circuit
+from circuit_core.models import Pin
 
 from . import sexpr
 from .sexpr import num, q
@@ -93,6 +94,8 @@ class GeneratedSchematic:
     anchors: list[PinAnchor]
     warnings: list[Issue] = field(default_factory=list)
     symbol_sources: dict[str, dict[str, str]] = field(default_factory=dict)
+    power_flags: list[str] = field(default_factory=list)
+    """Nets that got an automatic PWR_FLAG (power enters through a connector; nothing on the board drives it)."""
 
     @property
     def text(self) -> str:
@@ -338,6 +341,58 @@ def _field_node(name: str, value: str, x: float, y: float, angle: float, hidden:
     return node
 
 
+PWR_FLAG_ID = "power:PWR_FLAG"
+
+
+@dataclass
+class _VirtualSymbol:
+    """A symbol the generator adds that is not a part of the circuit (PWR_FLAG)."""
+
+    id: str
+    reference: str
+    value: str
+    net: str
+    pins: tuple[Pin, ...] = (Pin(number="1"),)
+    footprint_id: str | None = None
+    manufacturer_part_number: str | None = None
+
+
+def _power_flags(circuit: CircuitIR, symbols: dict[str, LibSymbol], library: SymbolLibrary,
+                 page_of: dict[str, str], net_of: dict, warnings: list[Issue]) -> list[_VirtualSymbol]:
+    """KiCad ERC requires every power input pin to be driven by a power output. Where power
+    enters the board through a connector, nothing on the board drives it, so KiCad's answer is a
+    PWR_FLAG. Add one only to nets that have a power input, no power output, and a connector pin;
+    any other undriven power net is a real problem and stays an ERC error."""
+    needed: list[tuple[str, str]] = []  # (net, connector component id)
+    for net in circuit.nets:
+        types, connector = [], None
+        for node in net.nodes:
+            lib_pin = symbols[node.component_id].pin(node.pin)
+            types.append(lib_pin.electrical_type if lib_pin else "")
+            if connector is None and symbols[node.component_id].lib_id.partition(":")[0].startswith("Connector"):
+                connector = node.component_id
+        if "power_in" in types and "power_out" not in types and connector:
+            needed.append((net.name, connector))
+    if not needed:
+        return []
+    try:
+        flag = library.get(PWR_FLAG_ID)
+    except SymbolLibraryError:
+        warnings.append(Issue("PWR_FLAG_UNAVAILABLE", Severity.WARNING,
+                              "KiCad 'power' library not found; no PWR_FLAG added to "
+                              f"{', '.join(n for n, _ in needed)}. "
+                              "KiCad ERC will report these power pins as not driven."))
+        return []
+    out = []
+    for n, (net, connector) in enumerate(needed, start=1):
+        v = _VirtualSymbol(id=f"#pwr-flag:{net}", reference=f"#FLG{n:02d}", value="PWR_FLAG", net=net)
+        symbols[v.id] = flag
+        page_of[v.id] = page_of[connector]
+        net_of[(v.id, "1")] = net
+        out.append(v)
+    return out
+
+
 def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                        project_name: str = "schematic") -> GeneratedSchematic:
     """Build a KiCad 10 schematic for ``circuit``; raise on any error-level issue.
@@ -362,6 +417,8 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
     multi = len(sheets) > 1
     page_of = circuit.page_of()
     net_of = {(n.component_id, n.pin): net.name for net in circuit.nets for n in net.nodes}
+    virtual = _power_flags(circuit, symbols, library, page_of, net_of, warnings)
+    all_comps = [*circuit.components, *virtual]
     net_pages: dict[str, set[str]] = {}
     for (comp_id, _), net in net_of.items():
         net_pages.setdefault(net, set()).add(page_of[comp_id])
@@ -374,7 +431,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
     sheet_sizes = {sh.id: (max(30.48, _snap_up(len(sh.name) * LABEL_FONT * 0.8 + 10.16)), _SHEET_SYMBOL_H)
                    for sh in sheets[1:]}
     for index, sheet in enumerate(sheets):
-        comps = [c for c in circuit.components if page_of[c.id] == sheet.id]
+        comps = [c for c in all_comps if page_of[c.id] == sheet.id]
         fixed = {c.id: (circuit.layout[c.id], _symbol_extent(symbols[c.id], c, net_of, circuit.layout[c.id].rotation))
                  for c in comps if c.id in circuit.layout}
         auto: list[tuple[str, Extent]] = [(c.id, _symbol_extent(symbols[c.id], c, net_of))
@@ -409,9 +466,9 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
     anchors: list[PinAnchor] = []
     pages: list[GeneratedPage] = []
     for index, sheet in enumerate(sheets):
-        comps = [c for c in circuit.components if page_of[c.id] == sheet.id]
+        comps = [c for c in all_comps if page_of[c.id] == sheet.id]
         instance_path = f"/{root_uuid}" if index == 0 else f"/{root_uuid}/{ids('sheet-symbol', sheet.id)}"
-        wires, labels, glabels, placed = [], [], [], []
+        wires, labels, glabels, placed, no_connects = [], [], [], [], []
         points: dict[tuple[float, float], set[str]] = {}
         extent: list[tuple[float, float]] = []
         segments: list[tuple[tuple[float, float], tuple[float, float], str]] = []
@@ -422,9 +479,13 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                 lib_pin = sym.pin(pin.number)
                 x, y = _to_sheet(pl, lib_pin.x, lib_pin.y)
                 net = net_of.get((comp.id, pin.number))
-                anchors.append(PinAnchor(comp.reference, pin.number, x, y, net, sheet.id))
+                if not isinstance(comp, _VirtualSymbol):
+                    anchors.append(PinAnchor(comp.reference, pin.number, x, y, net, sheet.id))
                 points.setdefault((x, y), set()).add(net or f"<unconnected {comp.reference}.{pin.number}>")
                 if net is None:
+                    if pin.no_connect:
+                        no_connects.append(["no_connect", ["at", num(x), num(y)],
+                                            ["uuid", q(ids("no-connect", comp.id, pin.number))]])
                     continue
                 ox, oy = _rotate(*_OUTWARD[lib_pin.angle], pl.rotation)
                 ex, ey = round(x + ox * STUB_LENGTH, 4), round(y + oy * STUB_LENGTH, 4)
@@ -449,7 +510,8 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                         _effects(LABEL_FONT, justify),
                         ["uuid", q(ids("label", *key))],
                     ])
-            placed.append(_placed_symbol(comp, sym, pl, ids, project_name, instance_path))
+            placed.append(_placed_symbol(comp, sym, pl, ids, project_name, instance_path,
+                                         trace=not isinstance(comp, _VirtualSymbol)))
             extent += [(pl.x - _BODY_REACH, pl.y - _BODY_REACH), (pl.x + _BODY_REACH, pl.y + _BODY_REACH)]
             shown = {"Reference": comp.reference, "Value": comp.value}
             for f in sym.fields:
@@ -491,6 +553,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
             lib_symbols,
             # KiCad 10 saves items grouped by type and sorted by UUID; doing the same
             # makes a load/save round trip in KiCad a no-op apart from the generator.
+            *sorted(no_connects, key=_uuid_of),
             *sorted(wires, key=_uuid_of),
             *sorted(labels, key=_uuid_of),
             *sorted(glabels, key=_uuid_of),
@@ -512,6 +575,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
         anchors=anchors,
         warnings=warnings,
         symbol_sources=dict(sorted(sources.items())),
+        power_flags=[v.net for v in virtual],
     )
 
 
@@ -570,7 +634,7 @@ def _uuid_of(node: list) -> str:
 
 
 def _placed_symbol(comp, sym: LibSymbol, p: Placement, ids: _Ids, project_name: str,
-                   instance_path: str) -> list:
+                   instance_path: str, trace: bool = True) -> list:
     def flag(name: str, default: str) -> list:
         node = sexpr.child(sym.node, name)
         return [name, node[1] if node else default]
@@ -600,9 +664,9 @@ def _placed_symbol(comp, sym: LibSymbol, p: Placement, ids: _Ids, project_name: 
         x, y = _to_sheet(p, f.x, f.y)
         node.append(_field_node(name, overrides.get(name, f.value), x, y, f.angle, f.hidden, f.effects))
 
-    # Extra hidden fields for traceability back to the IR.
-    extra = {"AICS_ID": comp.id}
-    if comp.manufacturer_part_number:
+    # Extra hidden fields for traceability back to the IR (not on generator-added flags).
+    extra = {"AICS_ID": comp.id} if trace else {}
+    if trace and comp.manufacturer_part_number:
         extra["MPN"] = comp.manufacturer_part_number
     for name, value in extra.items():
         node.append(_field_node(name, value, p.x, p.y, 0, True, None))

@@ -74,6 +74,8 @@ def test_polarized_capacitor_and_inferred_symbols():
                                            "GND": {("C1", "2"), ("R1", "2"), ("J1", "2")}}
     assert "SYMBOL_INFERRED" in codes(result, "info")
     assert codes(result, "warning") == []
+    # Net "NC" (an X mark in the drawing) becomes an intentional no-connect.
+    assert [(p.number, p.no_connect) for p in by_ref["J1"].pins] == [("1", False), ("2", False), ("3", True)]
 
 
 def test_polarity_conflict_is_flagged_and_blocks_generation(library):
