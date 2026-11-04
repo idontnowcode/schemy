@@ -24,6 +24,7 @@ import type {
   Proposal,
   RequirementsSpec,
   RevisionInfo,
+  RevisionInputs,
   SaveCircuitResult,
   SystemInfo,
   ValidationReport,
@@ -181,8 +182,15 @@ export const api = {
   aiReview: (p: string, b: string, proposalId?: string) =>
     request<Job>("POST", `${board(p, b)}/ai/review`, { proposal_id: proposalId ?? null }),
   boardReview: (p: string, b: string) => request<{ review: BoardReview | null }>("GET", `${board(p, b)}/ai/review`),
-  aiRevise: (p: string, b: string, proposalId?: string, instructions?: string) =>
-    request<Job>("POST", `${board(p, b)}/ai/revise`, { proposal_id: proposalId ?? null, instructions: instructions || null }),
+  revisePreview: (p: string, b: string, proposalId?: string | null) =>
+    request<RevisionInputs>("GET", `${board(p, b)}/ai/revise/preview${proposalId ? `?proposal_id=${enc(proposalId)}` : ""}`),
+  aiRevise: (p: string, b: string, body: {
+    proposal_id?: string | null;
+    instructions?: string | null;
+    finding_indexes?: number[] | null;
+    include_checks: boolean;
+    review: boolean;
+  }) => request<Job>("POST", `${board(p, b)}/ai/revise`, body),
 
   aiStatus: () => request<AiStatus>("GET", "/ai/settings"),
   saveAiSettings: (s: Partial<{ enabled: boolean; model: string }>) => request<AiStatus>("PUT", "/ai/settings", s),

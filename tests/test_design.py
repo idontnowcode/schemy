@@ -226,3 +226,53 @@ def test_ai_designed_circuit_passes_kicad_checks(tmp_path, kicad_cli):
     p = client.get(f"/api/projects/{pid}/boards/a/proposals/{job['result']['proposal_id']}").json()
     check = p["evidence"]["automated_check"]
     assert check["status"] == "passed" and check["erc_errors"] == 0 and check["netlist_matches_ir"], check
+
+
+def test_revision_with_chosen_findings_own_request_and_diff(tmp_path):
+    client, created, pid = design_client(tmp_path)
+    board = f"/api/projects/{pid}/boards/a"
+    first = wait(client, client.post(board + "/ai/design", json={}).json())["result"]["proposal_id"]
+    preview = client.get(board + "/ai/revise/preview", params={"proposal_id": first}).json()
+    assert [(f["index"], f["title"]) for f in preview["findings"]] == [(0, "ESD 보호 없음"), (1, "참고")]
+    assert isinstance(preview["checks"], list)
+
+    body = {"proposal_id": first, "finding_indexes": [0], "include_checks": False, "review": False,
+            "instructions": "커넥터를 JST-XH로 바꿔 주세요"}
+    job = wait(client, client.post(board + "/ai/revise", json=body).json())
+    assert job["status"] == "succeeded", job
+    second = client.get(f"{board}/proposals/{job['result']['proposal_id']}").json()
+    ai = second["ai"]
+    assert ai["parent"] == first and ai["instructions"] == "커넥터를 JST-XH로 바꿔 주세요"
+    assert [(a["title"], a["source"]) for a in ai["addressed"]] == [("ESD 보호 없음", "ai")]
+    assert ai["diff_from_parent"]["summary"]["components_added"] == 0  # the scripted AI returns the same design
+    calls = [c for provider in created if hasattr(provider, "calls") for c in provider.calls]
+    plan_prompt = [c["prompt"] for c in calls if "부품 목록을 정하세요" in c["prompt"]][-1]
+    assert "ESD 보호 없음" in plan_prompt and "JST-XH" in plan_prompt and "[현재 설계" in plan_prompt
+
+
+def test_revision_from_own_request_alone_and_nothing_to_do(tmp_path):
+    client, _, pid = design_client(tmp_path)
+    board = f"/api/projects/{pid}/boards/a"
+    first = wait(client, client.post(board + "/ai/design", json={"review": False}).json())["result"]["proposal_id"]
+    r = client.post(board + "/ai/revise", json={"proposal_id": first, "include_checks": False})
+    assert r.status_code == 409 and r.json()["error_code"] == "NOTHING_TO_REVISE"
+    job = wait(client, client.post(board + "/ai/revise", json={
+        "proposal_id": first, "include_checks": False, "review": False, "instructions": "LED 상태 표시 추가"}).json())
+    assert job["status"] == "succeeded"
+
+
+def test_check_problems_become_revision_inputs():
+    from backend.proposals import Proposal, ProposalEvidence
+    from backend.routes_design import proposal_check_findings
+
+    ev = ProposalEvidence(checked_at="t", ir_issues=[{"severity": "warning", "error_code": "UNCONNECTED_PIN",
+                                                      "message": "U1 pin 5 is not connected."}],
+                          datasheets=[{"reference": "U1", "reviewed": False, "pin_map": "match", "ratings": "warning",
+                                       "external": "warning", "external_missing": ["저항 120Ω (CANH ~ CANL)"],
+                                       "ratings_problems": ["VCC +5V 5.0 V: outside_recommended"]}])
+    p = Proposal(id="0001", project_id="p", board_id="a", title="t", source="ai_design", base_revision=None, ops=[],
+                 status="ready", created_at="t", updated_at="t", diff={}, evidence=ev,
+                 ai={"remaining_problems": ["U1.5 (Vref): 어느 Net에도 없고 no_connect도 아닙니다."]})
+    titles = [f["title"] for f in proposal_check_findings(p)]
+    assert titles == ["회로 규칙: UNCONNECTED_PIN", "데이터시트 전압 점검 (U1)", "데이터시트 외부 부품 (U1)",
+                      "AI 연결 검사에서 남은 문제"]

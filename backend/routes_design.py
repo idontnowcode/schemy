@@ -14,6 +14,7 @@ from pydantic import Field
 from ai_engine import AiError
 from ai_engine.design import DesignInput, circuit_text, design_circuit, review_circuit, structure_requirements
 from circuit_core import CircuitIR, validate_circuit
+from circuit_core.diff import diff_circuits
 from circuit_core.patch import ReplaceCircuit
 from kicad_adapter import SymbolLibrary
 
@@ -51,6 +52,8 @@ class ReviewBody(_Model):
 class ReviseBody(_Model):
     proposal_id: str | None = None
     instructions: str | None = Field(default=None, max_length=10_000)
+    finding_indexes: list[int] | None = Field(default=None, description="AI review findings to address; None = all.")
+    include_checks: bool = Field(default=True, description="Also address problems from the automated checks.")
     review: bool = True
 
 
@@ -78,6 +81,41 @@ def proposal_evidence_text(p: Proposal) -> str:
         lines.append(f"- 데이터시트 {d['reference']}: 핀맵 {d['pin_map']}, 전압 {d['ratings']}, 외부 부품 {d['external']}"
                      + (f" ({'; '.join(problems)})" if problems else ""))
     return "\n".join(lines) or "(문제 없음)"
+
+
+def _finding(severity: str, title: str, detail: str, refs: list[str] | None = None, source: str = "check") -> dict:
+    return {"severity": severity, "title": title[:200], "detail": detail[:2000], "references": refs or [],
+            "suggestion": None, "source": source}
+
+
+def proposal_check_findings(p: Proposal) -> list[dict]:
+    """Problems found by the automated checks of a proposal, phrased as review findings."""
+    out: list[dict] = []
+    ev = p.evidence
+    if ev is not None:
+        for i in ev.ir_issues:
+            if i["severity"] in ("error", "warning"):
+                out.append(_finding(i["severity"], f"회로 규칙: {i['error_code']}", i["message"]))
+        if ev.generation_error:
+            for i in ev.generation_error.get("issues") or [{"error_code": ev.generation_error["error_code"],
+                                                             "message": ev.generation_error["message"]}]:
+                out.append(_finding("error", f"회로도 생성 실패: {i['error_code']}", i["message"]))
+        if ev.automated_check:
+            for v in ev.automated_check.violations:
+                out.append(_finding("error" if v.get("severity") == "error" else "warning",
+                                    f"KiCad ERC: {v.get('description')}", ", ".join(v.get("items") or [])))
+        for d in ev.datasheets:
+            for x in d["ratings_problems"]:
+                out.append(_finding("warning", f"데이터시트 전압 점검 ({d['reference']})", x, [d["reference"]]))
+            for x in d["external_missing"]:
+                out.append(_finding("warning", f"데이터시트 외부 부품 ({d['reference']})", f"확인 필요: {x}",
+                                    [d["reference"]]))
+            if d["pin_map"] == "mismatch":
+                out.append(_finding("error", f"데이터시트 핀맵 불일치 ({d['reference']})",
+                                    "데이터시트 핀 표와 KiCad 심볼 핀이 다릅니다.", [d["reference"]]))
+    for x in (p.ai or {}).get("remaining_problems") or []:
+        out.append(_finding("error", "AI 연결 검사에서 남은 문제", x))
+    return out
 
 
 def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalService, inventory: InventoryStore,
@@ -170,6 +208,8 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
 
     def submit_design(project_id: str, board_id: str, *, instructions: str | None, use_inventory: bool,
                       review: bool, base: CircuitIR | None, findings: list[dict] | None, source: str, parent: str | None):
+        """``base`` is the design being revised (None for a new design); the result's diff against it is
+        recorded so the user sees what the revision changed."""
         board = store.get_board(project_id, board_id)
         text = store.get_requirements(project_id)
         spec = store.get_requirements_spec(project_id)
@@ -215,7 +255,11 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                                 for c in result.connections.get("citations") or [] if isinstance(c, dict)],
                   "parts": [{"key": p.ref, "role": p.role, "symbol_id": p.symbol_id, "how": p.how} for p in result.parts],
                   "attempts": result.attempts, "remaining_problems": result.problems,
-                  "notes": str(result.connections.get("notes") or ""), "parent": parent, "review": None}
+                  "notes": str(result.connections.get("notes") or ""), "parent": parent, "review": None,
+                  "addressed": [{"severity": f.get("severity"), "title": f.get("title"), "detail": f.get("detail"),
+                                 "source": f.get("source", "ai")} for f in findings or []],
+                  "instructions": instructions,
+                  "diff_from_parent": diff_circuits(base, result.circuit) if base is not None else None}
             title = str(plan.get("title") or "AI 설계안")[:150]
             p = proposals.create(project_id, board_id, title=title, ops=[ReplaceCircuit(circuit=result.circuit)],
                                  source=source, rationale=ai["summary"][:20_000], ai=ai)
@@ -240,22 +284,46 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
         return submit_design(project_id, board_id, instructions=body.instructions, use_inventory=body.use_inventory,
                              review=body.review, base=None, findings=None, source="ai_design", parent=None)
 
+    def revise_inputs(project_id: str, board_id: str, proposal_id: str | None):
+        """(base circuit, AI review findings, automated-check findings) for a revision."""
+        if proposal_id:
+            p = proposals.get(project_id, board_id, proposal_id)
+            return (proposals.candidate(p), ((p.ai or {}).get("review") or {}).get("findings") or [],
+                    proposal_check_findings(p))
+        base, revision = store.get_circuit(project_id, board_id)
+        if base is None:
+            raise ApiError(409, "NO_CIRCUIT", "이 보드에는 아직 회로가 없습니다.")
+        checks = [_finding(i.severity.value, f"회로 규칙: {i.error_code}", i.message)
+                  for i in validate_circuit(base).issues if i.severity.value in ("error", "warning")]
+        manifest = read_manifest(store.board_dir(project_id, board_id) / "outputs")
+        if manifest and manifest.source_revision == revision:
+            checks += [_finding("error" if v.get("severity") == "error" else "warning",
+                                f"KiCad ERC: {v.get('description')}", ", ".join(v.get("items") or []))
+                       for v in manifest.automated_check.violations]
+        for d in datasheet_evidence(base, datasheets, settings.symbol_dirs):
+            checks += [_finding("warning", f"데이터시트 전압 점검 ({d['reference']})", x, [d["reference"]])
+                       for x in d["ratings_problems"]]
+            checks += [_finding("warning", f"데이터시트 외부 부품 ({d['reference']})", f"확인 필요: {x}",
+                                [d["reference"]]) for x in d["external_missing"]]
+        return base, (latest_review(project_id, board_id) or {}).get("findings") or [], checks
+
+    @router.get(BOARD + "/ai/revise/preview")
+    def revise_preview(project_id: str, board_id: str, proposal_id: str | None = None):
+        """What a revision would address: AI review findings (selectable) and automated-check problems."""
+        _, findings, checks = revise_inputs(project_id, board_id, proposal_id)
+        return {"findings": [{**f, "index": i} for i, f in enumerate(findings)], "checks": checks}
+
     @router.post(BOARD + "/ai/revise", status_code=202)
     def revise(project_id: str, board_id: str, body: ReviseBody):
-        if body.proposal_id:
-            p = proposals.get(project_id, board_id, body.proposal_id)
-            base = proposals.candidate(p)
-            findings = ((p.ai or {}).get("review") or {}).get("findings") or []
-        else:
-            base, _ = store.get_circuit(project_id, board_id)
-            if base is None:
-                raise ApiError(409, "NO_CIRCUIT", "이 보드에는 아직 회로가 없습니다.")
-            findings = (latest_review(project_id, board_id) or {}).get("findings") or []
-        if not findings and not (body.instructions or "").strip():
-            raise ApiError(409, "NOTHING_TO_REVISE", "반영할 검토 의견이나 수정 요청이 없습니다.",
-                           recovery_hint="먼저 AI 검토를 실행하거나, 고칠 내용을 적으세요.")
+        base, findings, checks = revise_inputs(project_id, board_id, body.proposal_id)
+        if body.finding_indexes is not None:
+            findings = [findings[i] for i in body.finding_indexes if 0 <= i < len(findings)]
+        chosen = [{**f, "source": "ai"} for f in findings] + (checks if body.include_checks else [])
+        if not chosen and not (body.instructions or "").strip():
+            raise ApiError(409, "NOTHING_TO_REVISE", "반영할 검토 의견, 검사 문제, 수정 요청이 없습니다.",
+                           recovery_hint="고칠 내용을 직접 적거나, 먼저 AI 검토를 실행하세요.")
         return submit_design(project_id, board_id, instructions=body.instructions, use_inventory=True,
-                             review=body.review, base=base, findings=findings, source="ai_revision",
+                             review=body.review, base=base, findings=chosen, source="ai_revision",
                              parent=body.proposal_id)
 
     # --- review --------------------------------------------------------------------------------

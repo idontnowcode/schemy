@@ -479,6 +479,16 @@ export interface ProposalAi {
   parts?: { key: string; role: string; symbol_id: string; how: string }[];
   attempts?: number;
   review?: { findings: AiFinding[]; summary: string; model?: string; created_at?: string } | null;
+  parent?: string | null;
+  instructions?: string | null;
+  addressed?: { severity: string; title: string; detail: string; source: "ai" | "check" }[];
+  diff_from_parent?: ProposalDiff | null;
+  remaining_problems?: string[];
+}
+
+export interface RevisionInputs {
+  findings: (AiFinding & { index: number })[];
+  checks: (AiFinding & { source: "check" })[];
 }
 
 export interface Proposal {

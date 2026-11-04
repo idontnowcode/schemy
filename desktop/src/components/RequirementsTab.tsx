@@ -36,7 +36,8 @@ export function RequirementsTab({ projectId, boardId, boardName, onSaved, onOpen
     api
       .requirements(projectId)
       .then((r) => {
-        setText(r.text);
+        // Keep anything typed before the saved text arrived (it then shows as unsaved).
+        setText((cur) => (cur ? cur : r.text));
         setSaved(r.text);
       })
       .catch((e) => setMessage(errorText(e)));

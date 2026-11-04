@@ -299,3 +299,8 @@ export function diffSummaryText(s: Record<string, number>): string {
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : "바뀐 것 없음";
 }
+
+/** Who receives the data when AI is called (for the confirm dialogs). */
+export function providerLabel(provider: string | undefined | null): string {
+  return provider === "claude" ? "Anthropic Claude API" : "Google Gemini API";
+}

@@ -49,6 +49,19 @@ test("propose R1 330 → 1k, review the diff, approve", async ({ page }) => {
   await expect(page.locator(".proposal-detail .chip").filter({ hasText: "승인됨" })).toBeVisible();
   await expect(page.getByText("revision 2 · proposal-demo-a")).toBeVisible();
 
+  // A second change, rejected with a reason (inline form: Electron has no prompt()).
+  await page.getByLabel("제안할 부품").selectOption({ label: "D1 (LED)" });
+  await page.getByLabel("새 값").fill("RED");
+  await page.getByRole("button", { name: "제안 만들기" }).click();
+  await expect(page.getByRole("heading", { name: /#2 D1 값: LED → RED/ })).toBeVisible();
+  await expect(page.locator(".proposal-detail .chip").filter({ hasText: "승인 대기" })).toBeVisible({ timeout: 120_000 });
+  await page.locator(".proposal-detail").getByRole("button", { name: "거부", exact: true }).click();
+  await page.getByLabel("거부 이유").fill("색은 나중에 정함");
+  await page.getByRole("button", { name: "거부 확정" }).click();
+  await expect(page.getByText("거부했습니다. 회로는 바뀌지 않았습니다.")).toBeVisible();
+  await expect(page.locator(".proposal-detail").getByText("색은 나중에 정함")).toBeVisible();
+  await expect(page.getByText("revision 2 · proposal-demo-a")).toBeVisible();
+
   await page.getByRole("tab", { name: "이력" }).click();
   await expect(page.getByRole("cell", { name: "제안 승인" }).first()).toBeVisible();
 });
