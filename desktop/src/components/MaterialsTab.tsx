@@ -14,6 +14,12 @@ interface Props {
 
 const FIT_LABEL = { good: "적합", acceptable: "검토 후 가능", poor: "권장 안 함" } as const;
 
+const FIELD_LABELS: Record<string, string> = {
+  manufacturer_part_number: "품번",
+  manufacturer: "제조사",
+  footprint_id: "풋프린트",
+};
+
 export function MaterialsTab({ projectId, boardId, revision, onApplied }: Props) {
   const [match, setMatch] = useState<InventoryMatch | null>(null);
   const [boards, setBoards] = useState(1);
@@ -70,7 +76,7 @@ export function MaterialsTab({ projectId, boardId, revision, onApplied }: Props)
       const r = await api.inventoryApply(projectId, boardId, applyMatched, picked);
       setMessage(
         r.created
-          ? `revision ${r.revision?.revision}으로 저장했습니다: ${r.changes.map((c) => `${c.reference} ${c.field === "manufacturer_part_number" ? "품번" : "풋프린트"} → ${c.after}`).join(", ")}`
+          ? `revision ${r.revision?.revision}으로 저장했습니다: ${r.changes.map((c) => `${c.reference} ${FIELD_LABELS[c.field] ?? c.field} → ${c.after}`).join(", ")}`
           : "바뀐 것이 없습니다 (이미 적용됨).",
       );
       setChoices({});
@@ -153,7 +159,7 @@ export function MaterialsTab({ projectId, boardId, revision, onApplied }: Props)
           </button>
         </div>
         <p className="muted small">
-          「보유 자재 적용」은 보유로 판정된 부품에 보유 자재의 제조사 품번과 풋프린트를 넣어 새 revision으로 저장합니다. 값·심볼·연결은
+          「보유 자재 적용」은 보유로 판정된 부품에 보유 자재의 제조사·제조사 품번·풋프린트를 넣어 새 revision으로 저장합니다. 값·심볼·연결은
           바꾸지 않습니다.
         </p>
         {busy && <p className="small">{busy}</p>}

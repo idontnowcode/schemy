@@ -26,11 +26,13 @@ from circuit_core.export import BOM_COLUMNS, bom_rows, circuit_markdown
 from kicad_adapter import SymbolLibrary, SymbolLibraryError, check_against_library
 
 from .config import APP_VERSION, Settings
+from .datasheets import DatasheetLibrary
 from .errors import ApiError, issue_dict, not_found
 from .exports import external_edit_error, output_path, outputs_status, run_export
 from .inventory_store import InventoryStore
 from .jobs import JobRunner
 from .routes_ai import build_ai_router
+from .routes_datasheets import build_datasheet_router
 from .routes_inventory import build_inventory_router
 from .schemas import (
     AppSettings,
@@ -83,6 +85,7 @@ def create_app(settings: Settings) -> FastAPI:
     store = ProjectStore(settings.workspace)
     jobs = JobRunner(store)
     inventory = InventoryStore(settings.workspace)
+    datasheets = DatasheetLibrary(settings.workspace)
     checker = CircuitChecker(settings)
 
     @asynccontextmanager
@@ -96,6 +99,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.jobs = jobs
     app.state.settings = settings
     app.state.inventory = inventory
+    app.state.datasheets = datasheets
     app.state.checker = checker
 
     @lru_cache(maxsize=1)
@@ -356,7 +360,8 @@ def create_app(settings: Settings) -> FastAPI:
 
     app.include_router(api)
     app.include_router(build_inventory_router(store, inventory))
-    app.include_router(build_ai_router(store, jobs, inventory, settings, pin_lookup))
+    app.include_router(build_ai_router(store, jobs, inventory, settings, pin_lookup, datasheets))
+    app.include_router(build_datasheet_router(store, jobs, datasheets, settings, checker.library))
 
     # --- desktop UI ---------------------------------------------------------------------
 

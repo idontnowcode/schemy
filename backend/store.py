@@ -3,12 +3,13 @@
 Layout (project file version 2):
 
     projects/<project>/
-        project.json  requirements.md  design_notes.md  datasheets/
+        project.json  requirements.md  design_notes.md
         boards/<board>/
             board.json  circuit.json  revisions/  outputs/  imports/
 
 A project groups boards (A, B, ...). A board is one circuit, one revision history
-and one generated KiCad project; its pages live inside the Circuit IR.
+and one generated KiCad project; its pages live inside the Circuit IR. Datasheets are
+shared by all projects in <workspace>/datasheets/ (backend.datasheets).
 
 Plan v1.2 rule 12: this module is the only one that writes source files
 (project.json, board.json, requirements.md, circuit.json, revisions/). Generated
@@ -285,7 +286,6 @@ class ProjectStore:
                 project_id = f"{base[:60]}-{n}"
             folder = self.projects_dir / project_id
             folder.mkdir(parents=True)
-            (folder / "datasheets").mkdir()
             atomic_write(folder / "requirements.md", REQUIREMENTS_TEMPLATE)
             atomic_write(folder / "design_notes.md", DESIGN_NOTES_TEMPLATE)
             ts = now_iso()

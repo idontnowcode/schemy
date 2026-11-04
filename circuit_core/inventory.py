@@ -454,6 +454,8 @@ def apply_inventory(circuit: CircuitIR, inventory: Inventory, *, apply_matched: 
         update: dict[str, str] = {}
         if part.mpn and part.mpn != comp.manufacturer_part_number:
             update["manufacturer_part_number"] = part.mpn
+        if part.manufacturer and part.manufacturer != comp.manufacturer:
+            update["manufacturer"] = part.manufacturer
         if part.footprint_id and part.footprint_id != comp.footprint_id:
             update["footprint_id"] = part.footprint_id
         for name, after in update.items():

@@ -13,11 +13,13 @@ import uuid
 from fastapi import APIRouter
 
 from ai_engine import AiError, KeyStoreError, LlmProvider
-from ai_engine.tasks import suggest_substitutes, suggestion_request, transcribe_pdf
+from ai_engine.tasks import suggest_substitutes, suggestion_request, summarize_datasheet, transcribe_pdf
+from circuit_core.datasheet_md import import_datasheet_markdown
 from circuit_core.inventory import match_inventory
 from circuit_core.schematic_md import import_schematic_markdown
 
 from .config import Settings
+from .datasheets import DatasheetError, DatasheetLibrary
 from .errors import ApiError
 from .inventory_store import InventoryStore
 from .jobs import JobRunner
@@ -30,7 +32,7 @@ MAX_PDF_BYTES = 50 * MB
 
 
 def build_ai_router(store: ProjectStore, jobs: JobRunner, inventory: InventoryStore, settings: Settings,
-                    pin_lookup) -> APIRouter:
+                    pin_lookup, datasheets: DatasheetLibrary) -> APIRouter:
     router = APIRouter()
 
     def ai_settings() -> AiSettings:
@@ -182,6 +184,46 @@ def build_ai_router(store: ProjectStore, jobs: JobRunner, inventory: InventorySt
                     "model": result.model if result else None}
 
         return jobs.submit(project_id, "inventory_suggest", run, board_id=board_id)
+
+    # --- datasheet summary (AI) ---------------------------------------------------------
+
+    @router.post(BOARD + "/datasheets/{entry_id}/summarize", status_code=202)
+    def summarize(project_id: str, board_id: str, entry_id: str):
+        store.get_board(project_id, board_id)
+        cfg = ai_settings()
+        provider = provider_for(cfg)
+        try:
+            entry = datasheets.get(entry_id)
+        except DatasheetError as exc:
+            raise ApiError(exc.status, exc.code, exc.message) from exc
+        pdf = datasheets.pdf_path(entry).read_bytes()
+
+        def run(job_id: str) -> dict:
+            record = _run_record(job_id, "datasheet_summary", cfg, {
+                "datasheet": entry.id, "file": entry.original_name, "bytes": len(pdf), "sha256": entry.sha256,
+                "pages": entry.page_count})
+            try:
+                summary = summarize_datasheet(provider, pdf, entry.original_name, max_output_tokens=cfg.max_output_tokens)
+            except AiError as exc:
+                record.update(status="failed", error={"code": exc.code, "message": exc.message})
+                datasheets.save_ai_run(record)
+                raise _api_error(exc) from exc
+            result = import_datasheet_markdown(summary.markdown, source_name=f"{entry.id}.ai.md")
+            saved = None
+            if result.ok:
+                saved = datasheets.save_summary(entry.id, markdown=summary.markdown, facts=result.facts, origin="ai",
+                                                source_name=f"{entry.id}.ai.md",
+                                                warnings=result.stats.get("warnings", 0), model=summary.result.model)
+            record.update(status="succeeded", usage=summary.result.usage, finish_reason=summary.result.finish_reason,
+                          warnings=summary.warnings, output={
+                              "markdown_sha256": sha256_bytes(summary.markdown.encode("utf-8")),
+                              "import_ok": result.ok, "issues": len(result.issues)})
+            datasheets.save_ai_run(record)
+            return {"markdown": summary.markdown, "import": {k: v for k, v in result.to_dict().items() if k != "facts"},
+                    "warnings": summary.warnings, "model": summary.result.model, "usage": summary.result.usage,
+                    "saved": saved is not None}
+
+        return jobs.submit(project_id, "datasheet_summary", run, board_id=board_id)
 
     return router
 

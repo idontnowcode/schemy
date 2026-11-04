@@ -4,11 +4,17 @@ import {
   addPage,
   automatedLabel,
   cropSvg,
+  datasheetLabel,
+  externalLabel,
+  identityLabel,
   matchLabel,
   moveToPage,
   outputsLabel,
   pagesOf,
   parseJson,
+  pinMapLabel,
+  rangeText,
+  ratingsLabel,
   removePage,
   renamePage,
   reviewLabel,
@@ -141,5 +147,29 @@ describe("page helpers", () => {
     next = removePage(next, "p2");
     expect(next.sheets).toEqual([]);
     expect(pagesOf(next)[0].components).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("datasheet labels", () => {
+  it("names how sure we are about the part", () => {
+    expect(identityLabel("mpn").text).toBe("제조사·품번 확정");
+    expect(identityLabel("generic").tone).toBe("muted");
+    expect(datasheetLabel("family")).toEqual({ text: "제품군 확인됨", tone: "info" });
+    expect(datasheetLabel("not_found").tone).toBe("warn");
+    expect(datasheetLabel(undefined).text).toBe("확인 안 됨");
+  });
+
+  it("summarises the checks", () => {
+    expect(pinMapLabel("match", { match: 8 }, true)).toEqual({ text: "핀맵 일치", tone: "ok" });
+    expect(pinMapLabel("mismatch", { match: 6, mismatch: 2 }, true)).toEqual({ text: "핀맵 불일치 2", tone: "bad" });
+    expect(pinMapLabel("unchecked", {}, false).text).toBe("패키지 선택 필요");
+    expect(ratingsLabel("error").tone).toBe("bad");
+    expect(ratingsLabel("unchecked").text).toBe("전압 확인 불가");
+    expect(externalLabel([{ status: "missing", requirement: "required" }]).text).toBe("필수 부품 확인 1");
+    expect(externalLabel([{ status: "missing", requirement: "recommended" }, { status: "present", requirement: "required" }]))
+      .toEqual({ text: "권장 부품 확인 1", tone: "info" });
+    expect(externalLabel([{ status: "direct", requirement: "recommended" }]).tone).toBe("muted");
+    expect(rangeText(-0.3, 6)).toBe("-0.3 ~ 6 V");
+    expect(rangeText(null, 3.6)).toBe("최대 3.6 V");
   });
 });

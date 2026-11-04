@@ -197,6 +197,25 @@ class SymbolLibrary:
             self._symbols[lib_id] = _parse_symbol(lib_id, table[name], path)
         return self._symbols[lib_id]
 
+    def properties(self, lib_id: str) -> dict[str, str]:
+        """Field values of a symbol as written in the library (also works for derived symbols,
+        which :meth:`get` refuses). Raises :class:`SymbolLibraryError` if the symbol is unknown."""
+        nickname, _, name = lib_id.partition(":")
+        if not nickname or not name:
+            raise SymbolLibraryError(f"invalid lib_id '{lib_id}'")
+        path, table, _ = self._load_file(nickname)
+        if name not in table:
+            raise SymbolLibraryError(f"symbol '{name}' not found in {path}")
+        return {unquote(prop[1]): unquote(prop[2]) for prop in children(table[name], "property")}
+
+    def datasheet_url(self, lib_id: str) -> str | None:
+        """The symbol's ``Datasheet`` field if it is an http(s) link, else None ("~", empty, local path)."""
+        try:
+            value = self.properties(lib_id).get("Datasheet", "").strip()
+        except SymbolLibraryError:
+            return None
+        return value if re.match(r"^https?://\S+$", value) else None
+
     def provenance(self, nickname: str) -> dict[str, str]:
         """Path and format version of a library file, for recording where a symbol came from."""
         path, _, header = self._load_file(nickname)

@@ -164,3 +164,80 @@ export function removePage(ir: IR, sheetId: string): IR {
   rest[0] = { ...rest[0], components: [...rest[0].components, ...gone.components] };
   return withPages(ir, rest);
 }
+
+// --- datasheets ----------------------------------------------------------------------------
+
+type Label = { text: string; tone: Tone };
+
+export function identityLabel(identity: "mpn" | "symbol" | "generic"): Label {
+  if (identity === "mpn") return { text: "제조사·품번 확정", tone: "ok" };
+  if (identity === "symbol") return { text: "부품 전용 심볼", tone: "info" };
+  return { text: "일반 부품", tone: "muted" };
+}
+
+export function datasheetLabel(status: string | undefined): Label {
+  switch (status) {
+    case "matched":
+      return { text: "품번 확인됨", tone: "ok" };
+    case "family":
+      return { text: "제품군 확인됨", tone: "info" };
+    case "not_found":
+      return { text: "품번이 안 보임", tone: "warn" };
+    case "no_text":
+      return { text: "글자를 못 읽음", tone: "warn" };
+    default:
+      return { text: "확인 안 됨", tone: "muted" };
+  }
+}
+
+export function pinMapLabel(status: string, counts: Record<string, number>, packageChosen: boolean): Label {
+  if (!packageChosen) return { text: "패키지 선택 필요", tone: "warn" };
+  if (status === "match") return { text: "핀맵 일치", tone: "ok" };
+  if (status === "mismatch") {
+    const n = (counts.mismatch ?? 0) + (counts.missing_in_symbol ?? 0) + (counts.missing_in_datasheet ?? 0);
+    return { text: `핀맵 불일치 ${n}`, tone: "bad" };
+  }
+  return { text: "핀맵 확인 불가", tone: "muted" };
+}
+
+export function ratingsLabel(status: string): Label {
+  if (status === "error") return { text: "최대 정격 초과", tone: "bad" };
+  if (status === "warning") return { text: "권장 범위 밖", tone: "warn" };
+  if (status === "ok") return { text: "전압 정상", tone: "ok" };
+  return { text: "전압 확인 불가", tone: "muted" };
+}
+
+export function externalLabel(rows: { status: string; requirement: string }[]): Label {
+  const bad = rows.filter((r) => ["missing", "short", "value_differs"].includes(r.status));
+  const required = bad.filter((r) => r.requirement === "required").length;
+  if (required) return { text: `필수 부품 확인 ${required}`, tone: "warn" };
+  if (bad.length) return { text: `권장 부품 확인 ${bad.length}`, tone: "info" };
+  if (rows.some((r) => r.status === "present")) return { text: "외부 부품 있음", tone: "ok" };
+  return { text: "외부 부품 확인 불가", tone: "muted" };
+}
+
+export const ROW_STATUS: Record<string, Label> = {
+  match: { text: "일치", tone: "ok" },
+  mismatch: { text: "불일치", tone: "bad" },
+  missing_in_symbol: { text: "심볼에 없음", tone: "bad" },
+  missing_in_datasheet: { text: "데이터시트에 없음", tone: "bad" },
+  no_name: { text: "이름 없음", tone: "muted" },
+  ok: { text: "정상", tone: "ok" },
+  over_abs_max: { text: "최대 정격 초과", tone: "bad" },
+  outside_recommended: { text: "권장 범위 밖", tone: "warn" },
+  unknown_voltage: { text: "전압 모름", tone: "muted" },
+  unconnected: { text: "미연결", tone: "muted" },
+  present: { text: "있음", tone: "ok" },
+  short: { text: "부족", tone: "warn" },
+  value_differs: { text: "값 다름", tone: "warn" },
+  missing: { text: "없음", tone: "warn" },
+  direct: { text: "직접 연결", tone: "info" },
+  unchecked: { text: "확인 불가", tone: "muted" },
+};
+
+export function rangeText(min: number | null, max: number | null): string {
+  if (min !== null && max !== null) return `${min} ~ ${max} V`;
+  if (max !== null) return `최대 ${max} V`;
+  if (min !== null) return `최소 ${min} V`;
+  return "—";
+}

@@ -31,10 +31,11 @@ class Transcription:
     warnings: list[str] = field(default_factory=list)
 
 
-def transcribe_pdf(provider: LlmProvider, pdf: bytes, filename: str, *, max_output_tokens: int = 32768) -> Transcription:
+def _markdown_from_pdf(provider: LlmProvider, pdf: bytes, filename: str, *, prompt: str, marker: str, what: str,
+                       fallback: str, max_output_tokens: int) -> Transcription:
     if not pdf.startswith(b"%PDF"):
         raise AiError("NOT_A_PDF", f"'{filename}'은(는) PDF 파일이 아닙니다.")
-    result = provider.generate(prompt=pdf_prompt(), attachments=[Attachment(filename, "application/pdf", pdf)],
+    result = provider.generate(prompt=prompt, attachments=[Attachment(filename, "application/pdf", pdf)],
                                max_output_tokens=max_output_tokens, temperature=0.0)
     text = result.text.strip()
     fenced = re.fullmatch(r"```(?:markdown|md)?\s*\n(.*?)\n```", text, re.S)
@@ -42,12 +43,29 @@ def transcribe_pdf(provider: LlmProvider, pdf: bytes, filename: str, *, max_outp
         text = fenced.group(1).strip()
     warnings = []
     if result.finish_reason and result.finish_reason not in ("STOP", "FinishReason.STOP"):
-        warnings.append(f"AI 응답이 끝까지 오지 않았을 수 있습니다 (finish_reason={result.finish_reason}). "
-                        "회로가 크면 페이지를 나눠 변환하세요.")
-    if "# 회로도" not in text:
-        raise AiError("AI_BAD_OUTPUT", "AI 응답이 '회로도 MD' 형식이 아닙니다.",
-                      "다시 시도하거나, 코파일럿에서 같은 프롬프트로 변환한 Markdown을 가져오세요.")
+        warnings.append(f"AI 응답이 끝까지 오지 않았을 수 있습니다 (finish_reason={result.finish_reason}). {fallback}")
+    if marker not in text:
+        raise AiError("AI_BAD_OUTPUT", f"AI 응답이 '{what}' 형식이 아닙니다.",
+                      "다시 시도하거나, 코파일럿에서 같은 프롬프트로 만든 Markdown을 가져오세요.")
     return Transcription(markdown=text + "\n", result=result, warnings=warnings)
+
+
+def transcribe_pdf(provider: LlmProvider, pdf: bytes, filename: str, *, max_output_tokens: int = 32768) -> Transcription:
+    return _markdown_from_pdf(provider, pdf, filename, prompt=pdf_prompt(), marker="# 회로도", what="회로도 MD",
+                              fallback="회로가 크면 페이지를 나눠 변환하세요.", max_output_tokens=max_output_tokens)
+
+
+def datasheet_prompt() -> str:
+    return (PROMPT_DIR / "datasheet_summary.txt").read_text(encoding="utf-8")
+
+
+def summarize_datasheet(provider: LlmProvider, pdf: bytes, filename: str, *,
+                        max_output_tokens: int = 32768) -> Transcription:
+    """Datasheet PDF -> "데이터시트 요약 MD". The datasheet is untrusted input; the reply is only ever
+    parsed as tables by circuit_core.datasheet_md, never followed."""
+    return _markdown_from_pdf(provider, pdf, filename, prompt=datasheet_prompt(), marker="# 데이터시트",
+                              what="데이터시트 요약 MD", fallback="데이터시트가 길면 필요한 쪽만 잘라서 올려 보세요.",
+                              max_output_tokens=max_output_tokens)
 
 
 SUGGESTION_SCHEMA = {

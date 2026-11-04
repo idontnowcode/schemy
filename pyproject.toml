@@ -11,6 +11,7 @@ dependencies = [
     "openpyxl>=3.1,<4",
     "keyring>=25,<26",
     "google-genai>=2.30,<3",
+    "pypdf>=6",
 ]
 
 [project.scripts]
@@ -47,6 +48,9 @@ select = ["E", "F", "W", "B", "I"]
 [tool.ruff.lint.per-file-ignores]
 # User-facing Korean messages are kept on one line so they stay searchable.
 "circuit_core/schematic_md.py" = ["E501"]
+"circuit_core/datasheet_md.py" = ["E501"]
+"backend/datasheets.py" = ["E501"]
+"backend/routes_datasheets.py" = ["E501"]
 "ai_engine/*.py" = ["E501"]
 "backend/routes_ai.py" = ["E501"]
 "tests/test_schematic_md.py" = ["E501"]

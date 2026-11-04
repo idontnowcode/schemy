@@ -71,3 +71,43 @@ def many_resistors(count: int) -> CircuitIR:
                                                          {"component_id": f"r{i + 1}", "pin": "1"}]}
             for i in range(1, count)]
     return CircuitIR.model_validate({"project_id": "many", "components": components, "nets": nets})
+
+
+def can_node(supply: str = "+3V3", decoupling: str | None = "100nF", termination: str | None = "120") -> CircuitIR:
+    """SN65HVD230 CAN transceiver with a decoupling capacitor and a bus termination resistor.
+
+    ``supply`` names the supply net (the voltage is read from the name); ``None`` leaves a part out.
+    Rs (pin 8) goes straight to GND and Vref (pin 5) is left open.
+    """
+    lib_pins = [("1", "D"), ("2", "GND"), ("3", "VCC"), ("4", "R"), ("5", "Vref"), ("6", "CANL"), ("7", "CANH"),
+                ("8", "Rs")]
+    conn = [{"number": "1", "name": "Pin_1"}, {"number": "2", "name": "Pin_2"}]
+    two = [{"number": "1", "name": None}, {"number": "2", "name": None}]
+    components = [
+        {"id": "u1", "reference": "U1", "value": "SN65HVD230", "symbol_id": "Interface_CAN_LIN:SN65HVD230",
+         "footprint_id": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm", "manufacturer": "Texas Instruments",
+         "manufacturer_part_number": "SN65HVD230DR", "pins": [{"number": n, "name": nm} for n, nm in lib_pins]},
+        {"id": "j1", "reference": "J1", "value": "CAN", "symbol_id": "Connector_Generic:Conn_01x02", "pins": conn},
+        {"id": "j2", "reference": "J2", "value": "UART", "symbol_id": "Connector_Generic:Conn_01x02", "pins": conn},
+        {"id": "j3", "reference": "J3", "value": "PWR", "symbol_id": "Connector_Generic:Conn_01x02", "pins": conn},
+    ]
+    nets = {supply: [("j3", "1"), ("u1", "3")], "GND": [("j3", "2"), ("u1", "2"), ("u1", "8")],
+            "CANH": [("u1", "7"), ("j1", "1")], "CANL": [("u1", "6"), ("j1", "2")],
+            "TXD": [("j2", "1"), ("u1", "1")], "RXD": [("j2", "2"), ("u1", "4")]}
+    if decoupling:
+        components.append({"id": "c1", "reference": "C1", "value": decoupling, "symbol_id": "Device:C",
+                           "footprint_id": "Capacitor_SMD:C_0603_1608Metric", "pins": two})
+        nets[supply].append(("c1", "1"))
+        nets["GND"].append(("c1", "2"))
+    if termination:
+        components.append({"id": "r1", "reference": "R1", "value": termination, "symbol_id": "Device:R",
+                           "footprint_id": "Resistor_SMD:R_0603_1608Metric", "pins": two})
+        nets["CANH"].append(("r1", "1"))
+        nets["CANL"].append(("r1", "2"))
+    return CircuitIR.model_validate({
+        "project_id": "can-node",
+        "title": "CAN node (SN65HVD230)",
+        "components": components,
+        "nets": [{"id": f"net-{i}", "name": name, "nodes": [{"component_id": c, "pin": p} for c, p in nodes]}
+                 for i, (name, nodes) in enumerate(nets.items())],
+    })

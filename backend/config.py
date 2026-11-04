@@ -11,6 +11,8 @@ from ai_engine import KeyStore, LlmProvider, make_provider
 from kicad_adapter import KiCadCli
 from kicad_adapter.symbols import default_symbol_dirs
 
+from .datasheets import Fetcher, fetch_pdf
+
 APP_VERSION = "0.1.0"
 REPO_EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
@@ -41,3 +43,5 @@ class Settings:
     keystore: KeyStore = field(default_factory=KeyStore)
     ai_provider_factory: Callable[[str, str, str, float], LlmProvider] = make_provider
     """(provider, api_key, model, timeout_s) -> provider; tests inject a fake."""
+    datasheet_fetcher: Fetcher = fetch_pdf
+    """url -> (pdf bytes, final url); tests inject a fake. Only links from the KiCad library are fetched."""

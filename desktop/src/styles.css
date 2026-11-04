@@ -334,6 +334,7 @@ button:focus-visible {
   border-radius: 999px;
   padding: 2px 10px;
   font-size: 12.5px;
+  white-space: nowrap;
 }
 
 .chip-label {
@@ -753,4 +754,43 @@ button:focus-visible {
 details summary {
   cursor: pointer;
   margin: 6px 0;
+}
+
+/* --- datasheets ------------------------------------------------------------------------ */
+
+.chip-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.table tr.detail-row > td {
+  background: var(--bg);
+  padding: 10px 12px 14px;
+}
+
+.ds-details h4 {
+  margin: 14px 0 4px;
+  font-size: 13px;
+}
+
+.ds-details h4:first-child {
+  margin-top: 0;
+}
+
+.table.compact {
+  font-size: 12px;
+}
+
+.table.compact td,
+.table.compact th {
+  padding: 3px 6px;
 }

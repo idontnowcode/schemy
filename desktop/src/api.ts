@@ -7,6 +7,9 @@ import type {
   BoardSummary,
   BomTable,
   CircuitIR,
+  DatasheetEntry,
+  DatasheetReport,
+  DatasheetSummaryResult,
   Example,
   InventoryApplyResult,
   InventoryImportResult,
@@ -130,6 +133,26 @@ export const api = {
     ),
   suggest: (p: string, b: string) => request<Job>("POST", `${board(p, b)}/inventory-suggest`),
 
+  boardDatasheets: (p: string, b: string) => request<DatasheetReport>("GET", `${board(p, b)}/datasheets`),
+  fetchDatasheets: (p: string, b: string, urls: string[]) => request<Job>("POST", `${board(p, b)}/datasheets/fetch`, { urls }),
+  summarizeDatasheet: (p: string, b: string, id: string) =>
+    request<Job>("POST", `${board(p, b)}/datasheets/${enc(id)}/summarize`),
+  datasheets: () => request<{ entries: DatasheetEntry[]; dir: string }>("GET", "/datasheets"),
+  uploadDatasheet: (body: {
+    filename: string;
+    content_base64: string;
+    manufacturer?: string | null;
+    part_numbers?: string[];
+    symbols?: string[];
+  }) => request<{ entry: DatasheetEntry; created: boolean }>("POST", "/datasheets/upload", body),
+  deleteDatasheet: (id: string) => request<null>("DELETE", `/datasheets/${enc(id)}`),
+  importDatasheetSummary: (id: string, filename: string, text: string) =>
+    request<DatasheetSummaryResult>("POST", `/datasheets/${enc(id)}/summary`, { filename, text }),
+  setDatasheetReviewed: (id: string, reviewed: boolean) =>
+    request<DatasheetEntry>("PUT", `/datasheets/${enc(id)}/reviewed`, { reviewed }),
+  prompt: (name: "datasheet-summary" | "pdf-schematic") =>
+    request<{ name: string; text: string }>("GET", `/prompts/${name}`),
+
   aiStatus: () => request<AiStatus>("GET", "/ai/settings"),
   saveAiSettings: (s: Partial<{ enabled: boolean; model: string }>) => request<AiStatus>("PUT", "/ai/settings", s),
   saveAiKey: (apiKey: string) => request<{ key: AiStatus["key"] }>("PUT", "/ai/key", { api_key: apiKey }),
@@ -164,4 +187,10 @@ export function errorText(e: unknown): string {
     return `[${e.body.error_code}] ${e.body.message}${hint}`;
   }
   return e instanceof Error ? e.message : String(e);
+}
+
+/** Open a stored datasheet: the system PDF viewer in the desktop app, a browser tab otherwise. */
+export function openDatasheet(entry: DatasheetEntry): void {
+  if (desktop) void desktop.openPath(entry.path);
+  else window.open(`/api/datasheets/${enc(entry.id)}/file`, "_blank", "noopener");
 }

@@ -5,6 +5,7 @@ import { outputsLabel, reviewLabel } from "../format";
 import type { CircuitIR, OutputsStatus, ProjectSummary, SystemInfo } from "../types";
 import { Chip } from "./Chip";
 import { CircuitTab } from "./CircuitTab";
+import { DatasheetsTab } from "./DatasheetsTab";
 import { DocumentsTab } from "./DocumentsTab";
 import { HistoryTab } from "./HistoryTab";
 import { MaterialsTab } from "./MaterialsTab";
@@ -16,6 +17,7 @@ export const TABS = [
   { id: "circuit", label: "회로 (IR)" },
   { id: "schematic", label: "회로도 · 검증" },
   { id: "materials", label: "자재" },
+  { id: "datasheets", label: "데이터시트" },
   { id: "documents", label: "문서 · BOM" },
   { id: "history", label: "이력" },
 ] as const;
@@ -177,6 +179,7 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onP
         {tab === "materials" && (
           <MaterialsTab projectId={project.id} boardId={board.id} revision={data.revision} onApplied={afterChange} />
         )}
+        {tab === "datasheets" && <DatasheetsTab projectId={project.id} boardId={board.id} revision={data.revision} />}
         {tab === "documents" && <DocumentsTab projectId={project.id} boardId={board.id} revision={data.revision} />}
         {tab === "history" && (
           <HistoryTab projectId={project.id} boardId={board.id} revision={data.revision} onRestored={afterChange} />

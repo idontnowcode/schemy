@@ -1,0 +1,293 @@
+{
+  "schema_version": "0.3.0",
+  "project_id": "can-node",
+  "title": "CAN node (SN65HVD230)",
+  "components": [
+    {
+      "id": "u1",
+      "reference": "U1",
+      "value": "SN65HVD230",
+      "symbol_id": "Interface_CAN_LIN:SN65HVD230",
+      "footprint_id": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+      "manufacturer": "Texas Instruments",
+      "manufacturer_part_number": "SN65HVD230DR",
+      "pins": [
+        {
+          "number": "1",
+          "name": "D"
+        },
+        {
+          "number": "2",
+          "name": "GND"
+        },
+        {
+          "number": "3",
+          "name": "VCC"
+        },
+        {
+          "number": "4",
+          "name": "R"
+        },
+        {
+          "number": "5",
+          "name": "Vref"
+        },
+        {
+          "number": "6",
+          "name": "CANL"
+        },
+        {
+          "number": "7",
+          "name": "CANH"
+        },
+        {
+          "number": "8",
+          "name": "Rs"
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": null
+    },
+    {
+      "id": "j1",
+      "reference": "J1",
+      "value": "CAN",
+      "symbol_id": "Connector_Generic:Conn_01x02",
+      "footprint_id": null,
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1"
+        },
+        {
+          "number": "2",
+          "name": "Pin_2"
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": null
+    },
+    {
+      "id": "j2",
+      "reference": "J2",
+      "value": "UART",
+      "symbol_id": "Connector_Generic:Conn_01x02",
+      "footprint_id": null,
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1"
+        },
+        {
+          "number": "2",
+          "name": "Pin_2"
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": null
+    },
+    {
+      "id": "j3",
+      "reference": "J3",
+      "value": "PWR",
+      "symbol_id": "Connector_Generic:Conn_01x02",
+      "footprint_id": null,
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1"
+        },
+        {
+          "number": "2",
+          "name": "Pin_2"
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": null
+    },
+    {
+      "id": "c1",
+      "reference": "C1",
+      "value": "100nF",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": null
+    },
+    {
+      "id": "r1",
+      "reference": "R1",
+      "value": "120",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": null
+    }
+  ],
+  "nets": [
+    {
+      "id": "net-0",
+      "name": "+3V3",
+      "nodes": [
+        {
+          "component_id": "j3",
+          "pin": "1"
+        },
+        {
+          "component_id": "u1",
+          "pin": "3"
+        },
+        {
+          "component_id": "c1",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "net-1",
+      "name": "GND",
+      "nodes": [
+        {
+          "component_id": "j3",
+          "pin": "2"
+        },
+        {
+          "component_id": "u1",
+          "pin": "2"
+        },
+        {
+          "component_id": "u1",
+          "pin": "8"
+        },
+        {
+          "component_id": "c1",
+          "pin": "2"
+        }
+      ]
+    },
+    {
+      "id": "net-2",
+      "name": "CANH",
+      "nodes": [
+        {
+          "component_id": "u1",
+          "pin": "7"
+        },
+        {
+          "component_id": "j1",
+          "pin": "1"
+        },
+        {
+          "component_id": "r1",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "net-3",
+      "name": "CANL",
+      "nodes": [
+        {
+          "component_id": "u1",
+          "pin": "6"
+        },
+        {
+          "component_id": "j1",
+          "pin": "2"
+        },
+        {
+          "component_id": "r1",
+          "pin": "2"
+        }
+      ]
+    },
+    {
+      "id": "net-4",
+      "name": "TXD",
+      "nodes": [
+        {
+          "component_id": "j2",
+          "pin": "1"
+        },
+        {
+          "component_id": "u1",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "net-5",
+      "name": "RXD",
+      "nodes": [
+        {
+          "component_id": "j2",
+          "pin": "2"
+        },
+        {
+          "component_id": "u1",
+          "pin": "4"
+        }
+      ]
+    }
+  ],
+  "sheets": [],
+  "layout": {},
+  "validation": {
+    "status": "unverified",
+    "notes": null
+  }
+}

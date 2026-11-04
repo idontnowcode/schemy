@@ -18,8 +18,9 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-SCHEMA_VERSION = "0.2.0"
-"""0.2.0 added optional ``sheets`` (pages). 0.1.0 documents are still valid."""
+SCHEMA_VERSION = "0.3.0"
+"""0.2.0 added optional ``sheets`` (pages); 0.3.0 added optional ``Component.manufacturer``.
+Older documents are still valid."""
 
 StableId = Annotated[
     str,
@@ -83,6 +84,10 @@ class Component(_Model):
     symbol_id: LibId = Field(description="KiCad symbol, e.g. 'Device:R'.")
     footprint_id: str | None = Field(
         default=None, description="KiCad footprint, e.g. 'Resistor_SMD:R_0603_1608Metric'."
+    )
+    manufacturer: str | None = Field(
+        default=None, description="Maker of the exact part, e.g. 'Texas Instruments'. With the MPN it "
+        "identifies the part for datasheet lookups.",
     )
     manufacturer_part_number: str | None = None
     pins: tuple[Pin, ...] = Field(min_length=1)

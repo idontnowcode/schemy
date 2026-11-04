@@ -192,6 +192,29 @@ class MarkdownImportRequest(_Model):
     text: str = Field(min_length=1, max_length=2_000_000)
 
 
+class DatasheetUpload(FileUpload):
+    """A datasheet PDF for one part; the part number / symbol link it to components."""
+
+    manufacturer: str | None = Field(default=None, max_length=120)
+    part_numbers: list[str] = Field(default_factory=list, max_length=20)
+    symbols: list[str] = Field(default_factory=list, max_length=20)
+
+
+class DatasheetLink(_Model):
+    manufacturer: str | None = Field(default=None, max_length=120)
+    part_numbers: list[str] = Field(default_factory=list, max_length=20)
+    symbols: list[str] = Field(default_factory=list, max_length=20)
+
+
+class DatasheetFetchRequest(_Model):
+    urls: list[str] = Field(min_length=1, max_length=200, description="Links the user confirmed. Only links that "
+                            "the board's KiCad symbols name are fetched.")
+
+
+class DatasheetReviewed(_Model):
+    reviewed: bool
+
+
 class AiSettings(_Model):
     """Stored in the SQLite settings table. Never contains the API key."""
 

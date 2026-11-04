@@ -129,9 +129,9 @@ def test_apply_matched_and_choices(led_circuit):
     inventory = inventory_from(KOREAN_CSV)
     updated, changes = apply_inventory(led_circuit, inventory)
     assert {(c.reference, c.field, c.after) for c in changes} == {
-        ("R1", "manufacturer_part_number", "RC0603FR-07330RL"),
-        ("D1", "manufacturer_part_number", "LTST-C191KRKT"),
-        ("J1", "manufacturer_part_number", "PH-2P"),
+        ("R1", "manufacturer_part_number", "RC0603FR-07330RL"), ("R1", "manufacturer", "Yageo"),
+        ("D1", "manufacturer_part_number", "LTST-C191KRKT"), ("D1", "manufacturer", "Lite-On"),
+        ("J1", "manufacturer_part_number", "PH-2P"),  # no maker in the list: left empty
     }
     # Connections, values and symbols are untouched.
     assert updated.nets == led_circuit.nets

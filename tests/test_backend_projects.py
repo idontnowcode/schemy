@@ -33,7 +33,7 @@ def test_create_project_lays_out_folder(tmp_path):
     folder = tmp_path / "projects" / p["id"]
     for name in ("project.json", "requirements.md", "design_notes.md", "boards/a/board.json"):
         assert (folder / name).is_file()
-    for name in ("datasheets", "boards/a/revisions", "boards/a/outputs", "boards/a/imports"):
+    for name in ("boards/a/revisions", "boards/a/outputs", "boards/a/imports"):
         assert (folder / name).is_dir()
     meta = json.loads((folder / "project.json").read_text(encoding="utf-8"))
     assert meta["name"] == "STM32 CAN Controller"

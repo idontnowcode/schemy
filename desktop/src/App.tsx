@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, errorText } from "./api";
+import { DatasheetLibraryPage } from "./components/DatasheetLibraryPage";
 import { InventoryPage } from "./components/InventoryPage";
 import { isTab, ProjectView, type TabId } from "./components/ProjectView";
 import { SettingsPage } from "./components/SettingsPage";
@@ -130,6 +131,8 @@ export function App() {
           <div className="empty">불러오는 중…</div>
         ) : view === "inventory" ? (
           <InventoryPage onError={setError} />
+        ) : view === "datasheets" ? (
+          <DatasheetLibraryPage onError={setError} />
         ) : view === "settings" ? (
           <SettingsPage system={system} onError={setError} />
         ) : current && currentBoard ? (

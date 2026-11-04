@@ -14,13 +14,13 @@ Severity in the import report:
 from __future__ import annotations
 
 import re
-import unicodedata
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from pydantic import ValidationError
 
+from .md_tables import ImportIssue, Table, first_int, parse_table, read_sections
 from .models import CircuitIR, VerificationStatus
 from .parts import category_from_text
 from .validation import validate_circuit
@@ -37,6 +37,8 @@ SECTION_COLUMNS: dict[int, tuple[str, ...]] = {
     7: ("번호", "페이지", "위치", "내용", "후보"),
     8: ("항목", "값"),
 }
+OPTIONAL_COLUMNS: dict[int, tuple[str, ...]] = {2: ("제조사",)}
+"""Added after v0.1 was first published; files without them still import."""
 REQUIRED_SECTIONS = (2, 3)
 
 PinLookup = Callable[[str], list[tuple[str, str]] | None]
@@ -61,20 +63,7 @@ _NAME_ALIASES = {
     "a": {"a", "anode", "+", "양극", "애노드", "아노드"},
     "k": {"k", "cathode", "-", "c", "음극", "캐소드"},
 }
-_EMPTY = {"", "—", "–", "n/a"}
 _REF_RE = re.compile(r"^[A-Z]+[0-9]+$")
-
-
-@dataclass
-class ImportIssue:
-    severity: str
-    code: str
-    message: str
-    references: list[str] = field(default_factory=list)
-    line: int | None = None
-
-    def to_dict(self) -> dict:
-        return self.__dict__.copy()
 
 
 @dataclass
@@ -98,82 +87,27 @@ class MdImportResult:
         }
 
 
-@dataclass
-class _Table:
-    columns: dict[str, int]
-    rows: list[tuple[int, list[str]]]
-
-    def get(self, row: list[str], column: str) -> str:
-        index = self.columns.get(column)
-        if index is None or index >= len(row):
-            return ""
-        value = row[index]
-        # "-" usually means "empty", but in the pin-name column it is the minus terminal.
-        return "" if value == "-" and column != "핀 이름" else value
+_Table = Table
 
 
 # --- reading -------------------------------------------------------------------------------
 
-def _clean(cell: str) -> str:
-    text = unicodedata.normalize("NFKC", cell).replace("\\|", "/").strip()
-    text = re.sub(r"^`(.*)`$", r"\1", text).strip()
-    text = re.sub(r"^\*\*(.*)\*\*$", r"\1", text).strip()
-    return "" if text.lower() in _EMPTY else text
-
-
-def _split_row(line: str) -> list[str]:
-    body = line.strip()
-    if body.startswith("|"):
-        body = body[1:]
-    if body.endswith("|"):
-        body = body[:-1]
-    return [_clean(c) for c in re.split(r"(?<!\\)\|", body)]
-
-
 def _read_sections(text: str) -> tuple[str | None, dict[int, tuple[int, list[tuple[int, str]]]]]:
     """Title and, per numbered section, (heading line, [(line number, text), ...])."""
-    title = None
-    sections: dict[int, tuple[int, list[tuple[int, str]]]] = {}
-    current: int | None = None
-    for number, raw in enumerate(text.splitlines(), start=1):
-        line = raw.rstrip()
-        if m := re.match(r"^#\s+회로도\s*[:：]\s*(.+)$", line):
-            title = m.group(1).strip()
-            continue
-        if m := re.match(r"^##\s*(\d+)\s*[.)]", line):
-            current = int(m.group(1))
-            sections[current] = (number, [])
-            continue
-        if line.startswith("#"):
-            current = None
-            continue
-        if current is not None:
-            sections[current][1].append((number, line))
-    return title, sections
+    return read_sections(text, r"^#\s+회로도\s*[:：]\s*(.+)$")
 
 
 def _parse_table(section: int, lines: list[tuple[int, str]], issues: list[ImportIssue]) -> _Table | None:
-    table_lines = [(n, line) for n, line in lines if line.strip().startswith("|")]
-    if not table_lines:
-        return None
-    header_line, header = table_lines[0][0], _split_row(table_lines[0][1])
-    expected = SECTION_COLUMNS[section]
-    columns = {name: i for i, name in enumerate(header) if name in expected}
-    missing = [c for c in expected if c not in columns]
-    if missing:
+    table, problems = parse_table(lines, SECTION_COLUMNS[section], OPTIONAL_COLUMNS.get(section, ()),
+                                  keep_dash=("핀 이름",))
+    if problems and problems.missing:
         issues.append(ImportIssue("error" if section in REQUIRED_SECTIONS else "warning", "MISSING_COLUMNS",
-                                  f"{section}장 표에 열이 없습니다: {', '.join(missing)}", line=header_line))
-    extra = [h for h in header if h and h not in expected]
-    if extra:
+                                  f"{section}장 표에 열이 없습니다: {', '.join(problems.missing)}", line=problems.line))
+    if problems and problems.extra:
         issues.append(ImportIssue("warning", "EXTRA_COLUMNS",
-                                  f"{section}장 표의 알 수 없는 열은 무시합니다: {', '.join(extra)}", line=header_line))
-    rows = []
-    for n, line in table_lines[1:]:
-        cells = _split_row(line)
-        if all(re.fullmatch(r":?-{2,}:?", c.replace(" ", "")) or c == "" for c in cells):
-            continue  # separator or empty row
-        rows.append((n, cells))
-    return _Table(columns, rows)
+                                  f"{section}장 표의 알 수 없는 열은 무시합니다: {', '.join(problems.extra)}",
+                                  line=problems.line))
+    return table
 
 
 # --- helpers ---------------------------------------------------------------------------------
@@ -232,9 +166,7 @@ def _connector_symbol(pin_count: int, hint: str) -> str:
     return f"Connector_Generic:Conn_01x{pin_count:02d}"
 
 
-def _int(text: str) -> int | None:
-    m = re.match(r"^\d+", text or "")
-    return int(m.group()) if m else None
+_int = first_int
 
 
 # --- import ----------------------------------------------------------------------------------
@@ -282,6 +214,7 @@ def import_schematic_markdown(text: str, pin_lookup: PinLookup, *, project_id: s
         components[ref] = {
             "line": line, "value": value, "kind": parts_table.get(row, "종류"),
             "package": parts_table.get(row, "패키지"), "mpn": parts_table.get(row, "제조사 품번"),
+            "manufacturer": parts_table.get(row, "제조사"),
             "symbol": parts_table.get(row, "KiCad 심볼"), "pin_count": _int(parts_table.get(row, "핀 수")),
             "page": parts_table.get(row, "페이지"), "notes": parts_table.get(row, "비고"),
         }
@@ -417,6 +350,7 @@ def import_schematic_markdown(text: str, pin_lookup: PinLookup, *, project_id: s
             "value": comp["value"],
             "symbol_id": symbol_id or f"Unknown:{ref}",
             "footprint_id": comp["footprint_id"],
+            "manufacturer": comp["manufacturer"] if comp["manufacturer"] not in ("", "?") else None,
             "manufacturer_part_number": comp["mpn"] if comp["mpn"] not in ("", "?") else None,
             "pins": [{"number": n, "name": nm} for n, nm in pins.items()],
             "pin_map_evidence": {

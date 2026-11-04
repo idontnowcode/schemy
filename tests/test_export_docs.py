@@ -30,7 +30,7 @@ def test_bom_groups_identical_parts(led_circuit_data):
 
 def test_bom_csv(led_circuit):
     lines = bom_csv(led_circuit).splitlines()
-    assert lines[0] == "References,Quantity,Value,Symbol,Footprint,MPN,PinMapStatus"
+    assert lines[0] == "References,Quantity,Value,Symbol,Footprint,Manufacturer,MPN,PinMapStatus"
     assert lines[1].startswith("D1,1,LED,Device:LED,LED_SMD:LED_0603_1608Metric,")
     assert len(lines) == 4
 

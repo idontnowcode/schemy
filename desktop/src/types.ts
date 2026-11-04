@@ -60,6 +60,7 @@ export interface Component {
   value: string;
   symbol_id: string;
   footprint_id?: string | null;
+  manufacturer?: string | null;
   manufacturer_part_number?: string | null;
   pins: Pin[];
   pin_map_evidence?: { status: VerificationStatus; source?: string | null; notes?: string | null };
@@ -328,4 +329,118 @@ export interface AiStatus {
   settings: AiSettings;
   key: { configured: boolean; source: "env" | "keyring" | null; keyring_available: boolean };
   providers: string[];
+}
+
+// --- datasheets --------------------------------------------------------------------------
+
+export type IdentityStatus = "matched" | "family" | "not_found" | "no_text";
+
+export interface DatasheetEntry {
+  id: string;
+  file: string;
+  original_name: string;
+  sha256: string;
+  bytes: number;
+  page_count: number | null;
+  title: string | null;
+  source: "upload" | "kicad_symbol";
+  urls: string[];
+  final_url: string | null;
+  added_at: string;
+  manufacturer: string | null;
+  part_numbers: string[];
+  symbols: string[];
+  identity: { status?: IdentityStatus; found?: string[]; checked?: string[] };
+  summary: {
+    origin: "markdown" | "ai";
+    source_name: string;
+    imported_at: string;
+    reviewed: boolean;
+    warnings: number;
+    model: string | null;
+  } | null;
+  path: string;
+}
+
+export interface PinMapRow {
+  number: string;
+  datasheet_number: string | null;
+  symbol_name: string | null;
+  datasheet_name: string | null;
+  kind: string | null;
+  page: number | null;
+  status: "match" | "mismatch" | "missing_in_symbol" | "missing_in_datasheet" | "no_name";
+}
+
+export interface RatingRef {
+  parameter: string;
+  min: number | null;
+  max: number | null;
+  condition: string | null;
+  page: number | null;
+}
+
+export interface RatingRow {
+  number: string;
+  name: string;
+  net: string | null;
+  voltage: number | null;
+  abs_max: RatingRef[];
+  recommended: RatingRef[];
+  status: "ok" | "over_abs_max" | "outside_recommended" | "unknown_voltage" | "unconnected";
+}
+
+export interface ExternalRow {
+  requirement: "required" | "recommended";
+  kind_label: string;
+  value: string | null;
+  quantity: number | null;
+  endpoints: string[];
+  description: string | null;
+  page: number | null;
+  found: string[];
+  status: "present" | "short" | "value_differs" | "missing" | "direct" | "unchecked";
+  reason: string;
+}
+
+export interface DatasheetChecks {
+  package: { chosen: string | null; options: string[]; reason: string };
+  pin_names_from: "library" | "circuit";
+  pin_map: { status: "match" | "mismatch" | "unchecked"; rows: PinMapRow[]; counts: Record<string, number> };
+  ratings: { status: "ok" | "warning" | "error" | "unchecked"; rows: RatingRow[]; skipped: number };
+  external: { status: "ok" | "info" | "warning" | "unchecked"; rows: ExternalRow[] };
+}
+
+export interface DatasheetComponentRow {
+  id: string;
+  reference: string;
+  value: string;
+  symbol_id: string;
+  footprint_id: string | null;
+  manufacturer: string | null;
+  manufacturer_part_number: string | null;
+  category: string | null;
+  category_label: string | null;
+  identity: "mpn" | "symbol" | "generic";
+  relevant: boolean;
+  symbol_datasheet_url: string | null;
+  can_fetch: boolean;
+  datasheet: DatasheetEntry | null;
+  checks: DatasheetChecks | null;
+  notes: { text: string; page: number | null }[];
+  uncertain: Record<string, string>[];
+}
+
+export interface DatasheetReport {
+  revision: number | null;
+  components: DatasheetComponentRow[];
+  fetchable: { url: string; references: string[]; symbol_ids: string[] }[];
+  library_available: boolean;
+}
+
+export interface DatasheetSummaryResult {
+  ok: boolean;
+  issues: ImportIssue[];
+  stats: Record<string, number>;
+  entry: DatasheetEntry | null;
 }

@@ -15,7 +15,7 @@ interface Props {
 }
 
 const PLACEHOLDER = `{
-  "schema_version": "0.2.0",
+  "schema_version": "0.3.0",
   "project_id": "…",
   "components": [ … ],
   "nets": [ … ]

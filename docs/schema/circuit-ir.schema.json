@@ -39,6 +39,19 @@
           "description": "KiCad footprint, e.g. 'Resistor_SMD:R_0603_1608Metric'.",
           "title": "Footprint Id"
         },
+        "manufacturer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maker of the exact part, e.g. 'Texas Instruments'. With the MPN it identifies the part for datasheet lookups.",
+          "title": "Manufacturer"
+        },
         "manufacturer_part_number": {
           "anyOf": [
             {
@@ -310,7 +323,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "default": "0.2.0",
+      "default": "0.3.0",
       "title": "Schema Version",
       "type": "string"
     },

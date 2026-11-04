@@ -38,13 +38,13 @@ def _md_cell(value: object) -> str:
 
 
 def bom_rows(circuit: CircuitIR) -> list[dict[str, str]]:
-    """One row per (value, symbol, footprint, MPN) group, references naturally sorted."""
+    """One row per (value, symbol, footprint, manufacturer, MPN) group, references naturally sorted."""
     groups: dict[tuple, list] = defaultdict(list)
     for c in circuit.components:
-        key = (c.value, c.symbol_id, c.footprint_id or "", c.manufacturer_part_number or "")
+        key = (c.value, c.symbol_id, c.footprint_id or "", c.manufacturer or "", c.manufacturer_part_number or "")
         groups[key].append(c)
     rows = []
-    for (value, symbol, footprint, mpn), comps in groups.items():
+    for (value, symbol, footprint, manufacturer, mpn), comps in groups.items():
         refs = sorted((c.reference for c in comps), key=natural_key)
         statuses = sorted({c.pin_map_evidence.status.value for c in comps})
         rows.append({
@@ -53,6 +53,7 @@ def bom_rows(circuit: CircuitIR) -> list[dict[str, str]]:
             "Value": value,
             "Symbol": symbol,
             "Footprint": footprint,
+            "Manufacturer": manufacturer,
             "MPN": mpn,
             "PinMapStatus": "/".join(statuses),
         })
@@ -60,7 +61,7 @@ def bom_rows(circuit: CircuitIR) -> list[dict[str, str]]:
     return rows
 
 
-BOM_COLUMNS = ("References", "Quantity", "Value", "Symbol", "Footprint", "MPN", "PinMapStatus")
+BOM_COLUMNS = ("References", "Quantity", "Value", "Symbol", "Footprint", "Manufacturer", "MPN", "PinMapStatus")
 
 
 def bom_csv(circuit: CircuitIR) -> str:
