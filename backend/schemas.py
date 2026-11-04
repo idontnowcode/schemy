@@ -185,3 +185,29 @@ class InventoryImportRequest(FileUpload):
 class InventoryApplyRequest(_Model):
     apply_matched: bool = True
     choices: dict[str, str] = Field(default_factory=dict, description="component id -> inventory part id")
+
+
+class MarkdownImportRequest(_Model):
+    filename: str = Field(default="schematic.md", min_length=1, max_length=255)
+    text: str = Field(min_length=1, max_length=2_000_000)
+
+
+class AiSettings(_Model):
+    """Stored in the SQLite settings table. Never contains the API key."""
+
+    enabled: bool = False
+    provider: Literal["gemini"] = "gemini"
+    model: str = Field(default="gemini-flash-latest", min_length=1, max_length=100)
+    max_output_tokens: int = Field(default=32768, ge=1024, le=1_000_000)
+    timeout_s: int = Field(default=300, ge=10, le=3600)
+
+
+class AiSettingsUpdate(_Model):
+    enabled: bool | None = None
+    model: str | None = Field(default=None, min_length=1, max_length=100)
+    max_output_tokens: int | None = Field(default=None, ge=1024, le=1_000_000)
+    timeout_s: int | None = Field(default=None, ge=10, le=3600)
+
+
+class ApiKeyBody(_Model):
+    api_key: str = Field(min_length=10, max_length=500)

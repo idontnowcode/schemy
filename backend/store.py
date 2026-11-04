@@ -513,6 +513,13 @@ class ProjectStore:
         atomic_write_bytes(target, data)
         return target
 
+    def save_ai_run(self, project_id: str, board_id: str, record: dict) -> Path:
+        """Audit record of one AI call (plan v1.1 rule 11): time, provider, model, input summary, usage."""
+        self._read_board(project_id, board_id)
+        target = self.board_dir(project_id, board_id) / "ai_runs" / f"{record['id']}.json"
+        atomic_write(target, json.dumps(record, ensure_ascii=False, indent=2) + "\n")
+        return target
+
     # --- settings ---------------------------------------------------------------
 
     def get_settings(self, key: str = "app") -> AppSettings:

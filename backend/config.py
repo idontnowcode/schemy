@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ai_engine import KeyStore, LlmProvider, make_provider
 from kicad_adapter import KiCadCli
 from kicad_adapter.symbols import default_symbol_dirs
 
@@ -37,3 +38,6 @@ class Settings:
     kicad_factory: Callable[[], KiCadCli | None] = KiCadCli.detect
     examples_dir: Path | None = REPO_EXAMPLES
     """Folders with a circuit.json each, offered as starting points in the UI."""
+    keystore: KeyStore = field(default_factory=KeyStore)
+    ai_provider_factory: Callable[[str, str, str, float], LlmProvider] = make_provider
+    """(provider, api_key, model, timeout_s) -> provider; tests inject a fake."""

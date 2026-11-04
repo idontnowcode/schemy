@@ -23,13 +23,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from circuit_core import CircuitIR, Severity, validate_circuit
 from circuit_core.export import BOM_COLUMNS, bom_rows, circuit_markdown
-from kicad_adapter import SymbolLibrary, check_against_library
+from kicad_adapter import SymbolLibrary, SymbolLibraryError, check_against_library
 
 from .config import APP_VERSION, Settings
 from .errors import ApiError, issue_dict, not_found
 from .exports import external_edit_error, output_path, outputs_status, run_export
 from .inventory_store import InventoryStore
 from .jobs import JobRunner
+from .routes_ai import build_ai_router
 from .routes_inventory import build_inventory_router
 from .schemas import (
     AppSettings,
@@ -341,8 +342,21 @@ def create_app(settings: Settings) -> FastAPI:
     def get_job(job_id: str):
         return store.get_job(job_id)
 
+    def pin_lookup():
+        lib = checker.library()
+
+        def lookup(symbol_id: str):
+            if lib is None:
+                return None
+            try:
+                return [(p.number, p.name) for p in lib.get(symbol_id).pins]
+            except SymbolLibraryError:
+                return None
+        return lookup
+
     app.include_router(api)
     app.include_router(build_inventory_router(store, inventory))
+    app.include_router(build_ai_router(store, jobs, inventory, settings, pin_lookup))
 
     # --- desktop UI ---------------------------------------------------------------------
 
