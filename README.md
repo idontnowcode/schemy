@@ -1,7 +1,7 @@
 # AI Circuit Studio
 
 자연어 회로 요구사항 → AI 설계안 → 사용자 승인 → Circuit IR(JSON) → Markdown 문서 + KiCad 회로도를 만드는 데스크톱 앱입니다.
-기획서는 [`docs/AI_Circuit_Studio_Development_Plan_v1.md`](docs/AI_Circuit_Studio_Development_Plan_v1.md)에 있습니다.
+기획서는 [`docs/AI_Circuit_Studio_Development_Plan.md`](docs/AI_Circuit_Studio_Development_Plan.md)에 있습니다.
 
 > **현재 단계: Phase 0 (KiCad 생성 PoC).** UI, AI, 백엔드 API는 아직 없습니다.
 > 지금은 **수동으로 작성한 Circuit IR → `.kicad_sch` → ERC / Netlist / SVG** 경로가 실제로 동작하는지 확인하는 단계입니다.
