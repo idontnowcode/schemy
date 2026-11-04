@@ -121,6 +121,21 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
           </p>
         )}
         <p className="muted small">키는 Windows 자격 증명 관리자(macOS 키체인)에만 저장되고, 프로젝트 파일·로그에는 남지 않습니다.</p>
+        <details className="small">
+          <summary>무료로 쓰려면 / 요금</summary>
+          <ul>
+            <li>
+              요금은 모델이 아니라 <b>키를 만든 Google 프로젝트</b>에 따라 정해집니다. 결제(Billing)가 연결되지 않은 프로젝트의 키는 무료
+              등급으로 동작하고, 분당·하루 요청 수가 제한됩니다.
+            </li>
+            <li>결제가 연결된 프로젝트의 키는 쓴 만큼 과금됩니다. 선불 크레딧으로 설정했다면 크레딧이 바닥날 때 요청이 거부됩니다.</li>
+            <li>
+              Google 약관상 무료 등급에서는 보낸 내용이 Google 서비스 개선에 쓰일 수 있습니다. 회사 도면·BOM·요구사항을 보낸다면 사내 규정을 먼저
+              확인하세요.
+            </li>
+            <li>AI 회로 설계는 한 번에 3~5회 요청합니다. 무료 등급 한도에 자주 걸리면 「설계 후 AI 검토」를 끄세요.</li>
+          </ul>
+        </details>
       </div>
 
       <div className="card">

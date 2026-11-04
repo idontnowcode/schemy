@@ -8,6 +8,7 @@ real provider; tests use a fake.
 from __future__ import annotations
 
 import io
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -135,8 +136,15 @@ def _map_error(code: int | None, status: str | None, message: str | None) -> AiE
     if code == 404:
         return AiError("AI_MODEL_NOT_FOUND", f"모델을 찾지 못했습니다: {text}",
                        "설정에서 '모델 목록 불러오기'로 사용 가능한 모델을 고르세요.")
+    if re.search(r"prepay|prepaid|credits? (are|is) (depleted|exhausted)|billing|insufficient (funds|balance)", text, re.I):
+        return AiError("AI_BILLING", f"Gemini API 결제 크레딧이 없습니다: {text}",
+                       "이 API 키의 Google 프로젝트는 선불 결제로 설정되어 있고 크레딧이 바닥났습니다. "
+                       "Google AI Studio에서 크레딧을 충전하거나, 무료로 쓰려면 결제가 연결되지 않은 프로젝트에서 "
+                       "새 API 키를 만들어 설정에 저장하세요. 모델(Flash/Pro)을 바꿔서 해결되는 문제가 아닙니다.")
     if code == 429 or status == "RESOURCE_EXHAUSTED":
-        return AiError("AI_QUOTA", f"Gemini API 사용 한도를 넘었습니다: {text}", "잠시 후 다시 시도하거나 요금제를 확인하세요.")
+        return AiError("AI_QUOTA", f"Gemini API 요청 한도를 넘었습니다: {text}",
+                       "무료 등급은 분당·하루 요청 수가 제한됩니다. 잠시 후 다시 시도하세요. "
+                       "AI 설계는 한 번에 3~5회 요청하므로, '설계 후 AI 검토'를 끄면 요청이 줄어듭니다.")
     if code and code >= 500:
         return AiError("AI_UNAVAILABLE", f"Gemini 서버 오류 ({code}): {text}", "잠시 후 다시 시도하세요.")
     return AiError("AI_REQUEST_FAILED", f"Gemini 요청 실패 ({code} {status}): {text}")

@@ -282,6 +282,9 @@ def test_gemini_provider_builds_the_request(monkeypatch):
     (400, "INVALID_ARGUMENT", "API key not valid", "AI_AUTH_FAILED"),
     (404, "NOT_FOUND", "no model", "AI_MODEL_NOT_FOUND"),
     (429, "RESOURCE_EXHAUSTED", "quota", "AI_QUOTA"),
+    (429, "RESOURCE_EXHAUSTED", "Your prepayment credits are depleted. Please go to AI Studio at "
+                                "https://ai.studio/projects to manage your project and billing.", "AI_BILLING"),
+    (400, "FAILED_PRECONDITION", "Billing account not active", "AI_BILLING"),
     (503, "UNAVAILABLE", "busy", "AI_UNAVAILABLE"),
     (400, "INVALID_ARGUMENT", "other", "AI_REQUEST_FAILED"),
 ])
