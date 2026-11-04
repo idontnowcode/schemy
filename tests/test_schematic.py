@@ -494,3 +494,19 @@ def test_power_flag_where_a_series_part_feeds_a_rail(library):
     g = generate_schematic(circuit, library)
     # +12V: power symbol only (a power input) fed by the connector; +5V: fed through R1; +3V3 is driven by U1.
     assert sorted(g.power_flags) == ["+12V", "+5V", "GND"]
+
+
+def test_termination_resistor_bridges_the_lines_and_the_connector_lines_up(library):
+    """CAN block: U1 CANH/CANL run straight on to the bus connector J1, and the 120 ohm R1 stands across
+    both lines between them, so the whole block is wired with one name label per net."""
+    from .circuits import can_node
+
+    g = generate_schematic(can_node(), library)
+    pins = {(a.reference, a.pin): (a.x, a.y) for a in g.anchors}
+    canh, canl = pins[("U1", "7")], pins[("U1", "6")]
+    assert pins[("J1", "1")][1] == canh[1] and pins[("J1", "2")][1] == canl[1]
+    r_top, r_bottom = sorted((pins[("R1", "1")], pins[("R1", "2")]), key=lambda p: p[1])
+    assert r_top[0] == r_bottom[0] and canh[0] < r_top[0] < pins[("J1", "1")][0]
+    assert r_top[1] < min(canh[1], canl[1]) and r_bottom[1] > max(canh[1], canl[1])
+    labels = [unquote(lbl[1]) for lbl in children(sexpr.parse(g.text), "label")]
+    assert labels.count("CANH") == 1 and labels.count("CANL") == 1

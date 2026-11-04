@@ -332,20 +332,35 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx) -> Group:
     placed[key] = (0.0, 0.0, r0)
     boxes[key] = ctx.extent_of(key, r0, q0)
 
-    def plan(c: str, cpin: str, d: Dir) -> tuple[int | None, bool, bool]:
-        """Rotation and mirroring for a member hanging off a pin pointing ``d``, and whether it stands across
-        the line."""
+    def plan(c: str, cpin: str, owner: str, opin: str, d: Dir) -> tuple[int | None, bool, bool, str | None]:
+        """Rotation and mirroring for a member hanging off ``owner``'s pin ``opin`` (pointing ``d``), whether it
+        stands across the line, and for a bridge the owner's other pin it spans to."""
         s = pin(c, cpin)
         back = (-d[0], -d[1])
         if two_opposite(c):
             o = next(p for p in pins[c] if p.number != cpin)
             n2 = net(c, o.number)
+            if wired(n2) and n2 != net(owner, opin):
+                # A bridge between two pins on the same side of the owner (a termination resistor between
+                # CANH and CANL): it stands across both lines, centred between them, so the lines can reach
+                # its ends and still run straight on to a connector beyond it.
+                a, _ = abs_pin(owner, opin)
+                for q in pins[owner]:
+                    if q.number == opin or net(owner, q.number) != n2:
+                        continue
+                    b, qd = abs_pin(owner, q.number)
+                    if qd != d:
+                        continue
+                    gap = (b[1] - a[1]) if d[1] == 0 else (b[0] - a[0])
+                    if gap:
+                        toward = (0, 1 if gap > 0 else -1) if d[1] == 0 else (1 if gap > 0 else -1, 0)
+                        return orient(o.out, toward), False, True, q.number
             if n2 in ctx.upright and d[1] == 0 and (is_ground_name(n2) or ctx.kinds.get(c) == "rc"):
-                return orient(o.out, ctx.upright[n2]), False, True
-            return orient(s.out, back), False, False
+                return orient(o.out, ctx.upright[n2]), False, True, None
+            return orient(s.out, back), False, False, None
         if len(pins[c]) == 1 or same_side(c):
-            return (*facing(c, s, back), False)
-        return None, False, False
+            return (*facing(c, s, back), False, None)
+        return None, False, False, None
 
     # Wired members, nearest first; at one pin, parts across the line come before the one continuing it.
     queue = [key]
@@ -356,10 +371,10 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx) -> Group:
             if not kids:
                 continue
             anchor, d = abs_pin(owner, p.number)
-            plans = {c: plan(c, parent[c][2], d) for c in kids}
+            plans = {c: plan(c, parent[c][2], owner, p.number, d) for c in kids}
             for c in sorted(kids, key=lambda c: (not plans[c][2], kids.index(c))):
                 rotation = plans[c][0] if plans[c][0] is not None else 0
-                mirror = plans[c][1]
+                mirror, twin = plans[c][1], plans[c][3]
                 cpin = parent[c][2]
                 quiet = {cpin: 0.0}
                 for q in pins[c]:
@@ -368,7 +383,16 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx) -> Group:
                 e = ctx.extent_of(c, rotation, quiet, mirror)
                 rel, _ = _turned(pin(c, cpin), rotation, mirror)
                 skip = {owner} | {x for s in kids if s in placed and plans[s][2] for x in (s, f"~{s}")}
-                spot = search(e, anchor, d, rel, True, skip)
+                if twin is not None:  # centre the bridge between the two pin rows
+                    b, _ = abs_pin(owner, twin)
+                    o_rel, _ = _turned(next(q for q in pins[c] if q.number != cpin), rotation, mirror)
+                    i = 1 if d[1] == 0 else 0
+                    offset = snap((b[i] - anchor[i]) / 2 - ((rel[i] + o_rel[i]) / 2 - rel[i]))
+                    start = ((anchor[0], round(anchor[1] + offset, 4)) if i
+                             else (round(anchor[0] + offset, 4), anchor[1]))
+                    spot = search(e, start, d, rel, False, skip)
+                else:
+                    spot = search(e, anchor, d, rel, True, skip)
                 put(c, rotation, e, spot, mirror)
                 if spot is not None:  # keep the straight wire's path free for later parts
                     end = (spot[0] + rel[0], spot[1] + rel[1])
@@ -393,9 +417,9 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx) -> Group:
             continue
         anchor, d = abs_pin(*found)
         sides = [(anchor, d)]
-        if d[0] == 0:  # a pin on top or bottom: beside the owner rather than beyond its power symbol
+        if d[0] == 0:  # a pin on top or bottom: also try beside the owner; the closest spot wins
             ob = boxes[found[0]]
-            sides = [((ob[2], anchor[1]), (1, 0)), ((ob[0], anchor[1]), (-1, 0))]
+            sides += [((ob[2], anchor[1]), (1, 0)), ((ob[0], anchor[1]), (-1, 0))]
         options = []
         for side_anchor, sd in sides:
             mirror = False
@@ -407,7 +431,8 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx) -> Group:
                                    key=lambda q: is_ground_name(net(m, q.number)))
                 rotation = orient(rail_pins[0].out, ctx.upright[net(m, rail_pins[0].number) or ""]) or 0
             e = ctx.extent_of(m, rotation, {}, mirror)
-            rel = (e[0] if sd[0] > 0 else e[2], (e[1] + e[3]) / 2)
+            rel = (e[0] if sd[0] > 0 else e[2] if sd[0] < 0 else (e[0] + e[2]) / 2,
+                   e[1] if sd[1] > 0 else e[3] if sd[1] < 0 else (e[1] + e[3]) / 2)
             spot = search(e, side_anchor, sd, rel, False, set(), step=STEP)
             if spot is not None:
                 options.append((scores[spot], len(options), rotation, mirror, e, spot))

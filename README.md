@@ -1,7 +1,7 @@
 # AI Circuit Studio
 
 자연어 회로 요구사항 → AI 설계안 → 사용자 승인 → Circuit IR(JSON) → Markdown 문서 + KiCad 회로도를 만드는 Windows 우선 데스크톱 앱입니다.
-기획서는 [`docs/AI_Circuit_Studio_Development_Plan.md`](docs/AI_Circuit_Studio_Development_Plan.md)(v1.5)에 있습니다.
+기획서는 [`docs/AI_Circuit_Studio_Development_Plan.md`](docs/AI_Circuit_Studio_Development_Plan.md)(v1.6)에 있습니다.
 궁극적인 목표는 **하나의 입력 창**에서 회로도, 아트웍(PCB), 펌웨어까지 다루는 것입니다(기획서 1장 제품 비전).
 
 ![AI Circuit Studio — 회로도·검증 화면](docs/images/phase1-schematic.png)
@@ -15,6 +15,7 @@
 | Phase 1.5 — 보드·페이지, 가져오기, 보유 자재 | ✅ 완료 | 프로젝트→보드→페이지, PDF 회로도 카피(회로도 MD 가져오기 + AI 변환 옵션), 보유 자재 우선 사용 ([보고서](docs/phase1_5-report.md)) |
 | Phase 1.6 — 데이터시트 | ✅ 완료 | 제조사가 확실한 부품의 데이터시트 수집(KiCad 심볼 링크·직접 올리기), 요약 MD, 핀맵·전압·외부 부품 대조 ([보고서](docs/phase1_6-report.md)) |
 | Phase 2 — 변경 흐름과 AI 설계·검토 | ✅ 완료 | 요구사항 → AI 회로 설계 → 제안(비교 표·KiCad 검사·AI 검토) → 승인 ([보고서](docs/phase2-report.md)) |
+| Phase 2 이후 개선 | ✅ 완료 | AI 출력 한국어, 검토 반영 수정안, 읽기 쉬운 회로도(블록 배치·전원 심볼·직접 배선), Claude 공급자 ([회로도 예](docs/images/schematic-auto-layout.png)) |
 | Phase 3 — 엔지니어링 템플릿 | 다음 | 다중 유닛 심볼, 검토된 회로 템플릿, 엔지니어 검토 기록 |
 
 ## 지금 할 수 있는 것
