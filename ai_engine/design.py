@@ -35,21 +35,23 @@ CATEGORIES = ["resistor", "capacitor", "capacitor_polarized", "inductor", "led",
 MAX_PARTS = 60
 
 _STR = {"type": "string"}
+_KO = {"type": "string", "description": "한국어로"}
+_KOS = {"type": "array", "items": _KO}
 _STRS = {"type": "array", "items": _STR}
 
 SPEC_SCHEMA = {
     "type": "object",
     "properties": {
-        "summary": {"type": "string", "description": "한두 문장 요약"},
-        "functions": _STRS,
+        "summary": {"type": "string", "description": "한두 문장 요약, 한국어로"},
+        "functions": _KOS,
         "power": {"type": "array", "items": {"type": "object", "properties": {
             "name": _STR, "source": _STR, "voltage": _STR, "current": _STR, "notes": _STR},
             "required": ["name", "source", "voltage"]}},
         "interfaces": {"type": "array", "items": {"type": "object", "properties": {
             "name": _STR, "kind": _STR, "details": _STR}, "required": ["name", "kind"]}},
-        "parts_preferences": _STRS,
-        "constraints": _STRS,
-        "open_questions": _STRS,
+        "parts_preferences": _KOS,
+        "constraints": _KOS,
+        "open_questions": _KOS,
     },
     "required": ["summary", "functions", "power", "interfaces", "parts_preferences", "constraints", "open_questions"],
 }
@@ -57,13 +59,13 @@ SPEC_SCHEMA = {
 PLAN_SCHEMA = {
     "type": "object",
     "properties": {
-        "title": _STR,
-        "summary": {"type": "string", "description": "설계 요약과 근거"},
-        "assumptions": _STRS,
-        "questions": _STRS,
+        "title": {"type": "string", "description": "설계안 제목, 한국어로"},
+        "summary": {"type": "string", "description": "설계 요약과 근거, 한국어로"},
+        "assumptions": _KOS,
+        "questions": _KOS,
         "parts": {"type": "array", "items": {"type": "object", "properties": {
             "ref": {"type": "string", "description": "R1, C1, U1, J1, D1 ..."},
-            "role": _STR,
+            "role": {"type": "string", "description": "부품의 역할, 한국어로"},
             "category": {"type": "string", "enum": CATEGORIES},
             "value": _STR,
             "package": _STR,
@@ -90,8 +92,8 @@ CONNECT_SCHEMA = {
         "values": {"type": "array", "items": {"type": "object", "properties": {"ref": _STR, "value": _STR},
                                               "required": ["ref", "value"]}},
         "citations": {"type": "array", "items": {"type": "object", "properties": {
-            "ref": _STR, "page": {"type": "integer"}, "text": _STR}, "required": ["ref", "text"]}},
-        "notes": _STR,
+            "ref": _STR, "page": {"type": "integer"}, "text": _KO}, "required": ["ref", "text"]}},
+        "notes": _KO,
     },
     "required": ["nets", "no_connect"],
 }
@@ -99,10 +101,10 @@ CONNECT_SCHEMA = {
 REVIEW_SCHEMA = {
     "type": "object",
     "properties": {
-        "summary": _STR,
+        "summary": _KO,
         "findings": {"type": "array", "items": {"type": "object", "properties": {
             "severity": {"type": "string", "enum": ["error", "warning", "info"]},
-            "title": _STR, "detail": _STR, "references": _STRS, "suggestion": _STR,
+            "title": _KO, "detail": _KO, "references": _STRS, "suggestion": _KO,
         }, "required": ["severity", "title", "detail"]}},
     },
     "required": ["summary", "findings"],
@@ -174,11 +176,16 @@ def _strs(value) -> list[str]:
 
 # --- prompts --------------------------------------------------------------------------------------
 
+LANGUAGE_RULE = """[언어]
+- 사람이 읽는 문장은 모두 한국어로 쓰세요: title, summary, assumptions, questions, role, notes, citations의 text, 검토의 title·detail·suggestion, 요구사항 정리의 모든 항목.
+- 부품 기호(R1, U1), 핀 번호, Net 이름, 제조사 품번, KiCad 심볼·풋프린트 이름, 단위(V, mA, Ω, uF)는 원래 표기 그대로 둡니다. 영어 데이터시트를 인용할 때도 설명은 한국어로 옮겨 쓰세요."""
+
 _RULES_COMMON = """[공통 규칙]
 - 아래 요구사항만 근거로 삼으세요. 요구사항에 없는 기능을 추가하지 마세요. 정보가 부족하면 가정(assumptions)이나 질문(questions)으로 남기세요.
 - 실제로 존재하는 부품만 쓰세요. 제조사 품번(mpn)을 모르면 비워 두세요. 지어내지 마세요.
 - 전원 Net 이름에는 전압을 넣으세요(+5V, +3V3, +12V, GND). 이름은 영문·숫자·_·+·-만 씁니다.
 - 외부와 연결되는 전원·신호는 커넥터(J)로 보드에 들어오고 나가게 하세요."""
+_RULES_COMMON += "\n" + LANGUAGE_RULE
 
 
 def _requirements_block(inp: DesignInput) -> str:
@@ -429,6 +436,8 @@ def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | Non
 - 확실한 결함은 error, 고치는 것이 좋은 것은 warning, 참고는 info입니다. references에는 관련 부품 기호를 적으세요.
 - 문제가 없으면 findings를 비워 두세요.
 
+{LANGUAGE_RULE}
+
 [요구사항]
 {requirements.strip() or '(없음)'}
 {('[정리된 요구사항]' + chr(10) + json.dumps(spec, ensure_ascii=False)) if spec else ''}
@@ -464,6 +473,8 @@ def structure_requirements(provider: LlmProvider, text: str, *, max_output_token
     prompt = f"""당신은 전자회로 설계 엔지니어입니다. 아래 자유 형식의 요구사항을 정해진 항목으로 정리하세요.
 요구사항에 없는 내용은 지어내지 말고, 설계에 꼭 필요한데 빠진 정보는 open_questions에 질문으로 적으세요.
 전압·전류는 단위를 붙여 쓰세요(예: 5 V, 500 mA).
+
+{LANGUAGE_RULE}
 
 [요구사항]
 {text.strip()}
