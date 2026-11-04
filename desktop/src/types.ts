@@ -444,3 +444,108 @@ export interface DatasheetSummaryResult {
   stats: Record<string, number>;
   entry: DatasheetEntry | null;
 }
+
+// --- proposals (Phase 2) -----------------------------------------------------------------
+
+export type ProposalStatus = "checking" | "ready" | "invalid" | "check_failed" | "approved" | "rejected" | "stale";
+
+export interface ProposalDiff {
+  summary: Record<string, number>;
+  is_new_circuit: boolean;
+  components_added: { id: string; reference: string; value: string; symbol_id: string; footprint_id: string | null; manufacturer_part_number: string | null }[];
+  components_removed: { id: string; reference: string; value: string; symbol_id: string }[];
+  properties_changed: { id: string; reference: string; field: string; before: string | null; after: string | null }[];
+  connections: { reference: string; pin: string; pin_name: string | null; before: string | null; after: string | null }[];
+  nets_added: string[];
+  nets_removed: string[];
+  moved: string[];
+  page_moves: { reference: string; before: string; after: string }[];
+}
+
+export interface AiFinding {
+  severity: "error" | "warning" | "info";
+  title: string;
+  detail: string;
+  references: string[];
+  suggestion: string | null;
+}
+
+export interface ProposalAi {
+  model?: string;
+  summary?: string;
+  assumptions?: string[];
+  questions?: string[];
+  citations?: { reference: string; page: number | null; text: string }[];
+  parts?: { key: string; role: string; symbol_id: string; how: string }[];
+  attempts?: number;
+  review?: { findings: AiFinding[]; summary: string; model?: string; created_at?: string } | null;
+}
+
+export interface Proposal {
+  id: string;
+  project_id: string;
+  board_id: string;
+  title: string;
+  rationale: string | null;
+  source: "user" | "ai_design" | "ai_revision" | "ai_pdf_import";
+  base_revision: number | null;
+  status: ProposalStatus;
+  created_at: string;
+  decided_at: string | null;
+  decision_note: string | null;
+  result_revision: number | null;
+  diff: ProposalDiff;
+  evidence: {
+    checked_at: string;
+    ir_issues: Issue[];
+    blocking: boolean;
+    generation_error: { error_code: string; message: string; issues?: Issue[] } | null;
+    automated_check: AutomatedCheck | null;
+    power_flags: string[];
+    warnings: Issue[];
+    pages: PageOutput[];
+    files: string[];
+    datasheets: {
+      reference: string;
+      reviewed: boolean;
+      pin_map: string;
+      ratings: string;
+      external: string;
+      external_missing: string[];
+      ratings_problems: string[];
+    }[];
+  } | null;
+  ai: ProposalAi | null;
+  candidate?: CircuitIR;
+}
+
+export interface RequirementsSpec {
+  summary: string;
+  functions: string[];
+  power: { name: string; source: string; voltage: string; current?: string; notes?: string }[];
+  interfaces: { name: string; kind: string; details?: string }[];
+  parts_preferences: string[];
+  constraints: string[];
+  open_questions: string[];
+}
+
+export interface DesignPreview {
+  provider: string;
+  model: string;
+  enabled: boolean;
+  key: boolean;
+  requirements_chars: number;
+  spec: boolean;
+  inventory_parts: number;
+  datasheets: number;
+  current_circuit: boolean;
+  library: boolean;
+}
+
+export interface BoardReview {
+  summary: string;
+  findings: AiFinding[];
+  model?: string;
+  created_at?: string;
+  revision?: number | null;
+}

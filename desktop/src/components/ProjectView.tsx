@@ -9,11 +9,13 @@ import { DatasheetsTab } from "./DatasheetsTab";
 import { DocumentsTab } from "./DocumentsTab";
 import { HistoryTab } from "./HistoryTab";
 import { MaterialsTab } from "./MaterialsTab";
+import { ProposalsTab } from "./ProposalsTab";
 import { RequirementsTab } from "./RequirementsTab";
 import { SchematicTab } from "./SchematicTab";
 
 export const TABS = [
   { id: "requirements", label: "요구사항" },
+  { id: "proposals", label: "제안" },
   { id: "circuit", label: "회로 (IR)" },
   { id: "schematic", label: "회로도 · 검증" },
   { id: "materials", label: "자재" },
@@ -52,6 +54,11 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onP
   const [loaded, setLoaded] = useState<{ boardId: string; data: BoardData } | null>(null);
   const data = loaded?.boardId === boardId ? loaded.data : EMPTY;
   const [editingName, setEditingName] = useState(false);
+  const [focusProposal, setFocusProposal] = useState<string | null>(null);
+  const openProposal = (id: string) => {
+    setFocusProposal(id);
+    onTab("proposals");
+  };
   const [name, setName] = useState(project.name);
   const board = project.board_list.find((b) => b.id === boardId) ?? project.board_list[0];
 
@@ -156,7 +163,25 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onP
       </div>
 
       <div className="tab-body" key={board.id}>
-        {tab === "requirements" && <RequirementsTab projectId={project.id} onSaved={onProjectChanged} />}
+        {tab === "requirements" && (
+          <RequirementsTab
+            projectId={project.id}
+            boardId={board.id}
+            boardName={board.name}
+            onSaved={onProjectChanged}
+            onOpenProposal={openProposal}
+          />
+        )}
+        {tab === "proposals" && (
+          <ProposalsTab
+            projectId={project.id}
+            boardId={board.id}
+            revision={data.revision}
+            circuit={data.circuit}
+            focusId={focusProposal}
+            onChanged={afterChange}
+          />
+        )}
         {tab === "circuit" && (
           <CircuitTab
             projectId={project.id}
@@ -164,6 +189,7 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onP
             circuit={data.circuit}
             revision={data.revision}
             onSaved={afterChange}
+            onOpenProposal={openProposal}
           />
         )}
         {tab === "schematic" && (

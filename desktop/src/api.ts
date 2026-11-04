@@ -3,6 +3,7 @@ import { toErrorBody } from "./format";
 import type {
   AiStatus,
   ApiErrorBody,
+  BoardReview,
   AppSettings,
   BoardSummary,
   BomTable,
@@ -10,6 +11,7 @@ import type {
   DatasheetEntry,
   DatasheetReport,
   DatasheetSummaryResult,
+  DesignPreview,
   Example,
   InventoryApplyResult,
   InventoryImportResult,
@@ -19,6 +21,8 @@ import type {
   MarkdownImportResult,
   OutputsStatus,
   ProjectSummary,
+  Proposal,
+  RequirementsSpec,
   RevisionInfo,
   SaveCircuitResult,
   SystemInfo,
@@ -153,6 +157,33 @@ export const api = {
   prompt: (name: "datasheet-summary" | "pdf-schematic") =>
     request<{ name: string; text: string }>("GET", `/prompts/${name}`),
 
+  proposals: (p: string, b: string) => request<Proposal[]>("GET", `${board(p, b)}/proposals`),
+  proposal: (p: string, b: string, id: string) => request<Proposal>("GET", `${board(p, b)}/proposals/${enc(id)}`),
+  createProposal: (p: string, b: string, title: string, ops: unknown[], rationale?: string) =>
+    request<{ proposal: Proposal; job: Job }>("POST", `${board(p, b)}/proposals`, { title, ops, rationale }),
+  checkProposal: (p: string, b: string, id: string) => request<Job>("POST", `${board(p, b)}/proposals/${enc(id)}/check`),
+  approveProposal: (p: string, b: string, id: string, acceptFailedChecks: boolean) =>
+    request<{ proposal: Proposal; revision: RevisionInfo; job: Job | null }>(
+      "POST",
+      `${board(p, b)}/proposals/${enc(id)}/approve`,
+      { accept_failed_checks: acceptFailedChecks, generate: true },
+    ),
+  rejectProposal: (p: string, b: string, id: string, note?: string) =>
+    request<Proposal>("POST", `${board(p, b)}/proposals/${enc(id)}/reject`, { note }),
+
+  requirementsSpec: (p: string) => request<{ spec: RequirementsSpec | null }>("GET", `/projects/${enc(p)}/requirements/spec`),
+  saveRequirementsSpec: (p: string, spec: RequirementsSpec | null) =>
+    request<{ spec: RequirementsSpec | null }>("PUT", `/projects/${enc(p)}/requirements/spec`, { spec }),
+  structureRequirements: (p: string) => request<Job>("POST", `/projects/${enc(p)}/requirements/structure`),
+  designPreview: (p: string, b: string) => request<DesignPreview>("GET", `${board(p, b)}/ai/design/preview`),
+  design: (p: string, b: string, body: { instructions?: string; use_inventory: boolean; review: boolean }) =>
+    request<Job>("POST", `${board(p, b)}/ai/design`, body),
+  aiReview: (p: string, b: string, proposalId?: string) =>
+    request<Job>("POST", `${board(p, b)}/ai/review`, { proposal_id: proposalId ?? null }),
+  boardReview: (p: string, b: string) => request<{ review: BoardReview | null }>("GET", `${board(p, b)}/ai/review`),
+  aiRevise: (p: string, b: string, proposalId?: string, instructions?: string) =>
+    request<Job>("POST", `${board(p, b)}/ai/revise`, { proposal_id: proposalId ?? null, instructions: instructions || null }),
+
   aiStatus: () => request<AiStatus>("GET", "/ai/settings"),
   saveAiSettings: (s: Partial<{ enabled: boolean; model: string }>) => request<AiStatus>("PUT", "/ai/settings", s),
   saveAiKey: (apiKey: string) => request<{ key: AiStatus["key"] }>("PUT", "/ai/key", { api_key: apiKey }),
@@ -193,4 +224,11 @@ export function errorText(e: unknown): string {
 export function openDatasheet(entry: DatasheetEntry): void {
   if (desktop) void desktop.openPath(entry.path);
   else window.open(`/api/datasheets/${enc(entry.id)}/file`, "_blank", "noopener");
+}
+
+/** Fetch a file generated for a proposal's check (e.g. its SVG preview) with the API token. */
+export async function proposalFileText(projectId: string, boardId: string, id: string, name: string): Promise<string> {
+  const res = await fetch(`/api${board(projectId, boardId)}/proposals/${enc(id)}/files/${enc(name)}`, { headers: authHeaders() });
+  if (!res.ok) throw new ApiError(res.status, toErrorBody(await res.text(), res.status));
+  return res.text();
 }

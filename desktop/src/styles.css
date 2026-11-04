@@ -794,3 +794,95 @@ details summary {
 .table.compact th {
   padding: 3px 6px;
 }
+
+/* --- proposals ---------------------------------------------------------------------------- */
+
+.proposal-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.proposal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.proposal-item {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+}
+
+.proposal-item.active {
+  border-color: var(--accent);
+}
+
+.proposal-detail h4 {
+  margin: 12px 0 4px;
+  font-size: 13px;
+}
+
+.pre {
+  white-space: pre-wrap;
+}
+
+.proposal-preview {
+  height: auto;
+  min-height: 0;
+  max-height: 480px;
+}
+
+.proposal-preview .preview-img.fit {
+  max-height: 460px;
+}
+
+/* --- requirements / AI design ------------------------------------------------------------ */
+
+.requirements-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
+  gap: 12px;
+  align-items: start;
+}
+
+.requirements-layout .editor {
+  min-height: 420px;
+}
+
+label.block {
+  display: block;
+  margin: 8px 0;
+}
+
+.small-textarea {
+  width: 100%;
+  min-height: 64px;
+  margin-top: 4px;
+  font: inherit;
+  font-size: 12.5px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+}
+
+.spec h4 {
+  margin: 10px 0 2px;
+  font-size: 12.5px;
+}

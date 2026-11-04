@@ -12,6 +12,7 @@ interface Props {
   circuit: CircuitIR | null;
   revision: number | null;
   onSaved(): Promise<unknown>;
+  onOpenProposal?(id: string): void;
 }
 
 const PLACEHOLDER = `{
@@ -24,13 +25,14 @@ const PLACEHOLDER = `{
 또는 위의 "회로도 MD 가져오기"로 코파일럿이 만든 Markdown을 불러오세요.
 `;
 
-export function CircuitTab({ projectId, boardId, circuit, revision, onSaved }: Props) {
+export function CircuitTab({ projectId, boardId, circuit, revision, onSaved, onOpenProposal }: Props) {
   const savedText = circuit ? prettyJson(circuit) : "";
   const [text, setText] = useState(savedText);
   const [source, setSource] = useState<"user_edit" | "import">("user_edit");
   const [report, setReport] = useState<ValidationReport | null>(null);
   const [importReport, setImportReport] = useState<MarkdownImportResult | null>(null);
   const [aiMarkdown, setAiMarkdown] = useState<string | null>(null);
+  const [pdfProposal, setPdfProposal] = useState<string | null>(null);
   const [syntaxError, setSyntaxError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -165,8 +167,18 @@ export function CircuitTab({ projectId, boardId, circuit, revision, onSaved }: P
         return;
       }
       setAiMarkdown(done.result.markdown);
-      applyImport(done.result.import, "PDF(AI 변환)");
-      if (done.result.warnings?.length) setMessage(done.result.warnings.join(" "));
+      if (done.result.proposal_id) {
+        // AI output goes through the proposal approval path, not straight into the editor.
+        setImportReport(done.result.import);
+        setPdfProposal(done.result.proposal_id);
+        setMessage(
+          `AI가 옮겨 적은 회로를 제안 #${Number(done.result.proposal_id)}(으)로 만들었습니다. 「제안」 탭에서 검사 결과를 보고 승인하세요.` +
+            (done.result.warnings?.length ? ` ${done.result.warnings.join(" ")}` : ""),
+        );
+      } else {
+        applyImport(done.result.import, "PDF(AI 변환)");
+        if (done.result.warnings?.length) setMessage(done.result.warnings.join(" "));
+      }
     } catch (err) {
       setMessage(errorText(err));
     } finally {
@@ -256,6 +268,11 @@ export function CircuitTab({ projectId, boardId, circuit, revision, onSaved }: P
             IR 규칙 오류가 있으면 저장되지 않습니다. 라이브러리 핀 불일치는 저장은 되지만 회로도 생성이 거부됩니다.
           </p>
         </div>
+        {pdfProposal && onOpenProposal && (
+          <div className="card">
+            <button onClick={() => onOpenProposal(pdfProposal)}>제안 #{Number(pdfProposal)} 열기</button>
+          </div>
+        )}
         {importReport && <ImportReport result={importReport} aiMarkdown={aiMarkdown} />}
         {parsedIr && (
           <PagesCard ir={parsedIr} onChange={editPages} />

@@ -51,7 +51,7 @@ export function outputsLabel(outputs: OutputsStatus | null): { text: string; ton
 }
 
 export function sourceLabel(source: RevisionInfo["source"]): string {
-  return { user_edit: "직접 편집", import: "가져오기", restore: "복원", inventory: "보유 자재 적용" }[source];
+  return { user_edit: "직접 편집", import: "가져오기", restore: "복원", inventory: "보유 자재 적용", proposal: "제안 승인" }[source];
 }
 
 /** Inventory match status (보유 자재 우선 사용). */
@@ -240,4 +240,62 @@ export function rangeText(min: number | null, max: number | null): string {
   if (max !== null) return `최대 ${max} V`;
   if (min !== null) return `최소 ${min} V`;
   return "—";
+}
+
+// --- proposals -------------------------------------------------------------------------------
+
+export function proposalStatusLabel(status: string): Label {
+  switch (status) {
+    case "checking":
+      return { text: "검사 중", tone: "info" };
+    case "ready":
+      return { text: "승인 대기", tone: "warn" };
+    case "invalid":
+      return { text: "규칙 오류", tone: "bad" };
+    case "check_failed":
+      return { text: "검사 실패", tone: "bad" };
+    case "approved":
+      return { text: "승인됨", tone: "ok" };
+    case "rejected":
+      return { text: "거부됨", tone: "muted" };
+    case "stale":
+      return { text: "기준 회로 바뀜", tone: "muted" };
+    default:
+      return { text: status, tone: "muted" };
+  }
+}
+
+export function proposalSourceLabel(source: string): string {
+  return { user: "직접 제안", ai_design: "AI 설계", ai_revision: "AI 수정안", ai_pdf_import: "PDF 가져오기 (AI)" }[source] ?? source;
+}
+
+const DIFF_FIELD: Record<string, string> = {
+  reference: "기호",
+  value: "값",
+  symbol_id: "KiCad 심볼",
+  footprint_id: "풋프린트",
+  manufacturer: "제조사",
+  manufacturer_part_number: "제조사 품번",
+  description: "설명",
+};
+
+export function diffFieldLabel(field: string): string {
+  if (DIFF_FIELD[field]) return DIFF_FIELD[field];
+  const nc = /^pin (.+) no_connect$/.exec(field);
+  if (nc) return `핀 ${nc[1]} 미연결 표시`;
+  const pin = /^pin (.+)$/.exec(field);
+  return pin ? `핀 ${pin[1]}` : field;
+}
+
+export function diffSummaryText(s: Record<string, number>): string {
+  const parts = [
+    s.components_added && `부품 +${s.components_added}`,
+    s.components_removed && `부품 −${s.components_removed}`,
+    s.properties_changed && `속성 ${s.properties_changed}`,
+    s.connections_changed && `연결 ${s.connections_changed}`,
+    s.nets_added && `Net +${s.nets_added}`,
+    s.nets_removed && `Net −${s.nets_removed}`,
+    s.moved && `배치 ${s.moved}`,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "바뀐 것 없음";
 }

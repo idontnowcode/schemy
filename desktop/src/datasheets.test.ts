@@ -21,3 +21,17 @@ describe("fetchHint", () => {
     expect(fetchHint(report([row({ symbol_datasheet_url: "u", datasheet: {} as never })]))).toContain("이미 받았습니다");
   });
 });
+
+import { diffFieldLabel, diffSummaryText, proposalSourceLabel, proposalStatusLabel } from "./format";
+
+describe("proposal labels", () => {
+  it("names statuses, sources and diff fields", () => {
+    expect(proposalStatusLabel("ready")).toEqual({ text: "승인 대기", tone: "warn" });
+    expect(proposalStatusLabel("stale").text).toBe("기준 회로 바뀜");
+    expect(proposalSourceLabel("ai_design")).toBe("AI 설계");
+    expect(diffFieldLabel("value")).toBe("값");
+    expect(diffFieldLabel("pin 5 no_connect")).toBe("핀 5 미연결 표시");
+    expect(diffSummaryText({ components_added: 2, connections_changed: 4, properties_changed: 0 })).toBe("부품 +2 · 연결 4");
+    expect(diffSummaryText({})).toBe("바뀐 것 없음");
+  });
+});
