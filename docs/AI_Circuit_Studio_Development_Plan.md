@@ -1,12 +1,13 @@
-# AI Circuit Studio — 앱 개발 기획서 v1.3
+# AI Circuit Studio — 앱 개발 기획서 v1.4
 
 - 작성일: 2026-11-04
 - 목적: Claude Code에서 개발 착수 가능한 PRD + 기술 설계 + 구현 순서
 - 대상: Windows 우선 로컬 데스크톱 앱
-- 상태: v1.3. 실제 부품 선정과 회로 검증은 별도 승인 필요.
+- 상태: v1.4. 실제 부품 선정과 회로 검증은 별도 승인 필요.
 - v1.1 개정 취지: AI EDA Agent의 제한된 도구 실행, 검증-수정 반복, 확장 가능한 PCB/FW 데이터 구조 추가.
 - v1.2 개정 취지: v1.1 검토 결과 반영. 승인 경로 단일화, 상태 3축 분리, Agent 상태 머신 보완, 승인 범위 정의, 격리 작업공간 정의, 단계 순서 정리, Phase 0 결과 반영.
 - v1.3 개정 취지: 사용자 요청 반영. 프로젝트→보드→페이지 구조, PDF 회로도 카피(Markdown 가져오기 + AI 변환 옵션), 보유 자재 우선 사용, AI 공급자 결정(Gemini 기본, 옵션), 제품 비전(하나의 입력 창에서 회로도·아트웍·펌웨어).
+- v1.4 개정 취지: 사용자 요청 반영. 제조사가 확실한 부품의 데이터시트를 자동으로 받아 회로 분석(핀맵·정격·외부 부품)에 쓰고, 이후 회로 작성의 근거로 쓴다.
 - 변경 원칙: v1.0의 Phase 0 및 기존 MVP 범위를 보존하고 단계적 확장.
 
 ## 1. 제품 목표
@@ -36,6 +37,7 @@
 - **(v1.2) 사용자가 직접 편집한 IR**(Phase 1의 JSON 편집 등)은 사용자 자신의 행위이므로 proposal 없이 저장하되, 저장마다 revision을 남긴다.
 - **(v1.3) 프로젝트 → 보드(A, B, …) → 페이지.** 보드 하나가 Circuit IR 하나, revision 이력 하나, KiCad 프로젝트 하나다. 페이지는 IR 안의 `sheets`로, 그리기 단위일 뿐 연결(Net)은 보드 전체 기준이다.
 - **(v1.3) AI는 선택 기능이다.** 기본은 꺼져 있고, 켜면 Google Gemini API를 쓴다(공급자 교체 가능). 호출 전에 보낼 데이터를 보여주고 확인을 받으며, 키는 OS 보안 저장소에만 둔다.
+- **(v1.4) 데이터시트는 요약을 거쳐서만 쓴다.** PDF는 원문으로 보관하고, 앱이 쓰는 것은 쪽 번호가 붙은 "데이터시트 요약 MD"(코파일럿·사람·AI가 작성)다. 판정(핀맵·정격·외부 부품)은 코드가 하고, 결과는 자동 검사 근거일 뿐 회로를 바꾸거나 엔지니어링 검토 상태를 바꾸지 않는다. 다운로드는 KiCad 심볼에 이미 들어 있는 제조사 링크만, 사용자 확인 후 HTTPS로 한다(ADR-005).
 - **(v1.3) Phase 2a 전의 AI 결과 승인 방식:** PDF 변환 결과는 편집기에 불러와 사용자가 검토 후 저장하고, 자재 추천은 사용자가 고른 것만 적용한다. 이 두 흐름은 Phase 2a에서 proposal 승인 경로로 옮긴다.
 
 ## 2. 사용자 시나리오
@@ -62,7 +64,7 @@
 | FR-09 | 변경 diff·버전 이력 | P1 | 승인/취소/롤백 가능 | 1(이력), 2(diff·승인) |
 | FR-10 | BOM CSV | P1 | ref/value/MPN/footprint 포함 | 1 |
 | FR-11 | 검증 상태 추적 | P0 | 상태 3축(10.1절) 구분 표시 | 1 |
-| FR-12 | 데이터시트 첨부 | P1 | 로컬 파일 참조, 출처 기록 | 3 |
+| FR-12 | 데이터시트 수집·첨부 | P1 | (v1.4) KiCad 심볼 링크로 받기 또는 직접 올리기. PDF 본문에서 품번 확인, 출처 URL·해시 기록. 워크스페이스 공통 라이브러리 | 1.6 ✅ |
 | FR-13 | Agent 작업 계획/도구 호출 기록 | P1 | 입력·결과·시각·revision 연계 | 4 |
 | FR-14 | 제한된 EDA 도구 실행 | P1 | 허용된 명령만 실행, 작업별 타임아웃 | 4 |
 | FR-15 | 자동 재검증 루프 | P1 | 제한 횟수 내 수정 제안·재검증·보고 | 4 |
@@ -74,6 +76,8 @@
 | FR-21 | 보유 자재 우선 사용 | P0 | 자재 목록(CSV/XLSX) 대조: 보유/대체 가능/미보유, 재고 확인, 품번·풋프린트 적용(revision) | 1.5 ✅ |
 | FR-22 | AI 대체 자재 추천(옵션) | P1 | 보유 자재 목록 안에서만 추천, 사용자가 고른 것만 적용 | 1.5 ✅ |
 | FR-23 | 통합 입력 창 | P1 | 하나의 입력 창에서 요구사항·변경 요청 → proposal. 이후 아트웍·펌웨어로 확장 | 2, 5 |
+| FR-24 | 데이터시트 활용 (v1.4) | P1 | 데이터시트 요약 MD(코파일럿 프롬프트 제공, AI 요약 옵션)로 핀맵 대조, 전원 전압 ↔ 정격 점검, 외부 부품 체크리스트. 응용 회로 메모는 회로 작성 근거로 보관 | 1.6 ✅ (작성 활용은 2b) |
+| FR-25 | 제조사 정보 (v1.4) | P1 | IR 부품에 `manufacturer`. 회로도 MD·보유 자재 적용·BOM에 반영 | 1.6 ✅ |
 
 ## 4. 권장 기술 스택
 - Electron + React + TypeScript + Vite: 데스크톱 셸 및 UI.
@@ -81,7 +85,7 @@
 - LLM API: **Google Gemini 기본**(`google-genai` SDK, ADR-004), 선택 기능. 앱의 LLM 공급자는 교체 가능한 인터페이스로 구현한다. **(v1.2)** 공급자마다 tool calling 형식이 다르므로 Gateway 도구는 자체 Pydantic 스키마로 정의하고 공급자별 어댑터에서 변환한다.
 - KiCad **10.0.x** (ADR-002, 검증 기준 10.0.8): 공식 파일 형식, CLI ERC, Netlist, SVG. CLI 지원 옵션은 설치 버전에서 확인.
 - SQLite: 프로젝트 인덱스, 작업 이력, 승인 이력. 프로젝트 원본은 JSON 및 Markdown 파일.
-- `keyring`: API 키를 OS 보안 저장소(Windows 자격 증명 관리자)에 보관. `openpyxl`: 자재 목록 XLSX 읽기.
+- `keyring`: API 키를 OS 보안 저장소(Windows 자격 증명 관리자)에 보관. `openpyxl`: 자재 목록 XLSX 읽기. `pypdf`: 데이터시트 PDF의 본문 글자 읽기(품번 확인용, 순수 Python).
 - React Flow: 기능 블록도에만 사용. 전자회로 편집기 자체의 대체재로 가정하지 않음.
 - 회로도 생성: 직접 `.kicad_sch` 생성기(ADR-001). SKiDL/schematizer는 Phase 0 비교 실험 결과에 따라 채택하지 않음.
 
@@ -155,11 +159,12 @@ AI-Circuit-Studio/
 <workspace>/
   index.sqlite             # 목록·작업 이력·설정(폴더에서 다시 만들 수 있는 캐시)
   inventory/               # 보유 자재 목록(워크스페이스 공통): inventory.json, 원본 파일
+  datasheets/              # (v1.4) 데이터시트 라이브러리(워크스페이스 공통): index.json, ds-<해시>.pdf,
+                           #        .summary.md(요약 원문), .facts.json(앱이 읽은 결과), ai_runs/
   projects/<project-id>/
     project.json           # 메타데이터, 보드 순서 (파일 버전 2)
     requirements.md
     design_notes.md
-    datasheets/
     boards/<board-id>/     # (v1.3) 보드 = 회로 하나 = KiCad 프로젝트 하나
       board.json           # 이름, 현재 revision
       circuit.json         # 현재 Circuit IR (페이지는 IR의 sheets)
@@ -193,6 +198,7 @@ AI-Circuit-Studio/
 
 > **(v1.3)** 회로에 관한 경로는 모두 보드 아래로 옮겼다: `/projects/{id}/boards/{board}/circuit` 등. 아래 목록의 `/projects/{id}/circuit`, `/revisions`, `/exports`, `/outputs`, `/documents`, `/jobs`는 `/projects/{id}/boards/{board}/…`로 읽는다.
 > 추가된 경로: `GET|POST /projects/{id}/boards`, `GET|PATCH|DELETE /projects/{id}/boards/{board}`, `POST …/boards/{board}/imports/markdown`, `POST …/imports/pdf`(AI, job), `GET …/inventory-match`, `POST …/inventory-apply`, `GET …/inventory-suggest/preview`, `POST …/inventory-suggest`(AI, job), `GET|DELETE /inventory`, `POST /inventory/import`, `GET|PUT /ai/settings`, `PUT|DELETE /ai/key`, `GET /ai/models`, `GET /examples`.
+> **(v1.4)** 데이터시트: `GET /datasheets`, `POST /datasheets/upload`, `POST /datasheets/{ds}/link`, `DELETE /datasheets/{ds}`, `GET /datasheets/{ds}/file`, `GET|POST /datasheets/{ds}/summary`, `PUT /datasheets/{ds}/reviewed`, `GET …/boards/{board}/datasheets`(부품별 상태·대조 결과), `POST …/boards/{board}/datasheets/fetch`(job, 보드 심볼의 링크만), `POST …/boards/{board}/datasheets/{ds}/summarize`(AI, job), `GET /prompts/{name}`(코파일럿 프롬프트).
 
 - `POST /projects` : 프로젝트 생성
 - `GET /projects` : 프로젝트 목록
@@ -263,7 +269,7 @@ PROPOSED_PLAN → SCOPE_APPROVED → SANDBOX_EXECUTION → VALIDATION ─┬─�
 - L0 Schema: 타입/필수 필드/참조 ID/중복 검증.
 - L1 Topology: 핀 존재 여부, 미연결, Net 충돌, 연결 그래프 정합성. 라이브러리 핀맵 대조 포함.
 - L2 EDA: KiCad CLI ERC, netlist export, schematic export, Netlist ↔ IR 비교.
-- L3 Engineering: 데이터시트 핀맵, 전압·전류 정격, 보호회로, 발열, 전원 시퀀스, EMC/ESD 등 설계 검토.
+- L3 Engineering: 데이터시트 핀맵, 전압·전류 정격, 보호회로, 발열, 전원 시퀀스, EMC/ESD 등 설계 검토. **(v1.4)** 이 중 핀맵, 전원 전압 ↔ 정격, 필수·권장 외부 부품은 데이터시트 요약으로 자동 사전 점검한다. 사전 점검은 사람의 검토를 대신하지 않는다.
 - L4 Physical: 시뮬레이션·시제품 시험. MVP 범위 밖.
 
 ERC 통과는 설계 적합성의 충분조건이 아님. AI가 검증하지 않은 사항을 검증 완료로 표시하지 않음.
@@ -315,16 +321,24 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - Gate: 페이지를 나눠도 KiCad Netlist = IR, 페이지별 KiCad 재저장 무손실, 가져온 회로의 핀은 라이브러리로만 번호화, AI 결과는 사용자 확인 없이 저장되지 않음.
 - 결과: `docs/phase1_5-report.md`, ADR-004.
 
+### Phase 1.6 — 데이터시트 수집·활용 (완료: 2026-11-04, v1.4 추가)
+- IR 부품에 제조사(`manufacturer`). 회로도 MD 2장 「제조사」 열(선택), 보유 자재 적용, BOM에 반영.
+- 워크스페이스 데이터시트 라이브러리: KiCad 심볼 링크로 받기(확인 후, HTTPS, 50MB, PDF만) 또는 직접 올리기. 본문에서 품번·제품군 확인.
+- 데이터시트 요약 MD v0.1 형식과 코파일럿 프롬프트, AI 요약(옵션, Gemini).
+- 대조: 핀맵(패키지 자동 선택), 전원 전압(Net 이름) ↔ 절대 최대 정격·권장 조건, 외부 부품 체크리스트. 응용 회로 메모 보관.
+- Gate: 대조는 회로를 바꾸지 않음, 보드 심볼에 없는 링크는 받지 않음, 일반 심볼(Device:R 등)에는 데이터시트를 연결하지 않음, AI 실행 기록에 API 키를 남기지 않음.
+- 결과: `docs/phase1_6-report.md`, ADR-005, `docs/prompts/datasheet-summary.md`.
+
 ### Phase 2 — Change Workflow → AI Workflow (3~5주 목표)
 - **2a (LLM 없음, v1.2 추가):** patch 연산, diff, proposal, 승인/거부, revision, 격리 작업공간, 재생성·재검증, 작업 기록. 수직 슬라이스: LED 회로 저항값 330→1k patch → diff → 승인 → 생성 → ERC → Netlist 비교.
   - 통합 테스트: 승인 시 Netlist 부품값 변경 확인. 거부·실패 시 원본 파일 해시 불변.
-- **2b:** LLM 공급자 어댑터, 요구사항 구조화(필드형 사양), 설계안 생성. LLM은 2a의 proposal을 만드는 역할만 한다.
+- **2b:** LLM 공급자 어댑터, 요구사항 구조화(필드형 사양), 설계안 생성. LLM은 2a의 proposal을 만드는 역할만 한다. **(v1.4)** 설계안은 데이터시트 요약(응용 회로 메모, 외부 부품, 정격)을 쪽 번호와 함께 근거로 인용하고, 제안 후 같은 데이터시트 대조를 다시 통과해야 한다.
 - Gate: 승인 전 데이터 불변, 거부 시 변경 없음, 수정 후 재검증.
 
 ### Phase 3 — Engineering Templates (4~8주 목표)
 - 생성기 확장: 전원 심볼·PWR_FLAG, 다중 유닛 심볼, no-connect 표시(MCU 회로의 전제).
 - 전원부, MCU 최소 회로, CAN 회로 템플릿 확장.
-- 실제 데이터시트 기반 핀맵/정격 검토 프로세스.
+- 실제 데이터시트 기반 핀맵/정격 검토 프로세스. **(v1.4)** 자동 사전 점검(Phase 1.6) 위에 엔지니어 검토 기록(누가, 어느 데이터시트 개정, 어느 쪽)을 더한다.
 - Gate: 각 템플릿에 근거와 검증 체크리스트 첨부.
 
 ### Phase 4 — Bounded AI EDA Agent (3~6주 목표)
@@ -351,7 +365,9 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 | AI 출력 스키마 불일치 | Pydantic 검증, 제한된 재시도, 실패 원인 표시 |
 | Agent가 위험한 명령 실행 | 셸 없음, allowlist, workspace 경로 제한, 최소 권한, 실행 승인 |
 | 무한 수정 반복 및 비용 폭증 | 재시도·호출 수·토큰·시간·비용 상한 |
-| 데이터시트/외부 문서의 프롬프트 인젝션 | 비신뢰 입력 표시, 도구 권한과 분리, 코드 계산 diff, 승인 게이트 |
+| 데이터시트/외부 문서의 프롬프트 인젝션 | 비신뢰 입력 표시, 도구 권한과 분리, 코드 계산 diff, 승인 게이트. (v1.4) 데이터시트 요약은 정해진 표로만 읽고 판정은 코드가 함 |
+| (v1.4) 데이터시트 링크 깨짐·자동 다운로드 차단·잘못된 문서 | 본문 품번 확인(품번/제품군/없음), 실패 시 원인과 'PDF 올리기' 안내, 출처 URL·해시 기록 |
+| (v1.4) 데이터시트 요약 오류 | 모든 행에 쪽 번호, 「원문 확인함」 표시 전에는 미확인으로 표시, 대조 결과는 자동 검사 근거로만 표시 |
 | 검증 성공의 과장 | 상태 3축 분리, 실행 증거 표시 |
 | 승인 경로 중복 | proposal 단일 승인 경로(FR-16) |
 
@@ -415,10 +431,16 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 | Windows 단일 플랫폼 우선 여부 | Windows 11 우선 유지. 개발·CI는 Linux에서도 동작 |
 | LLM 제공자 및 API 키 입력 방식 | **결정: Google Gemini 기본, AI는 선택 기능.** 키는 OS 보안 저장소(keyring) 또는 `GEMINI_API_KEY` (ADR-004) |
 | 여러 보드 지원 | **결정: 프로젝트 → 보드 → 페이지** (사용자 결정, 2026-11-04) |
+| 데이터시트 출처 | **결정: KiCad 심볼 링크 + 직접 올리기** (사용자 결정, 2026-11-04). 유통사 API(DigiKey·Mouser)와 AI 검색은 쓰지 않음. 필요해지면 키를 받아 추가 (ADR-005) |
 | KiCad 생성 어댑터 최종 채택 | **결정: 직접 생성기** (ADR-001) |
 | 템플릿의 검증/승인 책임과 출처 관리 정책 | 미정. Phase 3 시작 전 결정 필요 |
 
 ## 19. 변경 이력
+### v1.4 (2026-11-04)
+- 데이터시트 수집·활용 추가(1.1, FR-12 확장, FR-24·25, 7장 워크스페이스 `datasheets/`, 8장 API, 10장 L3 사전 점검, 13장 위험, 18장 결정, ADR-005).
+- Phase 1.6 추가(완료). Phase 2b·3에 데이터시트 근거 사용을 명시.
+- IR 스키마 0.3.0: 부품 `manufacturer`(선택). BOM에 Manufacturer 열.
+
 ### v1.3 (2026-11-04)
 - 제품 비전 추가: 하나의 입력 창에서 회로도·아트웍·펌웨어(1장). Phase 5를 그 방향으로 재정의.
 - 프로젝트→보드→페이지 구조(1.1, 7장), 보드 단위 API(8장).
@@ -444,9 +466,9 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - 유지: Circuit IR 단일 기준 원본, Markdown 문서화, KiCad 생성 PoC 우선, 단계별 Gate, ERC와 엔지니어링 검증 구분.
 - 외부 사례: 사용자가 공유한 AI Times 기사(https://www.aitimes.com/news/articleView.html?idxno=216989) 및 관련 AI 기반 물리적 엔지니어링 워크플로의 아이디어를 참고. 특정 모델 성능이나 실물 제작 성과는 본 프로젝트에서 검증된 사실로 간주하지 않음.
 
-## 20. Claude Code 후속 개발 프롬프트 (Phase 1.5 완료 후 사용)
+## 20. Claude Code 후속 개발 프롬프트 (Phase 1.6 완료 후 사용)
 ```text
-docs/AI_Circuit_Studio_Development_Plan.md(v1.3)를 읽고 현재 저장소의 Phase 1.5 완료 여부를 실제 파일과 테스트로 검증하세요.
+docs/AI_Circuit_Studio_Development_Plan.md(v1.4)를 읽고 현재 저장소의 Phase 1.6 완료 여부를 실제 파일과 테스트로 검증하세요.
 완료된 경우 Phase 2a(LLM 없는 변경 흐름)를 보드 단위로 진행하세요.
 1. patch 연산(update_property, connect, disconnect, add_component, remove_component, move)과 precondition을 Pydantic으로 정의하세요.
 2. proposal 모델과 단일 승인 경로(approve/reject)를 구현하세요. 승인 전에는 proposals/ 아래 격리 공간에서만 파일을 만드세요.

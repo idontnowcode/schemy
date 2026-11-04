@@ -1,7 +1,7 @@
 # AI Circuit Studio
 
 자연어 회로 요구사항 → AI 설계안 → 사용자 승인 → Circuit IR(JSON) → Markdown 문서 + KiCad 회로도를 만드는 Windows 우선 데스크톱 앱입니다.
-기획서는 [`docs/AI_Circuit_Studio_Development_Plan.md`](docs/AI_Circuit_Studio_Development_Plan.md)(v1.3)에 있습니다.
+기획서는 [`docs/AI_Circuit_Studio_Development_Plan.md`](docs/AI_Circuit_Studio_Development_Plan.md)(v1.4)에 있습니다.
 궁극적인 목표는 **하나의 입력 창**에서 회로도, 아트웍(PCB), 펌웨어까지 다루는 것입니다(기획서 1장 제품 비전).
 
 ![AI Circuit Studio — 회로도·검증 화면](docs/images/phase1-schematic.png)
@@ -13,6 +13,7 @@
 | Phase 0 — KiCad 생성 PoC | ✅ 완료 | IR → `.kicad_sch`, ERC/Netlist/SVG, 생성 방식 A/B 평가 ([보고서](docs/phase0-report.md)) |
 | Phase 1 — Core MVP | ✅ 완료 | 데스크톱 앱, 프로젝트 저장·복원, revision, 문서·BOM, KiCad 생성 job, 산출물 관리 ([보고서](docs/phase1-report.md)) |
 | Phase 1.5 — 보드·페이지, 가져오기, 보유 자재 | ✅ 완료 | 프로젝트→보드→페이지, PDF 회로도 카피(회로도 MD 가져오기 + Gemini 변환 옵션), 보유 자재 우선 사용 ([보고서](docs/phase1_5-report.md)) |
+| Phase 1.6 — 데이터시트 | ✅ 완료 | 제조사가 확실한 부품의 데이터시트 수집(KiCad 심볼 링크·직접 올리기), 요약 MD, 핀맵·전압·외부 부품 대조 ([보고서](docs/phase1_6-report.md)) |
 | Phase 2a — 변경 흐름(LLM 없음) | 다음 | patch·diff·proposal·승인 게이트 |
 | Phase 2b — AI 설계 흐름 | 대기 | 통합 입력 창, 요구사항 구조화, 설계안 → proposal |
 
@@ -26,9 +27,14 @@
   - 2단계(선택): 설정에서 AI를 켜면 **PDF 가져오기 (AI)**가 Gemini로 옮겨 적은 뒤 1단계와 같은 규칙으로 가져옵니다.
   - 어느 쪽이든 핀 번호는 KiCad 라이브러리로만 정하고, 결과는 편집기에서 검토한 뒤 저장해야 반영됩니다.
 - **보유 자재 우선 사용.** **보유 자재** 화면에 자재 목록(CSV/XLSX)을 올리면, 각 보드의 **자재** 탭에서 부품마다 보유/대체 가능/미보유를 판정하고 재고를 확인합니다. **보유 자재 적용**은 제조사 품번과 풋프린트를 새 revision으로 저장합니다. AI를 켜면 보유 목록 안에서 대체 자재를 추천받을 수 있습니다.
-- **문서.** 저장한 IR에서 Markdown 설명서와 BOM(CSV)을 만듭니다.
+- **데이터시트.** 제조사·품번이 확실한 부품(또는 부품 전용 KiCad 심볼)은 보드의 **데이터시트** 탭에서 데이터시트를 받습니다.
+  - 받는 방법: KiCad 심볼에 들어 있는 제조사 링크로 받기(확인 후 HTTPS), 또는 PDF 직접 올리기. 앱이 PDF 본문에서 품번을 확인합니다.
+  - 대조하려면 "데이터시트 요약 MD"가 필요합니다. **코파일럿 프롬프트 복사**로 프롬프트를 받아 코파일럿에게 만들게 하거나([형식](docs/prompts/datasheet-summary.md)), AI를 켜고 **AI로 요약**을 씁니다.
+  - 대조 항목: 핀맵(데이터시트 ↔ KiCad 심볼), 전원 전압(Net 이름의 +3V3·+5V 등 ↔ 절대 최대 정격·권장 조건), 필수·권장 외부 부품(디커플링 콘덴서, 종단 저항 등). 응용 회로 메모는 설계 참고용으로 보관합니다.
+  - 대조 결과는 자동 검사 근거일 뿐이며 회로를 바꾸지 않습니다. 데이터시트는 모든 프로젝트가 함께 씁니다(사이드바 **데이터시트**).
+- **문서.** 저장한 IR에서 Markdown 설명서와 BOM(CSV, 제조사·품번 포함)을 만듭니다.
 
-AI는 선택 기능이며 기본은 꺼져 있습니다. 끈 상태에서도 위 기능은 PDF 가져오기 (AI)와 AI 대체 추천을 빼고 모두 동작합니다.
+AI는 선택 기능이며 기본은 꺼져 있습니다. 끈 상태에서도 위 기능은 PDF 가져오기 (AI), AI 대체 추천, AI로 요약을 빼고 모두 동작합니다.
 
 ## 데스크톱 앱 실행
 
@@ -117,6 +123,8 @@ uv run aics generate examples/led-resistor-connector/circuit.json \
   index.sqlite             # 프로젝트 목록·작업 이력·앱 설정 (폴더에서 다시 만들 수 있는 캐시)
   .trash/                  # 삭제한 프로젝트·보드 (복구 가능)
   inventory/               # 보유 자재 목록 (모든 프로젝트 공통): inventory.json, 원본 파일
+  datasheets/              # 데이터시트 라이브러리 (모든 프로젝트 공통): index.json, ds-<해시>.pdf,
+                           #   요약 원문(.summary.md), 앱이 읽은 결과(.facts.json), AI 기록(ai_runs/)
   projects/<project-id>/
     project.json           # 이름, 보드 순서
     requirements.md
@@ -146,10 +154,10 @@ uv run aics generate examples/led-resistor-connector/circuit.json \
 
 ```text
 circuit_core/     Circuit IR 모델(Pydantic), 규칙 검사, Markdown/JSON/BOM 생성,
-                  회로도 MD 가져오기, 보유 자재 목록 읽기·대조
+                  회로도 MD 가져오기, 보유 자재 목록 읽기·대조, 데이터시트 요약 읽기·대조
 kicad_adapter/    .kicad_sch 생성기(여러 페이지), 심볼 라이브러리 읽기, kicad-cli 실행, Netlist/ERC 파싱
-ai_engine/        AI 공급자(Gemini) 어댑터, API 키 저장소, PDF 변환·대체 추천 작업과 프롬프트
-backend/          FastAPI 로컬 API: 프로젝트·보드·revision·생성 job·산출물·자재·AI (127.0.0.1 + 토큰)
+ai_engine/        AI 공급자(Gemini) 어댑터, API 키 저장소, PDF 변환·대체 추천·데이터시트 요약 작업과 프롬프트
+backend/          FastAPI 로컬 API: 프로젝트·보드·revision·생성 job·산출물·자재·데이터시트·AI (127.0.0.1 + 토큰)
 desktop/          Electron 셸 + React UI (Vite), e2e 테스트(Playwright)
 examples/         예제 IR과 KiCad 프로젝트 (golden 파일 겸용)
 experiments/      ADR 실험 기록 (SKiDL/schematizer)
@@ -166,7 +174,7 @@ uvx ruff@0.14.0 check .                            # Python lint
 
 cd desktop
 npm run typecheck && npm test                      # TypeScript 타입 검사, Vitest
-npm run build && npx playwright test e2e/app.spec.ts e2e/boards.spec.ts   # 브라우저 e2e (백엔드 실제 실행)
+npm run build && npx playwright test e2e/app.spec.ts e2e/boards.spec.ts e2e/datasheets.spec.ts   # 브라우저 e2e
 xvfb-run -a npx playwright test e2e/electron.spec.ts       # Electron 셸 e2e (Linux는 xvfb 필요)
 ```
 
@@ -194,6 +202,8 @@ xvfb-run -a npx playwright test e2e/electron.spec.ts       # Electron 셸 e2e (L
 - **Windows 11에서는 아직 실행해 보지 않았습니다.** 검증은 Linux 컨테이너(KiCad 10.0.8 Docker, Electron 45 + Xvfb)에서 했습니다.
 - **Gemini API는 실제로 호출해 보지 않았습니다.** 개발 환경에 키가 없어 가짜 공급자로만 시험했습니다. PDF 변환 정확도도 실제 회로도로 재지 않았습니다([Phase 1.5 보고서](docs/phase1_5-report.md)).
 - AI 결과는 지금은 편집기에서 검토 후 저장(PDF), 고른 것만 적용(대체 추천)하는 방식입니다. Phase 2a에서 proposal 승인 경로로 옮깁니다.
+- **데이터시트를 실제 제조사 사이트에서 받아 보지 않았습니다.** 개발 환경에서 외부 사이트가 막혀 있어 로컬 테스트 서버로만 시험했습니다. 사이트가 자동 다운로드를 막으면 브라우저로 받아 **PDF 올리기**로 넣으세요.
+- 데이터시트 전압 점검은 Net 이름에 전압이 있을 때만 합니다(+3V3, +5V, VCC_12V). 패키지가 여러 개인 부품은 핀 수와 풋프린트로 고르고, 못 고르면 풋프린트를 지정해야 합니다.
 - **설치 패키지가 아직 없습니다.** 지금은 소스에서 실행하며, 앱이 `uv`로 백엔드를 띄웁니다([ADR-003](docs/adr/ADR-003-desktop-shell.md)).
 - KiCad 10.0.x만 지원합니다([ADR-002](docs/adr/ADR-002-kicad-version.md)).
 - 생성기가 지원하지 않는 것: 파생 심볼(`extends`), 다중 유닛 심볼, 미러, 전원 심볼, no-connect 표시. 만나면 오류를 냅니다. 계층 시트는 페이지 나누기 용도로만 씁니다.
