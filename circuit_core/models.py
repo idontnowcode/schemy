@@ -18,10 +18,11 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-SCHEMA_VERSION = "0.7.0"
+SCHEMA_VERSION = "0.8.0"
 """0.2.0 added optional ``sheets`` (pages); 0.3.0 added optional ``Component.manufacturer`` and
 ``Pin.no_connect``; 0.4.0 added optional ``Component.origin``; 0.5.0 added optional ``notes``; 0.6.0 added
-optional ``Placement.mirror``; 0.7.0 added optional ``decisions``. Older documents are still valid."""
+optional ``Placement.mirror``; 0.7.0 added optional ``decisions``; 0.8.0 added optional ``Net.voltage`` and
+``Net.load_current``. Older documents are still valid."""
 
 StableId = Annotated[
     str,
@@ -117,6 +118,16 @@ class Net(_Model):
     id: StableId
     name: NetName
     nodes: tuple[NetNode, ...] = Field(min_length=1)
+    voltage: float | None = Field(
+        default=None, ge=-1000, le=1000,
+        description="Nominal voltage (V) for the technical review, when the name does not say it (PWR_IN) or not "
+        "exactly (+24V after a series diode). Unset: read from the name (+5V, +3V3). Not used for drawing.",
+    )
+    load_current: float | None = Field(
+        default=None, ge=0, le=100,
+        description="Current (A) the loads draw from this net, for the technical review (regulator heat and "
+        "current, series diode current). Unset: the review assumes 100 mA where it needs a current.",
+    )
 
 
 class Placement(_Model):

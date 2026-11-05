@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from circuit_core.engineering import engineering_review, review_summary
+from circuit_core.engineering import engineering_review, review_summary, supply_nets
 from circuit_core.rationale import rationale_markdown
 
 from .errors import ApiError
@@ -23,7 +23,8 @@ def technical_review(store: ProjectStore, project_id: str, board_id: str) -> dic
         raise ApiError(409, "NO_CIRCUIT", "This board has no circuit yet.")
     findings = engineering_review(circuit)
     refs = {c.id: c.reference for c in circuit.components}
-    return {"revision": revision, "summary": review_summary(findings), "findings": [f.to_dict(refs) for f in findings]}
+    return {"revision": revision, "summary": review_summary(findings), "findings": [f.to_dict(refs) for f in findings],
+            "supply_nets": supply_nets(circuit)}
 
 
 def rationale_report(store: ProjectStore, project_id: str, board_id: str, *, automated_check: dict | None = None,

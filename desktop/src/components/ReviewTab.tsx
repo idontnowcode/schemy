@@ -12,6 +12,7 @@ interface Props {
   circuit: CircuitIR | null;
   revision: number | null;
   onChanged(): Promise<unknown>;
+  onOpenProposal?(id: string): void;
 }
 
 type Result = "" | ReviewCheckItem["result"];
@@ -26,7 +27,7 @@ function savedReviewer(): string {
 }
 
 /** Engineering review records: the only thing that changes the "engineering review" status. */
-export function ReviewTab({ projectId, boardId, circuit, revision, onChanged }: Props) {
+export function ReviewTab({ projectId, boardId, circuit, revision, onChanged, onOpenProposal }: Props) {
   const [status, setStatus] = useState<BoardReviewStatus | null>(null);
   const [reviews, setReviews] = useState<EngineeringReview[]>([]);
   const [items, setItems] = useState<ChecklistSuggestion[]>([]);
@@ -116,7 +117,7 @@ export function ReviewTab({ projectId, boardId, circuit, revision, onChanged }: 
   return (
     <div className="requirements-layout">
       <div className="panel">
-        <TechnicalReviewCard projectId={projectId} boardId={boardId} revision={revision} />
+        <TechnicalReviewCard projectId={projectId} boardId={boardId} revision={revision} onOpenProposal={onOpenProposal} />
         <div className="toolbar">
           <Chip label="엔지니어링 검토" text={board.text} tone={board.tone} />
           <span className="muted small">revision {revision}</span>

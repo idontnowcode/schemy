@@ -222,7 +222,14 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onP
         )}
         {tab === "datasheets" && <DatasheetsTab projectId={project.id} boardId={board.id} revision={data.revision} />}
         {tab === "review" && (
-          <ReviewTab projectId={project.id} boardId={board.id} circuit={data.circuit} revision={data.revision} onChanged={afterChange} />
+          <ReviewTab
+            projectId={project.id}
+            boardId={board.id}
+            circuit={data.circuit}
+            revision={data.revision}
+            onChanged={afterChange}
+            onOpenProposal={openProposal}
+          />
         )}
         {tab === "agent" && (
           <AgentTab projectId={project.id} boardId={board.id} revision={data.revision} onOpenProposal={openProposal} onChanged={afterChange} />

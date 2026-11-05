@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from .datasheets import DatasheetFacts, DsRating, is_ground_name, net_voltage, norm_pin_name, pin_names_match, to_volts
+from .datasheets import DatasheetFacts, DsRating, is_ground_name, net_voltages, norm_pin_name, pin_names_match, to_volts
 from .export import natural_key
 from .models import CircuitIR, Component
 from .parts import category_of, package_key, values_equal
@@ -112,6 +112,7 @@ def _range(r: DsRating) -> tuple[float | None, float | None]:
 def ratings_check(facts: DatasheetFacts, circuit: CircuitIR, component: Component, pin_names: PinNames,
                   package: str | None = None) -> dict:
     nets = _pin_nets(circuit)
+    volts = net_voltages(circuit)
     power_names = {norm_pin_name(p.name) for p in facts.pins_of(package or "") if p.kind and "전원" in p.kind}
     per_pin: dict[str, dict] = {}
     skipped = 0
@@ -129,7 +130,7 @@ def ratings_check(facts: DatasheetFacts, circuit: CircuitIR, component: Componen
                     net = nets.get((component.id, number))
                     row = per_pin.setdefault(number, {
                         "number": number, "name": name, "net": net,
-                        "voltage": net_voltage(net) if net else None, "abs_max": [], "recommended": [],
+                        "voltage": volts.get(net) if net else None, "abs_max": [], "recommended": [],
                         "power": norm_pin_name(name) in power_names})
                     row[group].append({"parameter": rating.parameter, "min": lo, "max": hi,
                                        "condition": rating.condition, "page": rating.page})

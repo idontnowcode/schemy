@@ -8,6 +8,7 @@ import threading
 import pytest
 
 from backend.datasheets import DatasheetError, DatasheetLibrary, fetch_pdf, read_pdf_text
+from circuit_core import CircuitIR
 from circuit_core.datasheet_checks import check_component, choose_package
 from circuit_core.datasheet_md import import_datasheet_markdown
 from circuit_core.datasheets import (
@@ -157,6 +158,10 @@ def test_supply_voltage_against_ratings(library):
     assert over["status"] == "error" and over["rows"][0]["status"] == "over_abs_max"
     unknown = report(can_node(supply="VCC"), library)["ratings"]
     assert unknown["rows"][0]["status"] == "unknown_voltage" and unknown["status"] == "unchecked"
+    # A voltage written on the net (IR 0.8.0) is used when the name has none.
+    data = can_node(supply="VCC").model_dump(mode="json")
+    next(n for n in data["nets"] if n["name"] == "VCC")["voltage"] = 3.3
+    assert report(CircuitIR.model_validate(data), library)["ratings"]["rows"][0]["status"] == "ok"
 
 
 def test_missing_and_wrong_external_parts(library):

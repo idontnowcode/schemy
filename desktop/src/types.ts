@@ -73,6 +73,10 @@ export interface Net {
   id: string;
   name: string;
   nodes: { component_id: string; pin: string }[];
+  /** Volts for the technical review (IR 0.8.0); unset: read from the name. */
+  voltage?: number | null;
+  /** Amps the loads draw from this net, for the technical review (IR 0.8.0). */
+  load_current?: number | null;
 }
 
 export interface Sheet {
@@ -118,10 +122,20 @@ export interface TechnicalFinding {
   references: string[];
 }
 
+/** A net the review uses a voltage or current of, with what is written and what the review worked out. */
+export interface SupplyNet {
+  net: string;
+  voltage: number | null;
+  voltage_from_name: number | null;
+  load_current: number | null;
+  derived_current: number | null;
+}
+
 export interface TechnicalReview {
   revision: number | null;
   summary: Record<"fail" | "warn" | "info" | "ok", number>;
   findings: TechnicalFinding[];
+  supply_nets: SupplyNet[];
 }
 
 export interface Issue {
@@ -556,6 +570,7 @@ export interface ProposalDiff {
   page_moves: { reference: string; before: string; after: string }[];
   notes?: { id: string; target: string; before: string | null; after: string | null }[];
   decisions?: { id: string; topic: string; by: DecisionBy; before: string | null; after: string | null; reason: string | null }[];
+  net_specs?: { net: string; field: "voltage" | "load_current"; before: number | null; after: number | null }[];
 }
 
 export interface AiFinding {

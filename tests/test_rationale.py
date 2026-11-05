@@ -27,10 +27,12 @@ def part(cid, ref, value, sym, pins=None, fp=None, desc=None):
 LED_PINS = [{"number": "1", "name": "K"}, {"number": "2", "name": "A"}]
 
 
-def board(parts, nets, decisions=()):
+def board(parts, nets, decisions=(), specs=None):
+    specs = specs or {}
     return CircuitIR.model_validate({
         "project_id": "t", "components": parts, "decisions": list(decisions),
-        "nets": [{"id": f"n{i}", "name": name, "nodes": [{"component_id": c, "pin": p} for c, p in nodes]}
+        "nets": [{"id": f"n{i}", "name": name, "nodes": [{"component_id": c, "pin": p} for c, p in nodes],
+                  **specs.get(name, {})}
                  for i, (name, nodes) in enumerate(nets.items())]})
 
 
@@ -113,6 +115,105 @@ def test_regulator_dropout_heat_and_decoupling():
     assert {f.title.split(":")[0] for f in missing} >= {"U1 +24V", "U2 +6V"}
 
 
+REG_PINS = [{"number": "1", "name": "IN"}, {"number": "2", "name": "GND"}, {"number": "3", "name": "OUT"}]
+DIODE_PINS = [{"number": "1", "name": "K"}, {"number": "2", "name": "A"}]
+TO220 = "Package_TO_SOT_THT:TO-220-3_Vertical"
+
+
+def supply_board(specs, d1="1N4007", d2="1N4001"):
+    """J1 -> PWR_IN -> D1 -> +24V -> U1 (7805) -> +5V, D2 from +5V back to +24V (the 7805 example's power path)."""
+    return board([part("j1", "J1", "IN", "Connector_Generic:Conn_01x02"),
+                  part("d1", "D1", d1, f"Diode:{d1}", DIODE_PINS), part("d2", "D2", d2, f"Diode:{d2}", DIODE_PINS),
+                  part("u1", "U1", "L7805", "Regulator_Linear:L7805", REG_PINS, fp=TO220),
+                  part("c1", "C1", "330nF/50V", "Device:C"), part("c2", "C2", "100nF/16V", "Device:C")],
+                 {"PWR_IN": [("j1", "1"), ("d1", "2")], "+24V": [("d1", "1"), ("u1", "1"), ("c1", "1"), ("d2", "1")],
+                  "+5V": [("u1", "3"), ("c2", "1"), ("d2", "2")],
+                  "GND": [("j1", "2"), ("u1", "2"), ("c1", "2"), ("c2", "2")]}, specs=specs)
+
+
+def test_written_voltage_and_load_current_drive_the_calculations():
+    from circuit_core.engineering import supply_nets
+
+    unknown = engineering_review(supply_board({}))
+    assert any(f.rule == "unknown_voltage" and "PWR_IN" in f.title for f in unknown)
+    assert next(f for f in unknown if f.rule == "reg_heat").title.endswith("100 mA당 1.9 W")
+    assert not any(f.rule == "diode_current" for f in unknown)  # PWR_IN's voltage unknown: not guessed
+
+    c = supply_board({"PWR_IN": {"voltage": 24}, "+24V": {"voltage": 23.1}, "+5V": {"load_current": 0.1}})
+    findings = engineering_review(c)
+    by = {f.rule: f for f in findings}
+    assert "unknown_voltage" not in by
+    heat = by["reg_heat"]
+    assert heat.severity == "warn" and heat.title == "U1 (L7805): 발열 1.81 W (출력 100 mA)"
+    assert "접합 약 116 °C" in heat.calc and "+5V 부하 100 mA(회로에 적은 값)" in heat.calc
+    assert by["reg_current"].severity == "ok" and "최대 1.5 A" in by["reg_current"].title
+    # D1 carries what U1 draws from +24V; D2 sits reversed between +24V and +5V.
+    assert by["diode_current"].title == "D1 (1N4007): 전류 100 mA / 정격 1 A"
+    assert "+24V 전류 = U1 → +5V 100 mA" in by["diode_current"].calc
+    assert by["diode_reverse"].title == "D2 (1N4001): 역전압 18.1 V / 정격 50 V"
+    rails = {r["net"]: r for r in supply_nets(c)}
+    assert set(rails) == {"PWR_IN", "+24V", "+5V"}
+    assert rails["+24V"]["voltage_from_name"] == 24 and rails["+24V"]["derived_current"] == 0.1
+    assert rails["+5V"]["load_current"] == 0.1 and rails["PWR_IN"]["voltage"] == 24
+
+    over = engineering_review(supply_board({"PWR_IN": {"voltage": 24}, "+5V": {"load_current": 2.0}}, d2="1N5817"))
+    by = {(f.rule, f.severity) for f in over}
+    assert ("reg_current", "fail") in by and ("diode_current", "fail") in by  # 2 A > 1.5 A, > 1 A
+    assert ("diode_reverse", "warn") in by  # 1N5817: 24 V - 5 V = 19 V is 95% of its 20 V
+
+
+def test_i2c_pullups_crystal_caps_and_connector_signals():
+    mcu_pins = [{"number": "1", "name": "VCC"}, {"number": "2", "name": "GND"}, {"number": "3", "name": "SDA"},
+                {"number": "4", "name": "SCL"}, {"number": "5", "name": "XTAL1"}, {"number": "6", "name": "XTAL2"},
+                {"number": "7", "name": "TXD"}]
+    c = board([part("u1", "U1", "MCU", "MCU:X", mcu_pins), part("r1", "R1", "4.7k", "Device:R"),
+               part("y1", "Y1", "16MHz", "Device:Crystal"), part("c1", "C1", "22pF", "Device:C"),
+               part("c2", "C2", "100nF", "Device:C"), part("j1", "J1", "UART", "Connector_Generic:Conn_01x02")],
+              {"+3V3": [("u1", "1"), ("r1", "1"), ("c2", "1")], "GND": [("u1", "2"), ("c1", "2"), ("c2", "2")],
+               "I2C_SDA": [("u1", "3"), ("r1", "2")], "SCL": [("u1", "4")],
+               "XTAL1": [("u1", "5"), ("y1", "1"), ("c1", "1")], "XTAL2": [("u1", "6"), ("y1", "2")],
+               "TXD": [("u1", "7"), ("j1", "1")]})
+    findings = engineering_review(c)
+    found = {(f.rule, f.severity, f.title) for f in findings}
+    assert ("i2c_pullup", "ok", "I2C_SDA: 풀업 있음") in found
+    assert ("i2c_pullup", "warn", "SCL: 풀업 저항 없음") in found
+    assert ("crystal_caps", "warn", "Y1 (16MHz): 부하 콘덴서 없음 (2번(XTAL2))") in found
+    assert not any(f.rule == "unknown_voltage" for f in findings)  # TXD on a connector is a signal, not a supply
+
+    both = board([part("y1", "Y1", "8MHz", "Device:Crystal"), part("c1", "C1", "22pF", "Device:C"),
+                  part("c2", "C2", "22pF", "Device:C")],
+                 {"X1": [("y1", "1"), ("c1", "1")], "X2": [("y1", "2"), ("c2", "1")],
+                  "GND": [("c1", "2"), ("c2", "2")]})
+    cl = next(f for f in engineering_review(both) if f.rule == "crystal_caps")
+    assert cl.severity == "ok" and "= 11 pF + 3~5 pF = 14 pF ~ 16 pF" in cl.calc
+
+
+def test_net_spec_patch_diff_and_validation(led_circuit):
+    net = led_circuit.nets[0].name
+    after = apply_patch(led_circuit, ops({"op": "set_net_spec", "net": net, "voltage": 5.0, "load_current": 0.02}))
+    spec = next(n for n in after.nets if n.name == net)
+    assert (spec.voltage, spec.load_current) == (5.0, 0.02)
+    with pytest.raises(PatchError) as exc:  # must state what is there now
+        apply_patch(after, ops({"op": "set_net_spec", "net": net, "voltage": 3.3}))
+    assert exc.value.failures[0].code == "PRECONDITION_FAILED"
+    cleared = apply_patch(after, ops({"op": "set_net_spec", "net": net, "expect_voltage": 5.0,
+                                      "expect_load_current": 0.02}))
+    assert next(n for n in cleared.nets if n.name == net).voltage is None
+    d = diff_circuits(led_circuit, after)
+    assert d["summary"]["net_specs_changed"] == 2
+    assert d["net_specs"][0] == {"net": net, "field": "voltage", "before": None, "after": 5.0}
+    with pytest.raises(PatchError):
+        apply_patch(led_circuit, ops({"op": "set_net_spec", "net": "NOPE", "voltage": 1.0}))
+
+    data = led_circuit.model_dump(mode="json")
+    data["nets"].append({"id": "n-x", "name": "+5V", "voltage": 3.3, "nodes": data["nets"][0]["nodes"][:0] or
+                         [{"component_id": "led-001", "pin": "1"}]})
+    data["nets"][0]["nodes"] = [n for n in data["nets"][0]["nodes"] if n != {"component_id": "led-001", "pin": "1"}]
+    data["nets"] = [n for n in data["nets"] if n["nodes"]]
+    issues = validate_circuit(CircuitIR.model_validate(data)).issues
+    assert any(i.error_code == "NET_VOLTAGE_MISMATCH" and i.severity == "warning" for i in issues)
+
+
 def test_examples_have_no_failures():
     for ex in ("lm7805-24v-to-5v", "ne555-led-board", "atmega328p-led-board"):
         from pathlib import Path
@@ -180,6 +281,7 @@ def test_report_and_review_endpoints_and_output_file(tmp_path):
 
     review = client.get(f"{url}/technical-review").json()
     assert review["revision"] == 2 and set(review["summary"]) == {"fail", "warn", "info", "ok"}
+    assert [r["net"] for r in review["supply_nets"]] == ["VIN"]  # the LED example's input, no voltage in the name
     report = client.get(f"{url}/documents/rationale").json()
     md = report["markdown"]
     assert "> 빨간 LED 하나" in md and "### 사람(엔지니어)이 정한 것" not in md

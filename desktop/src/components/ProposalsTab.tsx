@@ -680,6 +680,24 @@ export function DiffView({ d }: { d: ProposalDiff }) {
               {d.nets_removed.length > 0 && <>· Net 삭제: {d.nets_removed.join(", ")}</>}
             </p>
           )}
+          {d.net_specs && d.net_specs.length > 0 && (
+            <>
+              <h4>전원 조건 (기술 검토용)</h4>
+              <table className="table compact">
+                <thead><tr><th>Net</th><th>항목</th><th>전</th><th>후</th></tr></thead>
+                <tbody>
+                  {d.net_specs.map((x, i) => {
+                    const show = (v: number | null) => (v == null ? "—" : x.field === "voltage" ? `${v} V` : `${+(v * 1000).toFixed(3)} mA`);
+                    return (
+                      <tr key={i}>
+                        <td>{x.net}</td><td>{x.field === "voltage" ? "전압" : "부하 전류"}</td><td>{show(x.before)}</td><td><b>{show(x.after)}</b></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </>
+          )}
           {d.decisions && d.decisions.length > 0 && (
             <>
               <h4>설계 결정과 근거</h4>

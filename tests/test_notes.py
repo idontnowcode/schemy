@@ -123,3 +123,14 @@ def test_ai_schematic_notes_map_to_parts_and_nets():
     notes = _schematic_notes(raw, components, nets, [])
     assert notes == [{"id": "note-001", "text": "Timer, ~1 Hz", "components": ["u1", "r1"], "net": None},
                      {"id": "note-002", "text": "Timer output", "components": [], "net": "OUT"}]
+
+
+def test_ai_rails_set_net_voltage_and_load():
+    from ai_engine.design import _apply_rails
+
+    nets = [{"id": "n1", "name": "+5V", "nodes": []}, {"id": "n2", "name": "PWR_IN", "nodes": []}]
+    rails = [{"net": "+5V", "voltage": 0, "load_ma": 150}, {"net": "PWR_IN", "voltage": 12, "load_ma": 0},
+             {"net": "NOPE", "voltage": 3, "load_ma": 1}, {"net": "+5V", "voltage": "x", "load_ma": 1}]
+    _apply_rails({"rails": rails}, nets)
+    assert nets[0] == {"id": "n1", "name": "+5V", "nodes": [], "load_current": 0.15}
+    assert nets[1] == {"id": "n2", "name": "PWR_IN", "nodes": [], "voltage": 12.0}

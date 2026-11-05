@@ -113,6 +113,11 @@ CONNECT_SCHEMA = {
             "refs": {"type": "array", "items": {"type": "string", "description": "part reference, e.g. U1"}},
             "net": {"type": "string", "description": "net name for a net note; empty for a block note"},
         }, "required": ["text", "refs", "net"]}},
+        "rails": {"type": "array", "items": {"type": "object", "properties": {
+            "net": _STR,
+            "voltage": {"type": "number", "description": "volts; 0 when the net name already says it"},
+            "load_ma": {"type": "number", "description": "mA the loads draw from this net; 0 when unknown"},
+        }, "required": ["net", "voltage", "load_ma"]}},
     },
     "required": ["nets", "no_connect"],
 }
@@ -315,6 +320,9 @@ def connect_prompt(inp: DesignInput, plan: dict, parts: list[ResolvedPart],
   블록마다 하나씩 그 블록의 부품 기호(refs)와 함께 무엇을 하는 부분인지와 핵심 사양을 적고(예: "5V input, <100 mA",
   "Status LED, ~3 mA"), 중요한 신호 Net에는 net 이름과 함께 그 Net이 무엇을 나르는지 적으세요(예: "Timer output, 1 Hz").
   템플릿 블록에는 이미 주석이 있으니 적지 마세요.
+- rails: 전원 Net마다 전압(V)과 부하 전류(mA)를 적으세요. 앱이 레귤레이터 발열, 다이오드 전류 같은 기술 검토를 이 값으로
+  계산합니다. Net 이름에 전압이 있으면(+5V) voltage는 0, 이름에 전압이 없는 입력(PWR_IN 등)은 실제 전압을 적으세요.
+  부하 전류는 요구사항의 값, 없으면 가정한 값(assumptions에 적은 것과 같게), 모르면 0입니다.
 {_RULES_COMMON}
 
 [설계 요약]
@@ -466,6 +474,7 @@ def build_circuit(parts: list[ResolvedPart], connections: dict, *, project_id: s
                 nets.append(net)
             net["nodes"] += [{"component_id": c, "pin": p} for c, p in pins]
     notes = _schematic_notes(connections, components, nets, blocks)
+    _apply_rails(connections, nets)
     data = {"project_id": project_id, "title": title[:200] or None, "components": components, "nets": nets,
             "notes": notes, "decisions": _decisions(parts, blocks, values),
             "validation": {"status": "unverified", "notes": f"AI 설계안 ({model}). 사람 검토 전."}}
@@ -501,6 +510,24 @@ def _decisions(parts: list[ResolvedPart], blocks: list[TemplateBlock], values: d
                     "request": None, "calc": None, "source": b.sources[:500] or None,
                     "components": [c.id for c in b.components]})
     return out
+
+
+def _apply_rails(connections: dict, nets: list[dict]) -> None:
+    """The AI's supply voltages and load currents onto the nets, for the technical review. Values out of range or on
+    unknown nets are left out (they are inputs to calculations, not connectivity)."""
+    by_name = {n["name"]: n for n in nets}
+    for raw in connections.get("rails") or []:
+        if not isinstance(raw, dict) or str(raw.get("net") or "").strip() not in by_name:
+            continue
+        net = by_name[str(raw["net"]).strip()]
+        try:
+            volts, milli = float(raw.get("voltage") or 0), float(raw.get("load_ma") or 0)
+        except (TypeError, ValueError):
+            continue
+        if volts and -1000 <= volts <= 1000:
+            net["voltage"] = volts
+        if 0 < milli <= 100_000:
+            net["load_current"] = round(milli / 1000, 6)
 
 
 def _schematic_notes(connections: dict, components: list[dict], nets: list[dict],

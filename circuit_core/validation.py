@@ -11,6 +11,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from .datasheets import net_voltage
 from .models import CircuitIR
 
 
@@ -124,6 +125,16 @@ def validate_circuit(circuit: CircuitIR) -> ValidationResult:
             r.add("DECISION_REQUEST_MISSING", W,
                   f"Decision '{d.id}' changes a request but does not say what was asked.",
                   recovery_hint="Put the user's original request in 'request'.")
+
+    for net in circuit.nets:
+        if net.voltage is None:
+            continue
+        named = net_voltage(net.name)
+        if named is not None and abs(named - net.voltage) > max(0.1 * abs(named), 0.05):
+            r.add("NET_VOLTAGE_MISMATCH", W,
+                  f"Net '{net.name}' is written as {net.voltage:g} V but its name says {named:g} V.",
+                  recovery_hint="Rename the net or correct its voltage (within 10% of the name is fine, e.g. a "
+                  "diode drop).")
 
     # --- L1: topology ------------------------------------------------------
     pin_owner: dict[tuple[str, str], str] = {}

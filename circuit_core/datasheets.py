@@ -224,6 +224,11 @@ def net_voltage(name: str) -> float | None:
     return sign * float(f"{whole}.{frac}" if frac else whole)
 
 
+def net_voltages(circuit) -> dict[str, float | None]:
+    """Voltage of every net of a circuit: its own ``Net.voltage`` when set, else read from the name."""
+    return {n.name: n.voltage if n.voltage is not None else net_voltage(n.name) for n in circuit.nets}
+
+
 def to_volts(value: float | None, unit: str) -> float | None:
     if value is None:
         return None

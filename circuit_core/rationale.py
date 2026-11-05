@@ -8,7 +8,7 @@ Nothing in it is a verification: it shows what to check.
 
 from __future__ import annotations
 
-from .engineering import Finding, engineering_review, review_summary
+from .engineering import Finding, engineering_review, review_summary, supply_nets
 from .export import natural_key
 from .models import CircuitIR
 
@@ -144,8 +144,22 @@ def rationale_markdown(circuit: CircuitIR, *, revision: int | None = None, requi
         for f in findings:
             w(f"| {SEVERITY[f.severity]} | {_cell(f.title)} | {_cell(f.detail)} | {_cell(f.calc)} |")
     w("")
+    rails = supply_nets(circuit)
+    if rails:
+        w("계산에 쓴 전원 조건:")
+        w("")
+        w("| Net | 전압 | 부하 전류 |")
+        w("|---|---|---|")
+        for r in rails:
+            volts = (f"{r['voltage']:g} V (회로에 적은 값)" if r["voltage"] is not None else
+                     f"{r['voltage_from_name']:g} V (Net 이름)" if r["voltage_from_name"] is not None else "모름")
+            amps = (f"{r['load_current'] * 1000:g} mA (회로에 적은 값)" if r["load_current"] is not None else
+                    f"{r['derived_current'] * 1000:g} mA (뒤쪽 Net에서 계산)" if r["derived_current"] is not None else "모름")
+            w(f"| {r['net']} | {volts} | {amps} |")
+        w("")
     w("검토 규칙: 콘덴서 정격 전압(1.5배 여유)과 극성, LED 방향·직렬 저항·전류(20 mA 이하), 저항 소비 전력(크기별 일반 정격의 50%), "
-      "리니어 레귤레이터 드롭아웃과 발열(100 mA 기준), IC 전원 핀의 디커플링. 전압은 Net 이름(+5V, +3V3)에서 읽습니다.")
+      "리니어 레귤레이터 드롭아웃·발열·최대 전류(부하 전류를 모르면 100 mA 기준), 다이오드 전류·역전압, IC 전원 핀의 디커플링, "
+      "I2C 풀업, 크리스탈 부하 콘덴서. 전압은 회로에 적은 값, 없으면 Net 이름(+5V, +3V3)에서 읽습니다.")
     w("")
 
     w("## 6. 변경 이력 (제안과 승인)")

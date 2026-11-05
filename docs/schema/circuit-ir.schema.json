@@ -277,6 +277,36 @@
           "minItems": 1,
           "title": "Nodes",
           "type": "array"
+        },
+        "voltage": {
+          "anyOf": [
+            {
+              "maximum": 1000,
+              "minimum": -1000,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nominal voltage (V) for the technical review, when the name does not say it (PWR_IN) or not exactly (+24V after a series diode). Unset: read from the name (+5V, +3V3). Not used for drawing.",
+          "title": "Voltage"
+        },
+        "load_current": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Current (A) the loads draw from this net, for the technical review (regulator heat and current, series diode current). Unset: the review assumes 100 mA where it needs a current.",
+          "title": "Load Current"
         }
       },
       "required": [
@@ -505,7 +535,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "default": "0.7.0",
+      "default": "0.8.0",
       "title": "Schema Version",
       "type": "string"
     },

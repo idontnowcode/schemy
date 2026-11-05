@@ -308,6 +308,7 @@ export function diffSummaryText(s: Record<string, number>): string {
     s.moved && `배치 ${s.moved}`,
     s.notes_changed && `주석 ${s.notes_changed}`,
     s.decisions_changed && `결정 ${s.decisions_changed}`,
+    s.net_specs_changed && `전원 조건 ${s.net_specs_changed}`,
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : "바뀐 것 없음";
 }

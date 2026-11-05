@@ -54,6 +54,13 @@ test("create → import example → save → generate → documents, then restor
   await page.getByRole("tab", { name: "설계 문서" }).click();
   await page.getByRole("tab", { name: "검토" }).click();
   await expect(page.getByRole("heading", { name: "기술 검토 (자동 계산)" })).toBeVisible();
+  // VIN has no voltage in its name: write one; it becomes a proposal (nothing changes until approved).
+  await expect(page.getByText("전압을 알 수 없는 전원 Net: VIN")).toBeVisible();
+  await page.getByLabel("VIN 전압").fill("5");
+  await page.getByLabel("VIN 부하 전류").fill("20");
+  await page.getByRole("button", { name: "전원 조건 제안 만들기" }).click();
+  await expect(page.getByRole("heading", { name: "전원 조건 (기술 검토용)" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "20 mA" })).toBeVisible();
   await page.getByRole("tab", { name: "문서 · BOM" }).click();
 
   // Phase 1 gate: restart the backend and reload — project, revision and last tab come back.

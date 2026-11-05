@@ -101,6 +101,16 @@ def diff_circuits(before: CircuitIR | None, after: CircuitIR) -> dict:
                           "before": old_d.choice if old_d else None, "after": new_d.choice if new_d else None,
                           "reason": new_d.reason if new_d else None})
 
+    # Voltages and load currents written on nets (for the technical review), by net name.
+    b_spec = {n.name: n for n in before.nets} if before else {}
+    net_specs = []
+    for net in sorted(after.nets, key=lambda n: natural_key(n.name)):
+        old_net = b_spec.get(net.name)
+        for f in ("voltage", "load_current"):
+            was = getattr(old_net, f) if old_net else None
+            if was != getattr(net, f):
+                net_specs.append({"net": net.name, "field": f, "before": was, "after": getattr(net, f)})
+
     changed.sort(key=lambda r: (natural_key(r["reference"]), r["field"]))
     added.sort(key=lambda r: natural_key(r["reference"]))
     removed.sort(key=lambda r: natural_key(r["reference"]))
@@ -108,7 +118,7 @@ def diff_circuits(before: CircuitIR | None, after: CircuitIR) -> dict:
                "properties_changed": len(changed), "connections_changed": len(connections),
                "nets_added": len(a_names - b_names), "nets_removed": len(b_names - a_names),
                "moved": len(moved), "page_moves": len(page_moves), "notes_changed": len(notes),
-               "decisions_changed": len(decisions)}
+               "decisions_changed": len(decisions), "net_specs_changed": len(net_specs)}
     return {
         "summary": summary,
         "is_new_circuit": before is None,
@@ -122,6 +132,7 @@ def diff_circuits(before: CircuitIR | None, after: CircuitIR) -> dict:
         "page_moves": page_moves,
         "notes": notes,
         "decisions": decisions,
+        "net_specs": net_specs,
         "title_changed": None if before is None or before.title == after.title else
         {"before": before.title, "after": after.title},
     }

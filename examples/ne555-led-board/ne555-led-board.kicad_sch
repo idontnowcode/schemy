@@ -6,7 +6,7 @@
 	(paper "A4")
 	(title_block
 		(title "NE555 LED 점멸 보드")
-		(comment 1 "Generated from Circuit IR 'ne555-led-board' (schema 0.7.0)")
+		(comment 1 "Generated from Circuit IR 'ne555-led-board' (schema 0.8.0)")
 		(comment 2 "Design verification status: unverified")
 	)
 	(lib_symbols

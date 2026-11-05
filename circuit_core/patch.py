@@ -66,6 +66,17 @@ class RenameNet(_Op):
     new_name: NetName
 
 
+class SetNetSpec(_Op):
+    """The voltage and load current of a net, for the technical review (no connectivity, no drawing)."""
+
+    op: Literal["set_net_spec"] = "set_net_spec"
+    net: NetName
+    voltage: float | None = Field(default=None, description="Volts; None reads the voltage from the name.")
+    load_current: float | None = Field(default=None, description="Amps the loads draw; None when unknown.")
+    expect_voltage: float | None = Field(default=None, description="Current Net.voltage (None when unset).")
+    expect_load_current: float | None = Field(default=None, description="Current Net.load_current (None when unset).")
+
+
 class SetNoConnect(_Op):
     op: Literal["set_no_connect"] = "set_no_connect"
     component_id: StableId
@@ -117,7 +128,7 @@ class ReplaceCircuit(_Op):
 
 
 PatchOp = Annotated[SetProperty | AddComponent | RemoveComponent | Connect | Disconnect | RenameNet | SetNoConnect
-                    | Move | SetNote | RemoveNote | SetDecision | RemoveDecision | ReplaceCircuit,
+                    | SetNetSpec | Move | SetNote | RemoveNote | SetDecision | RemoveDecision | ReplaceCircuit,
                     Field(discriminator="op")]
 
 
@@ -264,6 +275,16 @@ def apply_patch(circuit: CircuitIR | None, ops: list) -> CircuitIR:
                 for note in data.get("notes", []):
                     if note.get("net") == op.net:
                         note["net"] = op.new_name
+        elif isinstance(op, SetNetSpec):
+            net = nets.get(op.net)
+            if net is None:
+                fail(i, op, "UNKNOWN_NET", f"Net '{op.net}' does not exist.")
+            elif (net.get("voltage"), net.get("load_current")) != (op.expect_voltage, op.expect_load_current):
+                fail(i, op, "PRECONDITION_FAILED", f"Net '{op.net}' is voltage={net.get('voltage')!r}, "
+                     f"load_current={net.get('load_current')!r}; "
+                     f"expected {op.expect_voltage!r}, {op.expect_load_current!r}.")
+            else:
+                net["voltage"], net["load_current"] = op.voltage, op.load_current
         elif isinstance(op, SetNoConnect):
             if pin_ok(PinRef(component_id=op.component_id, pin=op.pin)):
                 for p in comps[op.component_id]["pins"]:
