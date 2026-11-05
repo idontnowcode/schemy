@@ -17,6 +17,7 @@ A pin at library (px, py) on a symbol placed at (X, Y) with CCW rotation r is at
 from __future__ import annotations
 
 import json
+import math
 import re
 import uuid
 from collections import Counter
@@ -38,6 +39,7 @@ from .drawing import (
     body_rect,
     field_anchor,
     field_rect,
+    flag_port,
     grow,
     junctions_of,
     label_rect,
@@ -56,6 +58,7 @@ from .drawing import (
     union,
     upright,
     wire_page,
+    wrap_note,
 )
 from .layout import PinGeom, plan_groups
 from .sexpr import num, q
@@ -263,8 +266,10 @@ def _field_rects(sym: LibSymbol, comp, rotation: int, mirror: bool = False) -> l
 
 
 def _part_extent(sym: LibSymbol, comp, net_of: dict, power: dict[str, LibSymbol], rotation: int = 0,
-                 quiet: dict[str, float] | None = None, mirror: bool = False, parts: bool = False):
-    """Space a placed part needs: body, pins, power symbols, labels (or the wires of ``quiet`` pins), fields.
+                 quiet: dict[str, float] | None = None, mirror: bool = False, parts: bool = False,
+                 flags: dict[str, LibSymbol] | None = None):
+    """Space a placed part needs: body, pins, power symbols, labels (or the wires of ``quiet`` pins), fields,
+    and the PWR_FLAGs that will sit on its power symbols (``flags``: net -> flag symbol, for a feeding part).
 
     One box around all of it, or with ``parts`` the pieces themselves: an IC's label strips reach out from its
     pins, and the corners between them stay free for other parts."""
@@ -274,7 +279,11 @@ def _part_extent(sym: LibSymbol, comp, net_of: dict, power: dict[str, LibSymbol]
     texts = _field_rects(sym, comp, rotation, mirror)
     # A ``quiet`` rail pin is wired (inside a regulator's block), so it has no power symbol of its own.
     port_views = [v for v in views if not (v.net in power and v.number in quiet)]
-    rects = [body, *(r for port in plan_ports(body, port_views, power, texts) for r in port.rects), *texts]
+    ports = plan_ports(body, port_views, power, texts)
+    rects = [body, *(r for port in ports for r in port.rects), *texts]
+    for port in ports:
+        if flags and port.net in flags:
+            rects += flag_port(Router(), flags[port.net], port, rects).rects
     for v in views:
         if not v.net or (v.net in power and v.number not in quiet):
             continue
@@ -547,7 +556,13 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
     net_nodes: dict[str, list[tuple[str, str]]] = {}
     for (comp_id, pin_number), net in net_of.items():
         net_nodes.setdefault(net, []).append((comp_id, pin_number))
-    flag_hints = {v.id: v.feeder for v in virtual}
+    # A PWR_FLAG on a rail drawn with power symbols sits on one of those symbols (placed once the page is wired);
+    # only a flag on a net drawn with labels is laid out like a part.
+    attached = {v.id: v for v in virtual if v.net in power}
+    flag_hints = {v.id: v.feeder for v in virtual if v.id not in attached}
+    feeder_flags: dict[str, dict[str, LibSymbol]] = {}
+    for v in attached.values():
+        feeder_flags.setdefault(v.feeder, {})[v.net] = symbols[v.id]
     up_of = {net: upright(sym) for net, sym in power.items()}
     net_pages: dict[str, set[str]] = {}
     for (comp_id, _), net in net_of.items():
@@ -577,22 +592,24 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
         comps = [c for c in all_comps if page_of[c.id] == sheet.id]
         fixed = {c.id: (circuit.layout[c.id],
                         _part_extent(symbols[c.id], c, net_of, power, circuit.layout[c.id].rotation,
-                                     mirror=circuit.layout[c.id].mirror))
+                                     mirror=circuit.layout[c.id].mirror, flags=feeder_flags.get(c.id)))
                  for c in comps if c.id in circuit.layout}
-        free = [c for c in comps if c.id not in circuit.layout]
+        free = [c for c in comps if c.id not in circuit.layout and c.id not in attached]
         by_id = {c.id: c for c in free}
         groups = plan_groups(
             [c.id for c in free],
             {c.id: [PinGeom(p.number, lp.x, -lp.y, OUTWARD[lp.angle], lp.electrical_type)
                     for p in c.pins if (lp := symbols[c.id].pin(p.number)) is not None] for c in free},
             lambda cid, rot, quiet, mirror=False, parts=False, by_id=by_id: _part_extent(
-                symbols[cid], by_id[cid], net_of, power, rot, quiet, mirror, parts),
+                symbols[cid], by_id[cid], net_of, power, rot, quiet, mirror, parts, feeder_flags.get(cid)),
             net_of, net_nodes, flag_hints, {c.id: c.value for c in free}, up_of,
             {c.id: _kind(symbols[c.id]) for c in free})
         # A group with notes on its parts keeps a line free above it per note, so a caption always fits.
-        lines = Counter(next(g.key for g in groups if n.components[0] in g.offsets)
-                        for n in notes_on[sheet.id] if n.components and any(n.components[0] in g.offsets
-                                                                            for g in groups))
+        lines: Counter[str] = Counter()
+        for n in notes_on[sheet.id]:
+            g_key = next((g.key for g in groups if n.components and n.components[0] in g.offsets), None)
+            if g_key is not None:
+                lines[g_key] += wrap_note(n.text).count("\n") + 1
         auto: list[tuple[str, Extent]] = [
             (f"group:{g.key}", (g.extent[0], g.extent[1] - NOTE_LINE * lines[g.key], g.extent[2], g.extent[3]))
             for g in groups]
@@ -615,6 +632,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                 placements[member] = Placement(x=round(gx + dx, 4), y=round(gy + dy, 4), rotation=rot)
                 wired_rail_pins |= {(member, p.number) for p in by_id[member].pins
                                     if net_of.get((member, p.number)) in g.wired_rails}
+            wired_rail_pins |= g.wired_pins
             mirrored |= g.mirrored
         for key, origin in origins.items():
             if key.startswith("sheet:"):
@@ -644,6 +662,8 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
         pin_ends: dict[tuple[str, str], tuple[tuple[float, float], tuple[int, int]]] = {}
 
         for comp in comps:
+            if comp.id in attached:
+                continue
             sym, pl = symbols[comp.id], placements[comp.id]
             mirror = comp.id in mirrored
             views = _pin_views(sym, comp, net_of, pl.rotation, mirror)
@@ -702,6 +722,21 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                 router.add_point(attach, net)
                 router.pin_points.append(attach)
             wiring.junctions = junctions_of(router)
+        for flag in (v for v in attached.values() if page_of[v.id] == sheet.id):
+            on_net = [(cid, port) for cid, port in ports if port.net == flag.net]
+            if not on_net:
+                raise SchematicGenerationError([Issue("PWR_FLAG_NO_SYMBOL", Severity.ERROR,
+                                                      f"No power symbol for '{flag.net}' on this page to put its "
+                                                      "PWR_FLAG on.")])
+            fp = placements.get(flag.feeder)
+            _, target = min(on_net, key=lambda cp: (cp[0] != flag.feeder, math.dist(
+                cp[1].stub_end or cp[1].end, (fp.x, fp.y)) if fp else 0.0))
+            port = flag_port(router, symbols[flag.id], target, boxes)
+            placements[flag.id] = Placement(x=port.at[0], y=port.at[1], rotation=port.rotation)
+            router.blocks.append(port.rects[0])
+            boxes += port.rects
+            placed.append(_placed_symbol(flag, symbols[flag.id], placements[flag.id], ids, project_name,
+                                         instance_path, trace=False, value_at=port.value_at))
         wires = [[
             "wire",
             ["pts", ["xy", num(a[0]), num(a[1])], ["xy", num(b[0]), num(b[1])]],
@@ -743,23 +778,24 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                            or [(a.x, a.y, a.x, a.y) for a in anchors if a.sheet == sheet.id and a.net == note.net])
             else:
                 targets = []
-            spot = place_note(note.text, targets, boxes, segments, list(router.points)) if targets else None
-            if spot is None:  # nothing free nearby (or a page note): a line above everything on the page
+            text = wrap_note(note.text)
+            spot = place_note(text, targets, boxes, segments, list(router.points)) if targets else None
+            if spot is None:  # nothing free nearby (or a page note): lines above everything on the page
                 top = min((b[1] for b in boxes), default=_MARGIN + NOTE_LINE)
                 left = min((b[0] for b in boxes), default=_MARGIN)
-                taken = sum(1 for t in texts_out if t[0] == "page")
+                taken = sum(t[2] for t in texts_out if t[0] == "page")
                 at = (_snap_up(left), round(-_snap_up(-(top - GRID)) - NOTE_LINE * taken, 4))
-                rect = note_rect(at, note.text)
+                rect = note_rect(at, text)
                 kind = "page"
             else:
                 (at, rect), kind = spot, "near"
             boxes.append(rect)
-            texts_out.append((kind, ["text", q(note.text), ["exclude_from_sim", "no"],
+            texts_out.append((kind, ["text", q(text), ["exclude_from_sim", "no"],
                                      ["at", num(at[0]), num(at[1]), "0"],
                                      ["effects", ["font", ["size", num(NOTE_FONT), num(NOTE_FONT)], ["italic", "yes"]],
                                       ["justify", "left", "bottom"]],
-                                     ["uuid", q(ids("note", note.id))]]))
-        notes_nodes = [node for _, node in texts_out]
+                                     ["uuid", q(ids("note", note.id))]], text.count("\n") + 1))
+        notes_nodes = [node for _, node, _ in texts_out]
 
         # Independent check of the finished page: no geometry may join two nets.
         points: dict[tuple[float, float], set[str]] = {}

@@ -77,6 +77,8 @@ class Group:
     """Members drawn mirrored (``mirror y``, before the rotation)."""
     wired_rails: set[str] = field(default_factory=set)
     """Rails drawn as wires inside this block (a regulator's input and output lines)."""
+    wired_pins: set[tuple[str, str]] = field(default_factory=set)
+    """Single rail pins drawn with a wire: an IC's supply pin and the decoupling capacitor beside it."""
 
 
 def _up(v: float) -> float:
@@ -366,10 +368,15 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx, local: set[s
 
     def facing(c: str, p: PinGeom, want: Dir) -> tuple[int | None, bool]:
         """Turn ``c`` so pin ``p`` points ``want``; a connector is mirrored rather than turned half way round,
-        which keeps pin 1 on top."""
+        which keeps pin 1 on top, and facing up or down it is mirrored when that keeps pin 1 on the left."""
         if same_side(c) and p.out[1] == 0 and want == (-p.out[0], 0):
             return 0, True
-        return orient(p.out, want), False
+        turn = orient(p.out, want)
+        if same_side(c) and want[0] == 0 and turn is not None:
+            first, last = (_turned(q, turn, False)[0][0] for q in (pins[c][0], pins[c][-1]))
+            if first > last:
+                return turn, True
+        return turn, False
 
     def search(e: Extent, anchor: Point, d: Dir, rel: Point, line: bool, skip: set[str],
                weights: tuple[int, int] = (1, 3), step: float = 0.0) -> tuple[float, float] | None:
@@ -622,6 +629,43 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx, local: set[s
 
     place_tree(key)
 
+    # A decoupling capacitor of the root IC goes beside the supply pin it serves (one per pin while they last,
+    # supply inputs first) once the wired parts have their places, and is wired to it when that spot is close:
+    # one power symbol for the pin and its capacitor, as on a hand-drawn page.
+    wired_pins: set[tuple[str, str]] = set()
+    if key in shapes and ctx.kinds.get(key) != "connector":
+        supply_pins = sorted((q for q in pins[key] if (n := net(key, q.number)) in ctx.upright and n not in local
+                              and not is_ground_name(n)), key=lambda q: q.etype != "power_in")
+        for m in members:
+            if m in placed or m in parent or m in ctx.hints or len(pins[m]) != 2 or ctx.kinds.get(m) != "rc":
+                continue
+            farad = parse_value(ctx.values.get(m))
+            if farad is None or farad > 1.5e-6:
+                continue
+            nm = [net(m, q.number) for q in pins[m]]
+            if not any(n and is_ground_name(n) for n in nm):
+                continue
+            free = [q for q in supply_pins if net(key, q.number) in nm and (key, q.number) not in wired_pins]
+            if not free:
+                continue
+            q = free[0]
+            rail = net(key, q.number)
+            mpin = next(x for x in pins[m] if net(m, x.number) == rail)
+            anchor, d = abs_pin(key, q.number)
+            rotation = orient(mpin.out, ctx.upright[rail]) or 0
+            e = ctx.extent_of(m, rotation, {mpin.number: 0.0}, False)
+            sides = [(1, 0), (-1, 0)] if d[0] == 0 else [(0, -1), (0, 1)]
+            options = []
+            for sd in sides:
+                rel = (e[0] if sd[0] > 0 else e[2] if sd[0] < 0 else (e[0] + e[2]) / 2,
+                       e[1] if sd[1] > 0 else e[3] if sd[1] < 0 else (e[1] + e[3]) / 2)
+                spot = search(e, anchor, sd, rel, False, set(), weights=(1, 1), step=STEP)
+                if spot is not None:
+                    options.append((scores[spot], len(options), spot))
+            if options and min(options)[0] <= 8:  # further away it is placed like any other part on a rail
+                put(m, rotation, e, min(options)[2])
+                wired_pins |= {(m, mpin.number), (key, q.number)}
+
     # Members only on rails: upright, in a row beside the pin of their rail (supply before ground), parts
     # first and connectors outermost. Generator-added PWR_FLAGs go right above the part feeding their rail.
     in_tree = list(placed)
@@ -693,7 +737,7 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx, local: set[s
                             weights=(3, 1), step=STEP))
 
     real = {m: b for m, b in boxes.items() if not m.startswith("~")}
-    return Group(key, union(*real.values()), placed, mirrored, set(local))
+    return Group(key, union(*real.values()), placed, mirrored, set(local), wired_pins)
 
 
 def _order_groups(groups: list[Group], group_of: dict[str, str], net_of, net_nodes, rail) -> list[Group]:

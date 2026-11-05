@@ -755,6 +755,23 @@ def rail_port(router: Router, net: str, sym: LibSymbol, piece: _Cluster, ends: d
     return _port(PinView(k[1], pt, out, net), sym, 0.0, orient(up, out) or 0)
 
 
+def flag_port(router: Router, flag: LibSymbol, port: Port, taken: list[Rect]) -> Port:
+    """A PWR_FLAG on the connection point of a rail's power symbol (both pins on the same point join them),
+    lying on its side away from the wire that reaches that point. The side with the least in its way wins."""
+    at = port.stub_end or port.end
+    tip = rotate_dir(upright(port.symbol), port.rotation)
+    back = direction(at, port.end) if port.stub_end else (-tip[0], -tip[1])
+    sides = [d for d in ((1, 0), (-1, 0), (0, 1), (0, -1)) if d not in (tip, back)]
+    tries = []
+    for d in sides:
+        cand = _port(PinView("1", at, d, "PWR_FLAG"), flag, 0.0, orient(upright(flag), d) or 0)
+        box = cand.rects[0]
+        cost = sum(overlap_area(box, b) for b in [*router.blocks, *taken])
+        cost += sum(10.0 for a, b, _ in router.wires if segment_hits_rect(a, b, grow(box, -0.2)))
+        tries.append((cost, len(tries), cand))
+    return min(tries)[2]
+
+
 # --- notes -----------------------------------------------------------------------------------
 
 NOTE_FONT = FONT
@@ -762,9 +779,30 @@ NOTE_LINE = 3.81
 """Height kept free for one line of note text."""
 
 
+NOTE_WRAP = 48
+"""A longer note is written on several lines (at spaces), so it fits next to its block instead of above the page."""
+NOTE_LEADING = NOTE_FONT * 1.65
+"""Distance between the lines of a multi-line text in KiCad."""
+
+
+def wrap_note(text: str, width: int = NOTE_WRAP) -> str:
+    lines: list[str] = []
+    for word in text.split():
+        if lines and len(lines[-1]) + 1 + len(word) <= width:
+            lines[-1] += " " + word
+        else:
+            lines.append(word)
+    return "\n".join(lines) or text
+
+
+def note_height(text: str) -> float:
+    return NOTE_FONT * 1.3 + text.count("\n") * NOTE_LEADING
+
+
 def note_rect(at: Point, text: str) -> Rect:
-    """Space a note takes, written left to right with its bottom-left corner at ``at``."""
-    return at[0], at[1] - NOTE_FONT * 1.3, at[0] + max(len(text), 1) * CHAR, at[1] + 0.3
+    """Space a note takes, written left to right with its bottom-left corner at ``at`` (the last line's)."""
+    width = max(max((len(line) for line in text.split("\n")), default=1), 1) * CHAR
+    return at[0], at[1] - note_height(text), at[0] + width, at[1] + 0.3
 
 
 def place_note(text: str, targets: list[Rect], obstacles: list[Rect], wires: list[tuple[Point, Point]],
@@ -774,8 +812,8 @@ def place_note(text: str, targets: list[Rect], obstacles: list[Rect], wires: lis
     if not targets:
         return None
     x0, y0, x1, y1 = union(*targets)
-    w = max(len(text), 1) * CHAR
-    rise = NOTE_FONT * 1.3
+    w = max(max(len(line) for line in text.split("\n")), 1) * CHAR
+    rise = note_height(text)
     xs = [x0, (x0 + x1 - w) / 2, x1 - w] + [x0 + k * 2 * STUB for k in (1, 2, 3, 4)] + [x1 - w - k * 2 * STUB
                                                                                        for k in (1, 2)]
 

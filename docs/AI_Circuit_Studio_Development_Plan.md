@@ -461,6 +461,7 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - IR 0.8.0: `Net.voltage`·`Net.load_current`(계산 입력, 그리기에는 안 씀), patch 연산 `set_net_spec`, 「검토」 탭의 「전원 조건」 표(제안으로 반영). 레귤레이터 발열을 실제 부하 전류로, 레귤레이터 최대 전류, 다이오드 전류·역전압, I2C 풀업, 크리스탈 부하 콘덴서 규칙 추가. AI 설계는 `rails`로 전원 조건을 낸다.
 - 근거 리포트(`circuit_core/rationale.py`): 「문서 · BOM → 근거 리포트」, 생성 결과물 `rationale.md`, `aics report`. 샘플 보드 3종에 결정과 리포트를 넣음.
 - 회로도 작성 기능 전반의 근거 리포트: `docs/schematic-rationale-report.md`.
+- 회로도 그리기(ADR-009 추가 12~15): PWR_FLAG를 레일 전원 심볼과 같은 연결점에, IC 디커플링 콘덴서를 전원 핀 옆에 선으로, 48자를 넘는 주석은 여러 줄로, 위·아래를 향한 커넥터는 1번 핀이 왼쪽에 오게 반전.
 
 ### v1.8 (2026-11-05)
 - IR 0.5.0: `notes`(영문 한 줄, 부품 묶음 또는 Net 하나에 붙음). patch 연산 `set_note`·`remove_note`, 제안 비교 표·Markdown 문서에 주석. 템플릿은 영문 캡션을 주석으로 붙이고, AI 설계는 `schematic_notes`로 블록·Net 주석을 낸다. 생성기는 KiCad 기울임 텍스트로 그린다(KiCad 재저장 무손실).

@@ -1032,7 +1032,7 @@
 	)
 	(symbol
 		(lib_id "power:PWR_FLAG")
-		(at 22.86 132.08 0)
+		(at 73.66 81.28 180)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -1042,7 +1042,7 @@
 		(dnp no)
 		(uuid "229c427d-6ffa-5755-a5a9-721659793601")
 		(property "Reference" "#FLG01"
-			(at 22.86 130.175 0)
+			(at 73.66 83.185 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1053,7 +1053,7 @@
 			)
 		)
 		(property "Value" "PWR_FLAG"
-			(at 22.86 128.27 0)
+			(at 73.66 85.09 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -1063,7 +1063,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 22.86 132.08 0)
+			(at 73.66 81.28 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1074,7 +1074,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 22.86 132.08 0)
+			(at 73.66 81.28 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1085,7 +1085,7 @@
 			)
 		)
 		(property "Description" "Special symbol for telling ERC where power comes from"
-			(at 22.86 132.08 0)
+			(at 73.66 81.28 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1108,85 +1108,8 @@
 		)
 	)
 	(symbol
-		(lib_id "power:GND")
-		(at 43.18 132.08 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "4693ad64-ef62-5a08-aca6-e9e102097527")
-		(property "Reference" "#PWR06"
-			(at 43.18 138.43 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "GND"
-			(at 43.18 135.89 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 43.18 132.08 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 43.18 132.08 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 43.18 132.08 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "53202d7a-8da2-5a0c-9ddc-32117f4bd1f2")
-		)
-		(instances
-			(project "led-resistor-connector"
-				(path "/31ee686e-89a4-5e6e-bc4f-89000aff2a3d"
-					(reference "#PWR06")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "power:PWR_FLAG")
-		(at 43.18 132.08 0)
+		(at 78.74 78.74 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -1196,7 +1119,7 @@
 		(dnp no)
 		(uuid "591cc066-658f-53b2-850f-16fe8d21285b")
 		(property "Reference" "#FLG02"
-			(at 43.18 130.175 0)
+			(at 78.74 76.835 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1207,7 +1130,7 @@
 			)
 		)
 		(property "Value" "PWR_FLAG"
-			(at 43.18 128.27 0)
+			(at 78.74 74.93 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -1217,7 +1140,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 43.18 132.08 0)
+			(at 78.74 78.74 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1228,7 +1151,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 43.18 132.08 0)
+			(at 78.74 78.74 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1239,7 +1162,7 @@
 			)
 		)
 		(property "Description" "Special symbol for telling ERC where power comes from"
-			(at 43.18 132.08 0)
+			(at 78.74 78.74 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1654,83 +1577,6 @@
 			(project "led-resistor-connector"
 				(path "/31ee686e-89a4-5e6e-bc4f-89000aff2a3d"
 					(reference "J1")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "power:VCC")
-		(at 22.86 132.08 180)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "e2a056ff-f43d-5101-951e-0460996eadaa")
-		(property "Reference" "#PWR05"
-			(at 22.86 128.27 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "VIN"
-			(at 22.86 135.636 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 22.86 132.08 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 22.86 132.08 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"VCC\""
-			(at 22.86 132.08 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "178ea3b7-9925-540a-bf1d-4a0981ec26ed")
-		)
-		(instances
-			(project "led-resistor-connector"
-				(path "/31ee686e-89a4-5e6e-bc4f-89000aff2a3d"
-					(reference "#PWR05")
 					(unit 1)
 				)
 			)

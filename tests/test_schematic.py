@@ -601,7 +601,7 @@ def test_timer_board_keeps_blocks_together(timer_board, library):
     j1 = pins[("J1", "1")]
     for ref in ("C1", "R1", "D1"):
         x, y = pins[(ref, "1")]
-        assert abs(x - j1[0]) <= 30.48 and abs(y - j1[1]) <= 30.48, ref
+        assert abs(x - j1[0]) <= 30.48 + 1e-6 and abs(y - j1[1]) <= 30.48 + 1e-6, ref
     labels = [unquote(lbl[1]) for lbl in children(sexpr.parse(g.text), "label")]
     for net in ("DISCH", "TRIG_THR", "CONT", "STATUS", "STATUS_LED", "PWR_LED"):
         assert labels.count(net) == 1, net
@@ -692,3 +692,104 @@ def test_stacked_pins_are_drawn_once_and_must_share_a_net(library):
     with pytest.raises(SchematicGenerationError) as err:
         generate_schematic(CircuitIR.model_validate(data), library)
     assert "STACKED_PINS_DIFFER" in str(err.value)
+
+
+def _wire_components(text: str) -> list[list[tuple[tuple[float, float], tuple[float, float]]]]:
+    """Wire segments of a page grouped by what touches (end to end or end on segment)."""
+    doc = sexpr.parse(text)
+    segs = [tuple((round(float(xy[1]), 3), round(float(xy[2]), 3)) for xy in children(child(w, "pts"), "xy"))
+            for w in children(doc, "wire")]
+
+    def on(p, s):
+        (ax, ay), (bx, by) = s
+        return min(ax, bx) <= p[0] <= max(ax, bx) and min(ay, by) <= p[1] <= max(ay, by) and (
+            ax == bx == p[0] or ay == by == p[1])
+
+    groups: list[list] = []
+    for s in segs:
+        hit = [g for g in groups if any(on(e, t) or on(f, s) for t in g for e in s for f in t)]
+        merged = [s] + [t for g in hit for t in g]
+        groups = [g for g in groups if g not in hit] + [merged]
+    return groups
+
+
+def _wired(text: str, a: tuple[float, float], b: tuple[float, float]) -> bool:
+    def on(p, s):
+        (ax, ay), (bx, by) = s
+        return min(ax, bx) <= p[0] <= max(ax, bx) and min(ay, by) <= p[1] <= max(ay, by)
+
+    return any(any(on(a, s) for s in g) and any(on(b, s) for s in g) for g in _wire_components(text))
+
+
+def test_pwr_flags_sit_on_the_power_symbols_of_the_input(timer_board, regulator_board, library):
+    """A PWR_FLAG shares the connection point of its rail's power symbol (pins on one point join), next to the
+    connector or series part bringing the power in - not on its own somewhere on the page."""
+    for circuit, feeders in ((timer_board, {"J1"}), (regulator_board, {"J1", "D1"})):
+        g = generate_schematic(circuit, library)
+        doc = sexpr.parse(g.text)
+        at = {}
+        for s in children(doc, "symbol"):
+            if child(s, "lib_id") is None:
+                continue
+            lib = unquote(child(s, "lib_id")[1])
+            at.setdefault(lib, []).append((float(child(s, "at")[1]), float(child(s, "at")[2])))
+        flags = at.pop("power:PWR_FLAG")
+        power_points = {p for lib, pts in at.items() if lib.startswith("power:") for p in pts}
+        anchors = [(a.x, a.y) for a in g.anchors if a.reference in feeders]
+        assert flags and set(g.power_flags)
+        for p in flags:
+            assert p in power_points, p
+            assert min(abs(p[0] - x) + abs(p[1] - y) for x, y in anchors) <= 20.32, (feeders, p)
+
+
+def test_decoupling_capacitors_are_wired_to_the_supply_pins(sample_board, library):
+    """The MCU's 100 nF capacitors stand beside its VCC / AVCC pins and are wired to them (one power symbol for
+    the pin and its capacitor) instead of floating elsewhere with power symbols of their own."""
+    g = generate_schematic(sample_board, library)
+    pins = {(a.reference, a.pin): (a.x, a.y) for a in g.anchors}
+    supply = [pins[("U1", "4")], pins[("U1", "18")]]
+    for cap in ("C1", "C2"):
+        assert any(_wired(g.text, pins[(cap, "1")], p) for p in supply), cap
+        assert min(abs(pins[(cap, "1")][0] - x) + abs(pins[(cap, "1")][1] - y) for x, y in supply) <= 30.48
+
+
+def test_long_notes_wrap_and_stay_by_their_block(timer_board, library):
+    data = timer_board.model_dump(mode="json")
+    long = "555 astable timer: about 1 Hz with R2 = 10k, R3 = 68k and C2 = 10uF, roughly 53% duty cycle"
+    note = next(n for n in data["notes"] if n["components"] and "u-tmr" in n["components"])
+    note["text"] = long
+    g = generate_schematic(CircuitIR.model_validate(data), library)
+    texts = {unquote(t[1]): (float(child(t, "at")[1]), float(child(t, "at")[2]))
+             for t in children(sexpr.parse(g.text), "text")}
+    wrapped = next(t for t in texts if t.replace("\n", " ") == long)
+    assert "\n" in wrapped and max(len(line) for line in wrapped.split("\n")) <= 48
+    x, y = texts[wrapped]
+    refs = {c.id: c.reference for c in timer_board.components}
+    near = [(a.x, a.y) for a in g.anchors if a.reference in {refs[c] for c in note["components"]}]
+    assert min(abs(x - px) + abs(y - py) for px, py in near) <= 40.0  # beside the block, not above the page
+    assert y > min(a.y for a in g.anchors) - 20.0
+
+
+def test_connector_facing_up_keeps_pin_1_on_the_left():
+    """A connector hanging under pins that point down faces up; mirrored if needed so pin 1 stays on the left."""
+    from kicad_adapter.layout import PinGeom, plan_groups
+
+    pins = {"u": [PinGeom("1", -2.54, 5.08, (0, 1), "output"), PinGeom("2", 2.54, 5.08, (0, 1), "output"),
+                  PinGeom("3", 0.0, -5.08, (0, -1), "power_in")],
+            "j": [PinGeom("1", -5.08, -1.27, (-1, 0), "passive"), PinGeom("2", -5.08, 1.27, (-1, 0), "passive")]}
+    net_of = {("u", "1"): "A", ("u", "2"): "B", ("u", "3"): "+5V", ("j", "1"): "A", ("j", "2"): "B"}
+    net_nodes = {"A": [("u", "1"), ("j", "1")], "B": [("u", "2"), ("j", "2")], "+5V": [("u", "3")]}
+
+    def extent(cid, rotation, quiet, mirror=False, parts=False):
+        return (-6.35, -6.35, 6.35, 6.35) if not parts else [(-6.35, -6.35, 6.35, 6.35)]
+
+    groups = plan_groups(["u", "j"], pins, extent, net_of, net_nodes, {}, {}, {"+5V": (0, -1)},
+                         {"u": "ic", "j": "connector"})
+    g = next(g for g in groups if "j" in g.offsets)
+    _, _, rotation = g.offsets["j"]
+    from kicad_adapter.drawing import transform, transform_dir
+
+    mirror = "j" in g.mirrored
+    (x1, _), (x2, _) = (transform(p.x, p.y, rotation, mirror) for p in pins["j"])
+    assert transform_dir((-1, 0), rotation, mirror) == (0, -1)  # facing up, toward the pins above
+    assert x1 < x2
