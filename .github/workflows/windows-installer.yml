@@ -1,0 +1,38 @@
+# Builds the Windows installer (PyInstaller backend + electron-builder NSIS) on demand or for a version tag.
+name: Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Backend (PyInstaller)
+        run: |
+          uv sync --group packaging
+          uv run --group packaging python packaging/build_backend.py
+      - name: Installer (electron-builder)
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          npm ci
+          npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AI-Circuit-Studio-Setup
+          path: desktop/release/*.exe
+          if-no-files-found: error
