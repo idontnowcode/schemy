@@ -6,7 +6,7 @@
 	(paper "A4")
 	(title_block
 		(title "24V → 5V 레귤레이터 (7805)")
-		(comment 1 "Generated from Circuit IR 'lm7805-24v-to-5v' (schema 0.5.0)")
+		(comment 1 "Generated from Circuit IR 'lm7805-24v-to-5v' (schema 0.7.0)")
 		(comment 2 "Design verification status: unverified")
 	)
 	(lib_symbols

@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.5.0",
+  "schema_version": "0.7.0",
   "project_id": "ne555-led-board",
   "title": "NE555 LED 점멸 보드",
   "components": [
@@ -602,5 +602,107 @@
   "validation": {
     "status": "unverified",
     "notes": null
-  }
+  },
+  "decisions": [
+    {
+      "id": "dec-no-mcu",
+      "topic": "보드 종류",
+      "choice": "MCU를 쓰지 않는 보드",
+      "by": "requirement",
+      "reason": "요청대로 MCU 없이 동작하는 보드로 만들었습니다. 'Athena'는 앞의 ATmega 예제를 가리키는 것으로 해석했습니다.",
+      "request": "Athena 말고 mcu 따로 안쓰는 보드로",
+      "components": []
+    },
+    {
+      "id": "dec-timer",
+      "topic": "MCU 없이 보여 줄 기능",
+      "choice": "NE555 비안정 회로로 LED 점멸 (U1 NE555D)",
+      "by": "ai",
+      "reason": "MCU 없이도 동작이 눈에 보이는 대표적인 회로라 골랐습니다. 요구사항(requirements.md)은 이 방향으로 AI가 정했습니다. SOIC-8(NE555D)은 0603 수동 소자와 맞춘 선택입니다.",
+      "components": [
+        "u-tmr"
+      ]
+    },
+    {
+      "id": "dec-freq",
+      "topic": "점멸 주파수",
+      "choice": "약 1 Hz, 듀티 약 53 %",
+      "by": "ai",
+      "reason": "눈으로 확인하기 쉬운 속도입니다. 일반 555 비안정 회로는 듀티가 50 % 이상이 됩니다.",
+      "calc": "f = 1.44 / ((10 kΩ + 2 × 68 kΩ) × 10 µF) ≈ 0.99 Hz; 듀티 = (10k + 68k) / (10k + 136k) ≈ 53 %",
+      "source": "NE555 데이터시트 — 비안정 동작 식",
+      "components": [
+        "r-a",
+        "r-b",
+        "c-t"
+      ]
+    },
+    {
+      "id": "dec-cont",
+      "topic": "CONT 핀 처리",
+      "choice": "10 nF로 GND (C3)",
+      "by": "ai",
+      "reason": "CONT 핀을 쓰지 않을 때 노이즈를 막는 일반적인 처리입니다(데이터시트 권장값 0.01 µF).",
+      "source": "NE555 데이터시트 — 응용 정보(CONT 바이패스)",
+      "components": [
+        "c-ctl"
+      ]
+    },
+    {
+      "id": "dec-rst",
+      "topic": "RST 핀 처리",
+      "choice": "VCC에 직결",
+      "by": "ai",
+      "reason": "리셋 기능을 쓰지 않으므로 항상 동작하게 묶었습니다.",
+      "components": [
+        "u-tmr"
+      ]
+    },
+    {
+      "id": "dec-dec",
+      "topic": "전원 디커플링",
+      "choice": "100 nF (C4)",
+      "by": "ai",
+      "reason": "IC 전원 핀 옆 디커플링의 일반값입니다.",
+      "components": [
+        "c-dec"
+      ]
+    },
+    {
+      "id": "dec-status-led",
+      "topic": "상태 LED",
+      "choice": "470 Ω + 녹색 LED (R4, D2)",
+      "by": "ai",
+      "reason": "555 출력 High 전압은 5 V보다 낮습니다(데이터시트 VOH 확인). 그래서 1 kΩ보다 작은 470 Ω으로 약 3 mA를 맞췄습니다.",
+      "calc": "I ≈ (VOH 약 3.3~3.5 V − Vf 2 V) / 470 Ω ≈ 3 mA",
+      "source": "NE555 데이터시트 — 출력 High 전압(VOH)",
+      "components": [
+        "r-led",
+        "d-led"
+      ]
+    },
+    {
+      "id": "dec-power",
+      "topic": "전원 입력",
+      "choice": "5 V 2핀 헤더 + 10 µF 벌크 + 전원 LED (J1, C1, R1, D1)",
+      "by": "ai",
+      "reason": "USB 5 V 어댑터 전원을 가정했습니다. 전원 LED는 약 3 mA입니다.",
+      "calc": "전원 LED I = (5 V − 2 V) / 1 kΩ ≈ 3 mA",
+      "components": [
+        "j-pwr",
+        "c-bulk",
+        "r-pwr",
+        "d-pwr"
+      ]
+    },
+    {
+      "id": "dec-notes",
+      "topic": "회로도 영문 주석",
+      "choice": "블록 설명·사양 5개 + STATUS Net 설명",
+      "by": "requirement",
+      "reason": "요청대로 블록마다 무엇을 하는지와 핵심 사양을, STATUS Net에는 나르는 신호를 영문으로 적었습니다.",
+      "request": "회로에 간단하게 어떤 부분이나 스펙인지 영문으로 기술해줘 / Status net도",
+      "components": []
+    }
+  ]
 }

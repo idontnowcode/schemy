@@ -105,8 +105,10 @@ def rationale_markdown(circuit: CircuitIR, *, revision: int | None = None, requi
         w("")
         for d in items:
             parts = ", ".join(sorted((refs.get(c, c) for c in d.components), key=natural_key))
-            w(f"**{d.topic}** — {d.choice}" + (f" ({parts})" if parts else ""))
+            w(f"**{d.topic}** — {d.choice}")
             w("")
+            if parts:
+                w(f"- 부품: {parts}")
             if d.request:
                 w(f"- 요청: {d.request}")
             w(f"- 근거: {d.reason}")
@@ -146,9 +148,16 @@ def rationale_markdown(circuit: CircuitIR, *, revision: int | None = None, requi
       "리니어 레귤레이터 드롭아웃과 발열(100 mA 기준), IC 전원 핀의 디커플링. 전압은 Net 이름(+5V, +3V3)에서 읽습니다.")
     w("")
 
-    if proposals:
-        w("## 6. 변경 이력 (제안과 승인)")
+    w("## 6. 변경 이력 (제안과 승인)")
+    w("")
+    if proposals is None:
+        w("이 리포트는 회로 파일만으로 만들어 앱의 제안 이력이 들어 있지 않습니다. 앱의 「문서 · BOM → 근거 리포트」나 생성 결과물 "
+          "`rationale.md`에는 제안 이력(제안 근거, AI 가정·질문·데이터시트 인용, 승인·거부)이 함께 나옵니다.")
         w("")
+    elif not proposals:
+        w("제안 이력이 없습니다(회로를 직접 저장함).")
+        w("")
+    if proposals:
         for p in proposals:
             head = f"### #{int(p['id'])} {p['title']}"
             w(head)

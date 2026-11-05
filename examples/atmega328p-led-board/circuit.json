@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.5.0",
+  "schema_version": "0.7.0",
   "project_id": "atmega328p-led-board",
   "title": "ATmega328P 상태 LED 보드",
   "components": [
@@ -921,6 +921,98 @@
         "sw-rst"
       ],
       "net": null
+    }
+  ],
+  "decisions": [
+    {
+      "id": "dec-subject",
+      "topic": "샘플 보드 주제",
+      "choice": "ATmega328P 상태 LED 보드",
+      "by": "ai",
+      "reason": "요구사항을 임의로 정하라는 요청이라, 앱의 템플릿·제안 흐름을 보여 주기 좋은 작은 MCU 보드를 골랐습니다(Arduino 호환 16 MHz).",
+      "request": "간단한 샘플 보드를 한 번 작성해줘. 요구사항도 임의로.",
+      "components": []
+    },
+    {
+      "id": "dec-tpl-mcu-u",
+      "topic": "MCU 최소 회로",
+      "choice": "템플릿 mcu-atmega328p-min@1 (16 MHz, 22 pF, 10 kΩ 리셋 풀업, 100 nF ×3)",
+      "by": "template",
+      "reason": "검토된 템플릿을 그대로 썼습니다. 값의 근거는 템플릿의 데이터시트 절이고, 체크리스트 7개는 엔지니어 검토에서 확인합니다.",
+      "source": "ATmega328P 데이터시트(DS40001984) — Speed Grades; Low Power Crystal Oscillator; Pin Descriptions (AVCC, AREF); System Control and Reset",
+      "components": [
+        "mcu-u",
+        "mcu-cvcc",
+        "mcu-cavcc",
+        "mcu-caref",
+        "mcu-y",
+        "mcu-cx1",
+        "mcu-cx2",
+        "mcu-rrst"
+      ]
+    },
+    {
+      "id": "dec-reset-button",
+      "topic": "리셋 버튼 추가",
+      "choice": "6 mm 택트 스위치 (SW1, RESET ↔ GND)",
+      "by": "ai",
+      "reason": "3핀 UART 헤더에는 DTR이 없어 업로드 때 자동 리셋이 되지 않습니다. 부트로더로 프로그래밍하려면 업로드 직전에 리셋해야 해서 추가했습니다.",
+      "components": [
+        "sw-rst"
+      ]
+    },
+    {
+      "id": "dec-uart",
+      "topic": "UART 헤더",
+      "choice": "3핀 (1 = MCU TXD, 2 = MCU RXD, 3 = GND)",
+      "by": "ai",
+      "reason": "5 V 레벨 USB-UART 어댑터와 연결합니다. 1번은 어댑터의 RX에, 2번은 TX에 잇습니다.",
+      "components": [
+        "j-uart"
+      ]
+    },
+    {
+      "id": "dec-bulk",
+      "topic": "5 V 입력 벌크 콘덴서",
+      "choice": "10 µF (C6, 0805)",
+      "by": "ai",
+      "reason": "USB 어댑터 배선 끝의 전압 흔들림을 줄입니다.",
+      "components": [
+        "c-bulk"
+      ]
+    },
+    {
+      "id": "dec-status-led",
+      "topic": "상태 LED",
+      "choice": "1 kΩ + 녹색 LED, PB5 (R2, D2)",
+      "by": "ai",
+      "reason": "Arduino D13과 같은 핀이라 기존 예제 코드로 바로 시험할 수 있습니다.",
+      "calc": "I = (5 V − Vf 2.0~3.2 V) / 1 kΩ ≈ 1.8~3 mA",
+      "components": [
+        "r-led",
+        "d-led"
+      ]
+    },
+    {
+      "id": "dec-power-led",
+      "topic": "전원 LED",
+      "choice": "1 kΩ + 적색 LED (R1, D1)",
+      "by": "ai",
+      "reason": "5 V 입력 확인용입니다.",
+      "calc": "I = (5 V − 2 V) / 1 kΩ ≈ 3 mA",
+      "components": [
+        "r-pwr",
+        "d-pwr"
+      ]
+    },
+    {
+      "id": "dec-notes",
+      "topic": "회로도 영문 주석",
+      "choice": "블록 설명·사양 6개 + STATUS Net 설명",
+      "by": "requirement",
+      "reason": "이후 요청에 따라 이 예제에도 영문 주석을 넣었습니다.",
+      "request": "회로에 간단하게 어떤 부분이나 스펙인지 영문으로 기술해줘 / Status net도",
+      "components": []
     }
   ]
 }
