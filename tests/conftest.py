@@ -15,11 +15,19 @@ EXAMPLE_NAME = "led-resistor-connector"
 EXAMPLE_DIR = ROOT.parent / "examples" / EXAMPLE_NAME
 SYMBOL_DIR = FIXTURES / "kicad_symbols"
 LED_CIRCUIT = EXAMPLE_DIR / "circuit.json"
+SAMPLE_NAME = "atmega328p-led-board"
+SAMPLE_DIR = ROOT.parent / "examples" / SAMPLE_NAME
 
 
 @pytest.fixture
 def library() -> SymbolLibrary:
     return SymbolLibrary([SYMBOL_DIR])
+
+
+@pytest.fixture
+def sample_board() -> CircuitIR:
+    """examples/atmega328p-led-board: an MCU board built with a template (multi-pin IC, crystal, reset)."""
+    return CircuitIR.model_validate_json((SAMPLE_DIR / "circuit.json").read_text(encoding="utf-8"))
 
 
 @pytest.fixture

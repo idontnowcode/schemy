@@ -13,7 +13,8 @@ the generator tests run without a KiCad installation.
 | `MCU_Microchip_ATmega.kicad_sym` | `ATmega48PV-10A`, `ATmega328P-A` | KiCad 10.0.8 (stacked GND/VCC pins; `ATmega328P-A` is derived) |
 | `Diode.kicad_sym` | `1N5820`, `1N5822` | KiCad 10.0.8 (`1N5822` is derived) |
 | `Regulator_Switching.kicad_sym` | `LM2596S-12`, `LM2596S-5` | KiCad 10.0.8 (`LM2596S-5` is derived) |
-| `power.kicad_sym` | `PWR_FLAG` | KiCad 10.0.8 `/usr/share/kicad/symbols/power.kicad_sym` (the generator adds it where power enters through a connector) |
+| `Switch.kicad_sym` | `SW_Push` | KiCad 10.0.8 (the sample board's reset button) |
+| `power.kicad_sym` | `PWR_FLAG`, `GND`, `VCC`, `+5V`, `+3V3`, `+12V`, `+24V` | KiCad 10.0.8 `/usr/share/kicad/symbols/power.kicad_sym` (rails are drawn with power symbols; the generator adds `PWR_FLAG` where power enters through a connector) |
 
 The symbols are unmodified. They were copied with:
 
@@ -26,7 +27,8 @@ python scripts/extract_symbol_subset.py <KiCad>/symbols/Diode.kicad_sym tests/fi
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Regulator_Switching.kicad_sym tests/fixtures/kicad_symbols/Regulator_Switching.kicad_sym LM2596S-12 LM2596S-5
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Interface_CAN_LIN.kicad_sym tests/fixtures/kicad_symbols/Interface_CAN_LIN.kicad_sym SN65HVD230
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Regulator_Linear.kicad_sym tests/fixtures/kicad_symbols/Regulator_Linear.kicad_sym AP1117-15 AMS1117-3.3
-python scripts/extract_symbol_subset.py <KiCad>/symbols/power.kicad_sym tests/fixtures/kicad_symbols/power.kicad_sym PWR_FLAG
+python scripts/extract_symbol_subset.py <KiCad>/symbols/Switch.kicad_sym tests/fixtures/kicad_symbols/Switch.kicad_sym SW_Push
+python scripts/extract_symbol_subset.py <KiCad>/symbols/power.kicad_sym tests/fixtures/kicad_symbols/power.kicad_sym PWR_FLAG GND VCC +5V +3V3 +12V +24V
 ```
 
 `tests/test_sexpr.py` checks that these files survive a parse/write round trip byte for byte.

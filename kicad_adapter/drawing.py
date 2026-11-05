@@ -152,15 +152,16 @@ def path_length(path: list[Point]) -> float:
 
 # --- symbols ---------------------------------------------------------------------------------
 
-def body_rect(sym: LibSymbol, unit: int = 1) -> Rect:
-    """Graphics and pins of one unit of a library symbol: sheet frame (y down), unrotated, relative to its origin."""
-    pts: list[Point] = []
+def _graphics(sym: LibSymbol, unit: int = 1) -> list[Rect]:
+    """Box of each drawn item (no pins) of one unit: sheet frame (y down), unrotated, relative to the origin."""
+    rects: list[Rect] = []
     for sub in sexpr.children(sym.node, "symbol"):
         m = re.match(r"^.+_(\d+)_(\d+)$", sexpr.unquote(sub[1]))
         if m and int(m.group(1)) not in (0, unit):
             continue
         for g in sub[2:]:
             kind = sexpr.head(g)
+            pts: list[Point] = []
             if kind == "rectangle":
                 for corner in ("start", "end"):
                     n = sexpr.child(g, corner)
@@ -175,6 +176,16 @@ def body_rect(sym: LibSymbol, unit: int = 1) -> Rect:
                 for key in ("start", "mid", "end"):
                     n = sexpr.child(g, key)
                     pts.append((float(n[1]), -float(n[2])))
+            if pts:
+                rects.append(rect_of(pts))
+    return rects
+
+
+def body_rect(sym: LibSymbol, unit: int = 1) -> Rect:
+    """Graphics and pins of one unit of a library symbol: sheet frame (y down), unrotated, relative to its origin."""
+    pts: list[Point] = []
+    for r in _graphics(sym, unit):
+        pts += [(r[0], r[1]), (r[2], r[3])]
     for p in sym.pins:
         if p.unit not in (0, unit):
             continue
@@ -194,21 +205,54 @@ def text_box(center: Point, text: str, horizontal: bool) -> Rect:
     return center[0] - w, center[1] - h, center[0] + w, center[1] + h
 
 
-def field_rect(f: LibField, text: str, rotation: int, mirror: bool = False) -> Rect:
-    """Where a visible symbol field's text lands, relative to the placed symbol.
-
-    KiCad keeps a field on the same side of the body when the symbol turns (it swaps the justification
-    rather than draw text upside down), so the box is worked out in the symbol's frame and turned with it."""
+def _text_rect(f: LibField, text: str, at: Point) -> Rect:
+    """A field's text box in the symbol's frame (sheet orientation, y down), anchored at ``at``."""
     length, height = max(len(text), 1) * CHAR, FONT * 0.7
     justify = sexpr.child(f.effects, "justify") if f.effects else None
     tokens = set(justify[1:]) if justify else set()
     lo = 0.0 if "left" in tokens else -length if "right" in tokens else -length / 2
-    ax, ay = f.x, -f.y
+    ax, ay = at
     if int(f.angle) % 180 == 0:
-        rect = (ax + lo, ay - height, ax + lo + length, ay + height)
-    else:  # reads bottom to top
-        rect = (ax - height, ay - lo - length, ax + height, ay - lo)
-    return rotate_rect(rect, rotation, mirror)
+        return ax + lo, ay - height, ax + lo + length, ay + height
+    return ax - height, ay - lo - length, ax + height, ay - lo  # reads bottom to top
+
+
+def field_anchor(sym: LibSymbol, f: LibField, text: str, unit: int = 1) -> Point:
+    """Where a field's text is anchored, in the symbol's frame (y down): the library's spot, slid along the
+    text when a text longer than the library's own would run into the drawing - e.g. an LED's value "GREEN"
+    into its light arrows. Items the field sits inside on purpose (a resistor's value in its box) are left be."""
+    at = (f.x, -f.y)
+    if len(text) <= len(f.value):
+        return at
+    i = 0 if int(f.angle) % 180 == 0 else 1
+    mine, lib = _text_rect(f, text, at), _text_rect(f, f.value, at)
+    shift = 0.0
+    for g in _graphics(sym, unit):
+        if g[0] <= at[0] <= g[2] and g[1] <= at[1] <= g[3]:
+            continue
+        if not overlaps(mine, g):
+            continue
+        before = (g[i] + g[i + 2]) / 2 < at[i]  # the item is on the low side of the text: slide toward high
+
+        def depth(r: Rect, g: Rect = g, before: bool = before) -> float:
+            if not overlaps(r, g):
+                return 0.0
+            return max(0.0, g[i + 2] - r[i]) if before else max(0.0, r[i + 2] - g[i])
+
+        s = depth(mine) - depth(lib)
+        if s > 0 and s + 0.3 > abs(shift):
+            shift = (s + 0.3) if before else -(s + 0.3)
+    if not shift:
+        return at
+    return (round(at[0] + shift, 4), at[1]) if i == 0 else (at[0], round(at[1] + shift, 4))
+
+
+def field_rect(f: LibField, text: str, rotation: int, mirror: bool = False, at: Point | None = None) -> Rect:
+    """Where a visible symbol field's text lands, relative to the placed symbol.
+
+    KiCad keeps a field on the same side of the body when the symbol turns (it swaps the justification
+    rather than draw text upside down), so the box is worked out in the symbol's frame and turned with it."""
+    return rotate_rect(_text_rect(f, text, at if at is not None else (f.x, -f.y)), rotation, mirror)
 
 
 def label_length(net: str) -> float:
@@ -532,7 +576,7 @@ class Router:
                     targets += [(v, None) for v in cluster.vertices if v not in {info[k][0] for k in cluster.keys}]
                     for b, db in targets:
                         for path in _shapes(a, da, b, db):
-                            if path_length(path) <= MAX_ROUTE:
+                            if path_length(path) <= MAX_ROUTE + EPS:
                                 serial += 1
                                 options.append((_cost(path, da, db), serial, key, ci, path, None))
                     for u, v in cluster.segments:
@@ -542,7 +586,7 @@ class Router:
                             b = (u[0], a[1])
                         else:
                             continue
-                        if b != a and path_length([a, b]) <= MAX_ROUTE:
+                        if b != a and path_length([a, b]) <= MAX_ROUTE + EPS:
                             serial += 1
                             options.append((_cost([a, b], da, None), serial, key, ci, [a, b], (u, v)))
             options.sort(key=lambda o: (o[0], o[1]))
@@ -595,7 +639,11 @@ def wire_page(router: Router, nets: dict[str, list[tuple[Key, Point, Dir]]]) -> 
     """Route every signal net on the page, then give each wired cluster one label with the net's name.
 
     Every cluster keeps a label even when it holds the whole net, so the net keeps its name in KiCad (and on
-    the PCB) instead of an automatic ``Net-(...)`` name."""
+    the PCB) instead of an automatic ``Net-(...)`` name.
+
+    A net that cannot be wired in one piece on the first pass is undone and tried again after every other net:
+    by then the label space kept free for pins that got wired has been given back, so a short wire that only
+    crossed such a space can now be drawn."""
     labels: list[Label] = []
 
     def spread(net: str) -> float:
@@ -603,11 +651,15 @@ def wire_page(router: Router, nets: dict[str, list[tuple[Key, Point, Dir]]]) -> 
         x0, y0, x1, y1 = rect_of(pts)
         return (x1 - x0) + (y1 - y0)
 
-    for net in sorted(nets, key=lambda n: (spread(n), n)):
+    def route(net: str) -> list[_Cluster]:
+        terminals = nets[net]
+        if len(terminals) == 1:
+            return [_Cluster([terminals[0][0]], vertices={terminals[0][1]})]
+        return router.route_net(net, terminals)
+
+    def label(net: str, clusters: list[_Cluster]) -> None:
         terminals = nets[net]
         info = {key: (pt, out) for key, pt, out in terminals}
-        clusters = router.route_net(net, terminals) if len(terminals) > 1 else [
-            _Cluster([terminals[0][0]], vertices={terminals[0][1]})]
         keep: set[Key] = set()
         for cluster in clusters:
             spot = _wire_spot(router, net, cluster)
@@ -634,6 +686,20 @@ def wire_page(router: Router, nets: dict[str, list[tuple[Key, Point, Dir]]]) -> 
         for key, _, _ in terminals:
             if key not in keep:
                 router.reserved.pop(key, None)
+
+    later: list[str] = []
+    for net in sorted(nets, key=lambda n: (spread(n), n)):
+        wires, points = len(router.wires), set(router.points)
+        clusters = route(net)
+        if len(clusters) > 1:
+            del router.wires[wires:]
+            for pt in set(router.points) - points:
+                del router.points[pt]
+            later.append(net)
+            continue
+        label(net, clusters)
+    for net in later:
+        label(net, route(net))
 
     counts: dict[Point, int] = {}
     for a, b, _ in router.wires:

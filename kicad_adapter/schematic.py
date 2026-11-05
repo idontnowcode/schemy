@@ -33,6 +33,7 @@ from .drawing import (
     Port,
     Router,
     body_rect,
+    field_anchor,
     field_rect,
     grow,
     label_rect,
@@ -249,8 +250,9 @@ def _pin_views(sym: LibSymbol, comp, net_of: dict, rotation: int, mirror: bool =
 
 def _field_rects(sym: LibSymbol, comp, rotation: int, mirror: bool = False) -> list[Extent]:
     shown = {"Reference": comp.reference, "Value": comp.value}
-    return [field_rect(f, shown.get(f.name, f.value), rotation, mirror) for f in sym.fields
-            if not f.hidden and not f.name.startswith("ki_")]
+    unit = getattr(comp, "unit", 1)
+    return [field_rect(f, text, rotation, mirror, field_anchor(sym, f, text, unit)) for f in sym.fields
+            if not f.hidden and not f.name.startswith("ki_") for text in (shown.get(f.name, f.value),)]
 
 
 def _part_extent(sym: LibSymbol, comp, net_of: dict, power: dict[str, LibSymbol], rotation: int = 0,
@@ -827,7 +829,8 @@ def _placed_symbol(comp, sym: LibSymbol, p: Placement, ids: _Ids, project_name: 
     ordered += [f.name for f in sym.fields if f.name not in _MANDATORY_FIELDS and not f.name.startswith("ki_")]
     for name in ordered:
         f: LibField = lib_fields[name]
-        x, y = _to_sheet(p, f.x, f.y, mirror)
+        ax, ay = field_anchor(sym, f, overrides.get(name, f.value), unit) if not f.hidden else (f.x, -f.y)
+        x, y = _to_sheet(p, ax, -ay, mirror)
         angle, effects = f.angle, f.effects
         if name == "Value" and value_at is not None:
             (x, y), angle, justify = value_at

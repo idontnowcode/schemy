@@ -138,6 +138,8 @@ def test_examples_are_offered(tmp_path):
     led = next(e for e in examples if e["id"] == "led-resistor-connector")
     assert led["title"].startswith("LED + series resistor")
     assert CircuitIR.model_validate(led["circuit"]) == CircuitIR.model_validate(led_ir())
+    sample = next(e for e in examples if e["id"] == "atmega328p-led-board")
+    assert sample["title"] == "ATmega328P 상태 LED 보드"
 
 
 

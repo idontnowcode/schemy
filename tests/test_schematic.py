@@ -9,7 +9,7 @@ from kicad_adapter.schematic import project_file
 from kicad_adapter.sexpr import child, children, head, unquote
 
 from .circuits import rotation_ring
-from .conftest import EXAMPLE_DIR, EXAMPLE_NAME
+from .conftest import EXAMPLE_DIR, EXAMPLE_NAME, SAMPLE_DIR, SAMPLE_NAME
 
 KICAD_10_NEW_PROJECT_TEMPLATE = """{
   "board": {
@@ -50,6 +50,20 @@ def error_codes(exc_info):
     return sorted(i.error_code for i in exc_info.value.issues)
 
 
+def check_golden(circuit, library, workdir, name, folder):
+    generate_schematic(circuit, library, project_name=name).write(workdir)
+    sch, pro = (f"{name}{suffix}" for suffix in (".kicad_sch", ".kicad_pro"))
+    if os.environ.get("AICS_UPDATE_GOLDEN"):
+        for file in (sch, pro):
+            (folder / file).write_text((workdir / file).read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
+    assert (workdir / sch).read_text(encoding="utf-8") == (folder / sch).read_text(encoding="utf-8"), (
+        f"{sch} differs from the generator output. If it was saved from KiCad, restore it with "
+        "`git checkout -- examples/`; if the generator changed on purpose, rerun with AICS_UPDATE_GOLDEN=1."
+    )
+    meta = json.loads((folder / pro).read_text(encoding="utf-8"))["meta"]
+    assert meta["filename"] == pro
+
+
 def test_example_project_matches_generator(led_circuit, library, workdir):
     """examples/led-resistor-connector is the golden output and a KiCad project users can open.
 
@@ -57,18 +71,13 @@ def test_example_project_matches_generator(led_circuit, library, workdir):
     file name, because KiCad rewrites that file whenever someone opens and closes the
     project; its content is covered by test_project_file_is_kicads_new_project_template.
     """
-    generate_schematic(led_circuit, library, project_name=EXAMPLE_NAME).write(workdir)
-    sch, pro = (f"{EXAMPLE_NAME}{suffix}" for suffix in (".kicad_sch", ".kicad_pro"))
-    if os.environ.get("AICS_UPDATE_GOLDEN"):
-        for name in (sch, pro):
-            (EXAMPLE_DIR / name).write_text((workdir / name).read_text(encoding="utf-8"),
-                                            encoding="utf-8", newline="\n")
-    assert (workdir / sch).read_text(encoding="utf-8") == (EXAMPLE_DIR / sch).read_text(encoding="utf-8"), (
-        f"{sch} differs from the generator output. If it was saved from KiCad, restore it with "
-        "`git checkout -- examples/`; if the generator changed on purpose, rerun with AICS_UPDATE_GOLDEN=1."
-    )
-    meta = json.loads((EXAMPLE_DIR / pro).read_text(encoding="utf-8"))["meta"]
-    assert meta["filename"] == pro
+    check_golden(led_circuit, library, workdir, EXAMPLE_NAME, EXAMPLE_DIR)
+
+
+def test_sample_board_matches_generator(sample_board, library, workdir):
+    """examples/atmega328p-led-board: the sample MCU board is a second golden, with a template, a crystal
+    block and a 32-pin IC, so layout changes show up here too."""
+    check_golden(sample_board, library, workdir, SAMPLE_NAME, SAMPLE_DIR)
 
 
 def test_deterministic(led_circuit, library):
@@ -510,6 +519,39 @@ def test_termination_resistor_bridges_the_lines_and_the_connector_lines_up(libra
     assert r_top[1] < min(canh[1], canl[1]) and r_bottom[1] > max(canh[1], canl[1])
     labels = [unquote(lbl[1]) for lbl in children(sexpr.parse(g.text), "label")]
     assert labels.count("CANH") == 1 and labels.count("CANL") == 1
+
+
+def test_sample_board_draws_the_ir_nets_and_a_textbook_crystal(sample_board, library):
+    """The crystal stands across XTAL1/XTAL2 with C5 straight below it (a capacitor to ground hangs under the
+    end of a bridge that points to ground), and short wires are drawn even where another pin's label space
+    was kept free at first (R2 to D2): every wired piece has one name label."""
+    g = generate_schematic(sample_board, library)
+    drawn = drawn_nets(g)
+    want = ir_nets(sample_board)
+    connected = {nodes: tags for nodes, tags in drawn.items() if len(nodes) > 1 or tags}
+    assert set(connected) == set(want)
+    pins = {(a.reference, a.pin): (a.x, a.y) for a in g.anchors}
+    y2, c5 = pins[("Y1", "2")], pins[("C5", "1")]
+    assert c5[0] == y2[0] and c5[1] > y2[1]
+    labels = [unquote(lbl[1]) for lbl in children(sexpr.parse(g.text), "label")]
+    for net in ("XTAL1", "XTAL2", "STATUS", "STATUS_LED", "RESET", "AREF"):
+        assert labels.count(net) == 1, net
+
+
+def test_long_value_slides_off_the_symbol_drawing(library):
+    """An LED's value longer than the library's "LED" would run into the light arrows: it slides along the
+    text, away from them. A resistor's value sits inside its box on purpose and stays put."""
+    from kicad_adapter.drawing import _graphics, field_anchor, field_rect, overlaps
+
+    led, res = library.get("Device:LED"), library.get("Device:R")
+    value = next(f for f in led.fields if f.name == "Value")
+    at = field_anchor(led, value, "GREEN")
+    assert at[1] == -value.y and at[0] > value.x
+    arrows = [g for g in _graphics(led) if g[2] < -1.27]  # the two light arrows, left of the diode bar
+    assert arrows and not any(overlaps(field_rect(value, "GREEN", 0, at=at), g) for g in arrows)
+    assert field_anchor(led, value, "RED") == (value.x, -value.y)
+    r_value = next(f for f in res.fields if f.name == "Value")
+    assert field_anchor(res, r_value, "10k") == (r_value.x, -r_value.y)
 
 
 # --- multi-unit symbols and stacked pins (Phase 3) -----------------------------------------------
