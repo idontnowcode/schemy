@@ -459,6 +459,7 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - 레귤레이터 블록: 7805·AMS1117 같은 레귤레이터의 입출력 레일은 블록 안에서 선으로(콘덴서는 선에서 GND로, 보호 다이오드는 위로, 전원 LED는 세로), 레일 묶음마다 전원 심볼 하나.
 - 샘플 보드 3종(`examples/atmega328p-led-board`, MCU 없는 `examples/ne555-led-board`, `examples/lm7805-24v-to-5v`).
 - KiCad에서 옮긴 배치 가져오기(외부 수정 가져오기 1단계, ADR-010): 출력 회로도의 위치·회전·반전을 `AICS_ID`로 짝지어 `move` 제안으로. IR 0.6.0 `Placement.mirror`. 생성기의 회전·반전 순서를 KiCad와 같게(회전 후 반전) 바로잡음.
+- Windows 설치 파일: PyInstaller 백엔드(Python 동봉) + electron-builder NSIS, 빌드 스크립트와 GitHub Actions 워크플로(ADR-003 갱신).
 
 ### v1.7 (2026-11-05)
 - Phase 3 완료: 다중 유닛 심볼, 겹친 숨은 핀, 검토된 템플릿 4종, 템플릿 넣기(제안), AI 설계의 템플릿 우선, 부품 출처(IR 0.4.0 `Component.origin`), 엔지니어 검토 기록(상태 3축의 세 번째 축).

@@ -67,6 +67,23 @@ npm start                                 # 빌드 후 Electron 실행 (백엔�
 - 생성 결과는 **KiCad에서 열기** 버튼이나 보드 폴더의 `outputs/<프로젝트>-<보드>.kicad_pro`로 엽니다.
 - KiCad에서 부품을 옮기고 저장했다면 **회로도 · 검증** 탭의 **KiCad 배치 가져오기**를 누르세요. 위치·회전·반전이 제안으로 만들어지고, 승인하면 다음 생성부터 그 배치를 유지합니다(배선은 다시 그림, ADR-010). **자동 배치로 되돌리기**로 언제든 되돌릴 수 있습니다.
 
+### Windows 설치 파일 만들기
+
+개발 도구 없이 쓰는 사람에게는 설치 파일을 줍니다.
+- 설치 파일에는 앱 화면과 백엔드(Python 포함, PyInstaller로 만든 실행 파일)가 들어 있습니다. 받는 사람의 PC에 Python, uv, Node.js가 없어도 됩니다.
+- KiCad 10은 따로 설치해야 합니다.
+
+```powershell
+# Windows 10/11 x64, git·uv·Node.js 22 이상이 있는 PC에서
+powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1
+# 결과: desktop\release\AI-Circuit-Studio-Setup-<버전>.exe
+```
+
+- GitHub Actions의 **Windows installer** 워크플로를 수동 실행하거나 `v*` 태그를 올려도 같은 설치 파일이 artifact로 만들어집니다.
+- 코드 서명을 하지 않아서, 처음 실행할 때 Windows SmartScreen이 한 번 확인을 묻습니다.
+- 앱 아이콘은 아직 Electron 기본 아이콘입니다.
+- 같은 구성을 Linux(`npm run dist`, `desktop/release/linux-unpacked`)에서 만들어 실행까지 확인했습니다(ADR-003).
+
 ### AI 기능 켜기 (선택)
 
 앱의 **설정**에서 AI 공급자를 고릅니다: **Google Gemini API**(기본) 또는 **Anthropic Claude API**.

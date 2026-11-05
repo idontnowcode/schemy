@@ -19,8 +19,11 @@ fp-info-cache
 _autosave-*
 \#auto_saved_files#
 
-# Node / Electron (later phases)
+# Node / Electron
 node_modules/
+desktop/dist-electron/
+desktop/release/
+desktop/test-results/
 
 # OS / editor
 .DS_Store

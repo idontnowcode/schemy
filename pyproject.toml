@@ -23,6 +23,9 @@ dev = [
     "pytest>=8",
     "httpx2>=2.16",
 ]
+packaging = [
+    "pyinstaller>=6",
+]
 
 [build-system]
 requires = ["hatchling"]

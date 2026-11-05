@@ -30,7 +30,21 @@
   - 토큰을 쓰는 UI로 프로젝트 생성이 동작함
   - 워크스페이스 밖 `openPath`는 거부됨
 
+## 배포 패키징 (2026-11-05 결정)
+
+8. **백엔드는 PyInstaller 폴더형(onedir) 실행 파일**로 만든다(`packaging/build_backend.py`). Python 런타임과 의존성, 예제(`examples/`), AI 프롬프트가 들어간다. 받는 사람의 PC에 Python·uv가 필요 없다. 폴더형이라 실행할 때 압축을 풀지 않아 시작이 빠르다.
+9. **설치 프로그램은 electron-builder의 NSIS**다(`npm run dist:win`). 백엔드 폴더와 빌드된 UI는 app.asar 밖의 `resources/backend`, `resources/ui`에 둔다(백엔드 프로세스가 직접 읽어야 하므로). 설치판에서는 Electron이 `resources/backend/aics-backend(.exe)`를 띄운다. 개발 모드는 여전히 `uv run`이다.
+10. **빌드는 각 OS에서 한다.** PyInstaller는 교차 빌드를 하지 않는다. Windows 설치 파일은 Windows PC(`packaging/build-windows.ps1`)나 GitHub Actions `windows-latest`(`.github/workflows/windows-installer.yml`)에서 만든다.
+11. 렌더러 라이브러리(react, marked, dompurify)는 Vite가 번들하므로 devDependencies로 옮겼다. 설치판에 node_modules가 들어가지 않는다.
+
+### 검증 (Linux, 같은 구성)
+
+- 동봉 백엔드 단독(HTTP): ready 줄, 예제 4개, 템플릿 4개, 7805 예제 생성 → KiCad 10.0.8 ERC 0건·Netlist = IR, UI 서빙.
+- `npm run dist`(linux-unpacked)를 Xvfb에서 실행: 창 제목, 동봉 백엔드 시작, 예제 불러오기·저장, 앱 종료 시 백엔드 종료.
+- 개발 모드 Electron e2e(`electron.spec.ts`)도 Xvfb에서 통과한다.
+- Windows 실행 파일은 이 개발 환경(Linux)에서 만들 수 없어 아직 직접 실행해 보지 않았다.
+
 ## 남은 결정
 
-- **배포 패키징:** 설치 프로그램에 Python 런타임을 어떻게 넣을지 정해야 한다. 후보는 PyInstaller로 만든 단일 실행 파일, 내장형 Python 배포판, uv 동봉이다. Windows에서 직접 실행해 본 뒤 ADR로 정한다.
-- **코드 서명과 자동 업데이트:** 배포 단계에서 정한다.
+- **코드 서명과 자동 업데이트:** 배포 단계에서 정한다. 서명이 없으면 첫 실행 때 SmartScreen이 확인을 묻는다.
+- **앱 아이콘:** 아직 Electron 기본 아이콘이다.

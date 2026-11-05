@@ -15,7 +15,10 @@ import readline from "node:readline";
 
 const desktopDir = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(desktopDir, "..");
-const uiDir = path.join(desktopDir, "dist");
+// Installed app: the backend (a self-contained executable) and the built UI ship as extra resources, outside the
+// app archive, so the backend process can read them. Development: uv runs the backend from the repository.
+const packaged = app.isPackaged;
+const uiDir = packaged ? path.join(process.resourcesPath, "ui") : path.join(desktopDir, "dist");
 const token = randomBytes(32).toString("hex");
 
 let backend: ChildProcessWithoutNullStreams | null = null;
@@ -28,17 +31,21 @@ if (process.env.AICS_ELECTRON_NO_SANDBOX === "1") {
   app.commandLine.appendSwitch("no-sandbox");
 }
 
-function backendCommand(): { cmd: string; args: string[] } {
-  const args = ["-m", "backend", "--exit-on-stdin-eof", "--ui-dir", uiDir];
-  if (process.env.AICS_BACKEND_PYTHON) return { cmd: process.env.AICS_BACKEND_PYTHON, args };
-  return { cmd: "uv", args: ["run", "--project", repoRoot, "python", ...args] };
+function backendCommand(): { cmd: string; args: string[]; cwd: string } {
+  const args = ["--exit-on-stdin-eof", "--ui-dir", uiDir];
+  if (process.env.AICS_BACKEND_PYTHON) return { cmd: process.env.AICS_BACKEND_PYTHON, args: ["-m", "backend", ...args], cwd: repoRoot };
+  if (packaged) {
+    const exe = process.platform === "win32" ? "aics-backend.exe" : "aics-backend";
+    return { cmd: path.join(process.resourcesPath, "backend", exe), args, cwd: process.resourcesPath };
+  }
+  return { cmd: "uv", args: ["run", "--project", repoRoot, "python", "-m", "backend", ...args], cwd: repoRoot };
 }
 
 function startBackend(): Promise<{ url: string; workspace: string }> {
   return new Promise((resolve, reject) => {
-    const { cmd, args } = backendCommand();
+    const { cmd, args, cwd } = backendCommand();
     const child = spawn(cmd, args, {
-      cwd: repoRoot,
+      cwd,
       env: { ...process.env, AICS_TOKEN: token },
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
