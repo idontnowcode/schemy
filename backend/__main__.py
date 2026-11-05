@@ -19,6 +19,7 @@ import os
 import socket
 import sys
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import uvicorn
@@ -27,7 +28,8 @@ from .app import create_app
 from .config import Settings, default_workspace
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, configure: Callable[[Settings], None] | None = None) -> int:
+    """``configure`` lets a test launcher adjust the settings (e.g. inject a fake AI); the app never uses it."""
     parser = argparse.ArgumentParser(prog="python -m backend", description="AI Circuit Studio local API")
     parser.add_argument("--port", type=int, default=0, help="0 picks a free port")
     parser.add_argument("--workspace", type=Path, default=None)
@@ -44,6 +46,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     settings = Settings(workspace=args.workspace or default_workspace(), token=token, ui_dir=args.ui_dir)
+    if configure is not None:
+        configure(settings)
     app = create_app(settings)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

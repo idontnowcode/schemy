@@ -4,6 +4,7 @@ import { api, errorText } from "../api";
 import { outputsLabel, reviewLabel } from "../format";
 import type { CircuitIR, OutputsStatus, ProjectSummary, ReviewStatus, SystemInfo } from "../types";
 import { Chip } from "./Chip";
+import { AgentTab } from "./AgentTab";
 import { CircuitTab } from "./CircuitTab";
 import { DatasheetsTab } from "./DatasheetsTab";
 import { DocumentsTab } from "./DocumentsTab";
@@ -24,6 +25,7 @@ export const TABS = [
   { id: "materials", label: "자재" },
   { id: "datasheets", label: "데이터시트" },
   { id: "review", label: "검토" },
+  { id: "agent", label: "Agent" },
   { id: "documents", label: "문서 · BOM" },
   { id: "history", label: "이력" },
 ] as const;
@@ -219,6 +221,9 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onP
         {tab === "datasheets" && <DatasheetsTab projectId={project.id} boardId={board.id} revision={data.revision} />}
         {tab === "review" && (
           <ReviewTab projectId={project.id} boardId={board.id} circuit={data.circuit} revision={data.revision} onChanged={afterChange} />
+        )}
+        {tab === "agent" && (
+          <AgentTab projectId={project.id} boardId={board.id} revision={data.revision} onOpenProposal={openProposal} onChanged={afterChange} />
         )}
         {tab === "documents" && <DocumentsTab projectId={project.id} boardId={board.id} revision={data.revision} />}
         {tab === "history" && (

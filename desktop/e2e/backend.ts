@@ -39,10 +39,11 @@ export interface Backend {
   stop(): Promise<void>;
 }
 
-export function startBackend(workspace: string): Promise<Backend> {
+/** ``fakeAi`` runs the test-only launcher (tests/e2e_backend.py) with a scripted AI instead of the real app entry. */
+export function startBackend(workspace: string, opts: { fakeAi?: boolean } = {}): Promise<Backend> {
   const { cmd, prefix } = backendPython();
-  const args = [...prefix, "-m", "backend", "--no-auth", "--exit-on-stdin-eof", "--workspace", workspace,
-    "--ui-dir", path.join(desktopDir, "dist")];
+  const args = [...prefix, "-m", opts.fakeAi ? "tests.e2e_backend" : "backend", "--no-auth", "--exit-on-stdin-eof",
+    "--workspace", workspace, "--ui-dir", path.join(desktopDir, "dist")];
   const child: ChildProcessWithoutNullStreams = spawn(cmd, args, {
     cwd: repoRoot,
     env: { ...process.env, AICS_SYMBOL_DIRS: symbolDirs() },

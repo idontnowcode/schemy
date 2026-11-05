@@ -26,6 +26,9 @@ from circuit_core import CircuitIR, Severity, validate_circuit
 from circuit_core.export import BOM_COLUMNS, bom_rows, circuit_markdown
 from kicad_adapter import SymbolLibrary, SymbolLibraryError, check_against_library
 
+from .agent.routes import build_agent_router
+from .agent.runner import AgentRunner
+from .ai_access import AiAccess
 from .config import APP_VERSION, Settings
 from .datasheets import DatasheetLibrary
 from .design_resolver import symbol_index
@@ -388,6 +391,24 @@ def create_app(settings: Settings) -> FastAPI:
     reviews = ReviewStore(store)
     app.state.reviews = reviews
     app.include_router(build_review_router(store, reviews))
+
+    access = AiAccess(store, settings)
+
+    def agent_provider():
+        cfg = access.settings()
+        return access.provider_for(cfg), cfg
+
+    def search_symbols(query: str) -> list[dict]:
+        if not settings.symbol_dirs:
+            return []
+        index = symbol_index(settings.symbol_dirs, settings.workspace / "cache" / "symbol_index.json")
+        return [{"symbol_id": s.lib_id, "description": s.description, "pins": s.pins, "units": s.units}
+                for _, s in index.search([query], limit=10)]
+
+    agent_runner = AgentRunner(store, jobs, proposals, proposal_service, provider_for=agent_provider,
+                               library=checker.library, kicad=settings.kicad_factory, search_symbols=search_symbols)
+    app.state.agent_runner = agent_runner
+    app.include_router(build_agent_router(agent_runner))
     app.include_router(build_datasheet_router(store, jobs, datasheets, settings, checker.library))
     app.include_router(build_proposal_router(proposal_service))
     app.include_router(build_design_router(store, jobs, proposal_service, inventory, datasheets, settings))

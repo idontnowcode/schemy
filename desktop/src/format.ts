@@ -328,3 +328,31 @@ export function originLabel(origin: string | null | undefined): string {
   const m = /^template:(.+)$/.exec(origin);
   return m ? `템플릿 ${m[1]}` : origin;
 }
+
+export const AGENT_FLOW = ["PLANNING", "PROPOSED_PLAN", "SCOPE_APPROVED", "SANDBOX_EXECUTION", "VALIDATION", "REVIEW_REQUIRED", "COMMITTED"] as const;
+
+export function agentStateLabel(state: string): { text: string; tone: Tone } {
+  return (
+    (
+      {
+        PLANNING: { text: "계획 중", tone: "info" },
+        PROPOSED_PLAN: { text: "범위 승인 대기", tone: "warn" },
+        SCOPE_APPROVED: { text: "범위 승인됨", tone: "info" },
+        SANDBOX_EXECUTION: { text: "격리 실행 중", tone: "info" },
+        VALIDATION: { text: "검증 중", tone: "info" },
+        REVIEW_REQUIRED: { text: "제안 검토 필요", tone: "warn" },
+        COMMITTED: { text: "반영됨", tone: "ok" },
+        REJECTED: { text: "거부됨", tone: "muted" },
+        CANCELLED: { text: "취소됨", tone: "muted" },
+        FAILED: { text: "실패", tone: "bad" },
+        STALE: { text: "기준 바뀜 (STALE)", tone: "muted" },
+      } as Record<string, { text: string; tone: Tone }>
+    )[state] ?? { text: state, tone: "muted" }
+  );
+}
+
+export function scopeText(s: { op: string; target: string; field?: string | null }): string {
+  const op =
+    { set_property: "속성 변경", add_component: "부품 추가", remove_component: "부품 삭제", connect: "연결", disconnect: "연결 해제", rename_net: "Net 이름 변경", set_no_connect: "NC 설정", move: "위치 이동" }[s.op] ?? s.op;
+  return `${op} — ${s.target}${s.field ? ` (${s.field})` : ""}`;
+}

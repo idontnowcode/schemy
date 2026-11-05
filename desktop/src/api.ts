@@ -1,6 +1,9 @@
 import { desktop } from "./desktop";
 import { toErrorBody } from "./format";
 import type {
+  AgentLimits,
+  AgentRun,
+  AgentScopeItem,
   AiProvider,
   AiStatus,
   ApiErrorBody,
@@ -204,6 +207,14 @@ export const api = {
   saveAiKey: (apiKey: string) => request<{ key: AiStatus["key"] }>("PUT", "/ai/key", { api_key: apiKey }),
   deleteAiKey: () => request<{ key: AiStatus["key"] }>("DELETE", "/ai/key"),
   templates: () => request<{ templates: CircuitTemplate[] }>("GET", "/templates"),
+  agentDefaults: () => request<{ tools: string[]; defaults: AgentLimits }>("GET", "/agent/tools"),
+  agentRuns: (p: string, b: string) => request<{ runs: AgentRun[] }>("GET", `${board(p, b)}/agent-runs`),
+  agentRun: (p: string, b: string, id: string) => request<AgentRun>("GET", `${board(p, b)}/agent-runs/${enc(id)}`),
+  startAgent: (p: string, b: string, text: string, limits?: AgentLimits) =>
+    request<{ run: AgentRun; job: Job }>("POST", `${board(p, b)}/agent-runs`, { request: text, limits }),
+  approveAgentScope: (p: string, b: string, id: string, scope: AgentScopeItem[] | null) =>
+    request<{ run: AgentRun; job: Job }>("POST", `${board(p, b)}/agent-runs/${enc(id)}/approve-scope`, { scope }),
+  cancelAgent: (p: string, b: string, id: string) => request<AgentRun>("POST", `${board(p, b)}/agent-runs/${enc(id)}/cancel`),
   reviews: (p: string, b: string) =>
     request<{ status: BoardReviewStatus; reviews: EngineeringReview[] }>("GET", `${board(p, b)}/reviews`),
   reviewChecklist: (p: string, b: string) =>

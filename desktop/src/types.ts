@@ -670,3 +670,102 @@ export interface ChecklistSuggestion {
   basis: string;
   group: string;
 }
+
+// --- agent runs (Phase 4) -------------------------------------------------------------------------
+
+export type AgentState =
+  | "PLANNING"
+  | "PROPOSED_PLAN"
+  | "SCOPE_APPROVED"
+  | "SANDBOX_EXECUTION"
+  | "VALIDATION"
+  | "REVIEW_REQUIRED"
+  | "COMMITTED"
+  | "REJECTED"
+  | "CANCELLED"
+  | "FAILED"
+  | "STALE";
+
+export interface AgentScopeItem {
+  op: string;
+  target: string;
+  field?: string | null;
+  why?: string | null;
+}
+
+export interface AgentLimits {
+  max_llm_calls: number;
+  max_tokens: number;
+  max_seconds: number;
+  max_tool_calls: number;
+  max_retries: number;
+}
+
+export interface AgentLogEntry {
+  ts: string;
+  type: string;
+  tool?: string;
+  step?: number;
+  thought?: string;
+  ok?: boolean;
+  error?: { code: string; message: string } | null;
+  result?: unknown;
+  seconds?: number;
+  args?: string;
+  reason?: string;
+  from?: string;
+  to?: string;
+  what?: string;
+  tokens?: number;
+  problems?: string[];
+  attempt?: number;
+}
+
+export interface AgentRun {
+  id: string;
+  request: string;
+  state: AgentState;
+  created_at: string;
+  updated_at: string;
+  base_revision: number | null;
+  provider: string;
+  model: string;
+  limits: AgentLimits;
+  usage: { llm_calls: number; tokens: number; tool_calls: number; seconds: number };
+  plan: {
+    summary?: string;
+    steps?: string[];
+    scope?: AgentScopeItem[];
+    risks?: string[];
+    questions?: string[];
+    dropped_scope?: string[];
+    scope_request?: string;
+  } | null;
+  scope: AgentScopeItem[];
+  pending_scope: AgentScopeItem[];
+  attempts: number;
+  summary: string | null;
+  validation: {
+    status: string;
+    problems: string[];
+    kicad: string;
+    erc_errors?: number;
+    erc_warnings?: number;
+    netlist_matches_ir?: boolean;
+  } | null;
+  report: {
+    values: { reference: string; field: string; before: string | null; after: string | null }[];
+    connections: { reference: string; pin: string; before: string | null; after: string | null }[];
+    components_added: string[];
+    components_removed: string[];
+    netlist: {
+      nets_changed?: Record<string, { before: string[][]; after: string[][] }>;
+      values_changed?: Record<string, { before: string | null; after: string | null }>;
+      error?: string;
+    } | null;
+  } | null;
+  proposal_id: string | null;
+  failure: { code: string; message: string } | null;
+  history: { at: string; from: string; to: string; reason: string }[];
+  log?: AgentLogEntry[];
+}
