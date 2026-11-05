@@ -74,6 +74,16 @@ def test_regulator_board_end_to_end(regulator_board, library, kicad_cli, workdir
     assert len(differing) == 2
 
 
+def test_motor_board_end_to_end(motor_board, library, kicad_cli, workdir):
+    """examples/dc-motor-drv8871: the DRV8871 driver with its protected power input passes ERC and matches the IR."""
+    generated = generate_schematic(motor_board, library)
+    sch = generated.write(workdir)
+    report = run_checks(motor_board, generated, sch, kicad_cli)
+    assert report.erc.errors == [], report.erc.summary()
+    assert report.erc.warnings == [], report.erc.summary()
+    assert report.connectivity.ok, report.connectivity.describe()
+
+
 def test_kicad_round_trip_preserves_file(led_circuit, library, kicad_cli, workdir):
     """KiCad loads the file and re-saves it: only the generator lines may change."""
     generated = generate_schematic(led_circuit, library)

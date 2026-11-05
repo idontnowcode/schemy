@@ -30,7 +30,7 @@ _R_POWER = [("0201", 0.05), ("0402", 0.0625), ("0603", 0.1), ("0805", 0.125), ("
 # Typical LED forward voltage ranges by colour (V), used when the value names a colour.
 _LED_VF = [("RED", (1.8, 2.2)), ("ORANGE", (1.9, 2.2)), ("YELLOW", (1.9, 2.2)), ("AMBER", (1.9, 2.2)),
            ("GREEN", (2.0, 3.2)), ("BLUE", (2.8, 3.4)), ("WHITE", (2.8, 3.4))]
-_POWER_PINS = re.compile(r"^(VCC|VDD|AVCC|AVDD|DVDD|VDDA|VDDIO|V\+|VS|VBAT|VIN|VI|IN)$", re.I)
+_POWER_PINS = re.compile(r"^(VCC|VDD|AVCC|AVDD|DVDD|VDDA|VDDIO|V\+|VS|VBAT|VIN|VI|IN|VM|VMOT|VBB)$", re.I)
 _IN_PINS = re.compile(r"^(IN|VI|VIN)$", re.I)
 _OUT_PINS = re.compile(r"^(OUT|VO|VOUT)$", re.I)
 _SUPPLY_NAME = re.compile(r"PWR|POWER|SUPPLY|VIN|VCC|VDD|VBAT|VBUS|V\+|^\+", re.I)
@@ -38,6 +38,9 @@ _I2C = re.compile(r"(^|_)(I2C\d?_)?(SDA|SCL)\d?($|_)", re.I)
 # Regulator families: (pattern on the value, typical dropout V, maximum output current A). Series values.
 _REG_FAMILIES = [(r"78L\d\d", 1.7, 0.1), (r"78M\d\d", 2.0, 0.5), (r"78\d\d", 2.0, 1.5), (r"AMS1117", 1.3, 1.0),
                  (r"LD1117", 1.1, 0.8), (r"LM1117", 1.2, 0.8)]
+# Brushed DC motor drivers: (pattern, VM min V, VM max V, peak output A, Rds(on) high + low side ohm, ILIM constant kV
+# for I_TRIP = constant / R_ILIM, None without an ILIM pin). Typical datasheet values.
+_MOTOR_DRIVERS = [(r"DRV8871", 6.5, 45.0, 3.6, 0.565, 64.0)]
 # Rectifier and signal diodes by part number: (pattern, average forward current A, repetitive reverse V, typical Vf V).
 _DIODES = [(r"1N400([1-7])", 1.0, {"1": 50, "2": 100, "3": 200, "4": 400, "5": 600, "6": 800, "7": 1000}, 1.0),
            (r"1N54(0[0-8])", 3.0, {"00": 50, "01": 100, "02": 200, "03": 300, "04": 400, "05": 500, "06": 600,
@@ -429,6 +432,59 @@ def _diodes(b: _Board) -> list[Finding]:
     return out
 
 
+def _motor_drivers(b: _Board) -> list[Finding]:
+    """Supply range, the current limit set by the ILIM resistor, and the H-bridge's conduction loss."""
+    out = []
+    for comp in b.c.components:
+        family = next((f for f in _MOTOR_DRIVERS if re.search(f[0], f"{comp.value} {comp.symbol_id}", re.I)), None)
+        if family is None:
+            continue
+        _, vmin, vmax, ipeak, rds, k_ilim = family
+        name = f"{comp.reference} ({comp.value})"
+        note = f"{family[0]} 데이터시트의 일반값, 원문으로 확인"
+        vm_net = next((b.net_of.get((comp.id, p)) for p in b.pins_named(comp, re.compile(r"^VM$", re.I))), None)
+        v = b.v(vm_net)
+        if v is not None:
+            sev = "fail" if v < vmin or v > vmax else "warn" if v > 0.9 * vmax or v < vmin * 1.1 else "ok"
+            out.append(Finding("motor_vm", sev, f"{name}: VM {v:g} V / 범위 {vmin:g}~{vmax:g} V",
+                               {"fail": "동작 전압 범위를 벗어납니다.",
+                                "warn": "범위 끝에 가깝습니다. 모터 역기전력·전원 변동으로 넘을 수 있습니다.",
+                                "ok": "동작 전압 범위 안입니다. 모터가 멈출 때 VM이 올라가는 것은 TVS·벌크 콘덴서로 막으세요."}[sev],
+                               f"{vm_net} = {v:g} V; {note}", (comp.id,)))
+        ilim = b.pin_by_name(comp, "ILIM")
+        i_trip = None
+        if ilim is not None and k_ilim is not None:
+            net = b.net_of.get((comp.id, ilim))
+            res = [b.comps[c] for c, _ in b.nodes.get(net or "", []) if c != comp.id and _kind(b.comps[c]) == "r"
+                   and any(is_ground_name(n or "") for n in b.two_nets(b.comps[c]))]
+            ohms = parse_value(res[0].value) if res else None
+            if not ohms:
+                out.append(Finding("motor_ilim", "warn", f"{name}: 전류 제한 저항을 찾지 못함",
+                                   "ILIM 핀과 GND 사이 저항이 전류 제한을 정합니다. 없거나 값이 없으면 제한이 동작하지 않습니다.",
+                                   None, (comp.id,)))
+            else:
+                i_trip = k_ilim / (ohms / 1000)
+                sev = "warn" if i_trip > ipeak else "ok"
+                out.append(Finding("motor_ilim", sev, f"{name}: 전류 제한 {_fmt(i_trip, 'A')} (R {res[0].reference} {res[0].value})",
+                                   "모터 기동·구속 전류가 이 값에서 묶입니다." if sev == "ok" else
+                                   f"최대 출력 전류({ipeak:g} A)보다 높게 잡혀 제한이 보호 역할을 못 합니다.",
+                                   f"I_TRIP = {k_ilim:g} / R(kΩ) = {k_ilim:g} / {ohms / 1000:g} = {_fmt(i_trip, 'A')}; {note}",
+                                   (comp.id, res[0].id)))
+        load = b.current(vm_net)
+        if load is not None:
+            amps, how = load
+            watts = amps * amps * rds
+            sev = "warn" if watts >= 1.5 else "info" if watts >= 0.75 else "ok"
+            calc = f"P = I² × Rds(on) = ({_fmt(amps, 'A')})² × {rds:g} Ω = {_fmt(watts, 'W')}; {how}; Rds(on) 상·하단 합 {note}"
+            if i_trip is not None:
+                calc += f"; 구속 시 {_fmt(i_trip, 'A')}면 {_fmt(i_trip * i_trip * rds, 'W')}(짧은 시간)"
+            out.append(Finding("motor_heat", sev, f"{name}: 출력 손실 {_fmt(watts, 'W')} (모터 {_fmt(amps, 'A')})",
+                               {"warn": "방열 패드의 구리 면적과 열 비아가 충분해야 합니다. 과열 보호로 꺼질 수 있습니다.",
+                                "info": "방열 패드를 넓은 GND 구리에 붙이고 열 비아를 두세요.",
+                                "ok": "손실이 작습니다. 방열 패드는 GND 구리에 붙이세요."}[sev], calc, (comp.id,)))
+    return out
+
+
 def _i2c_pullups(b: _Board) -> list[Finding]:
     out = []
     for net in sorted(b.nodes, key=natural_key):
@@ -563,7 +619,7 @@ def engineering_review(circuit: CircuitIR) -> list[Finding]:
     leds = _leds(b)
     seen = {c for f in leds if f.rule == "r_power" for c in f.components}
     findings = (_capacitors(b) + leds + _resistors_across_rails(b, seen) + _regulators(b) + _diodes(b) + _decoupling(b)
-                + _i2c_pullups(b) + _crystals(b) + _unknown_rails(b))
+                + _i2c_pullups(b) + _crystals(b) + _motor_drivers(b) + _unknown_rails(b))
     return sorted(findings, key=lambda f: (ORDER[f.severity], f.rule, f.title))
 
 

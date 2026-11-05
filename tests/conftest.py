@@ -21,6 +21,8 @@ TIMER_NAME = "ne555-led-board"
 TIMER_DIR = ROOT.parent / "examples" / TIMER_NAME
 REGULATOR_NAME = "lm7805-24v-to-5v"
 REGULATOR_DIR = ROOT.parent / "examples" / REGULATOR_NAME
+MOTOR_NAME = "dc-motor-drv8871"
+MOTOR_DIR = ROOT.parent / "examples" / MOTOR_NAME
 
 
 @pytest.fixture
@@ -38,6 +40,12 @@ def sample_board() -> CircuitIR:
 def timer_board() -> CircuitIR:
     """examples/ne555-led-board: a board without an MCU (555 timer, power input block, English notes)."""
     return CircuitIR.model_validate_json((TIMER_DIR / "circuit.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def motor_board() -> CircuitIR:
+    """examples/dc-motor-drv8871: a 12 V brushed DC motor driver (DRV8871) with a protected power input."""
+    return CircuitIR.model_validate_json((MOTOR_DIR / "circuit.json").read_text(encoding="utf-8"))
 
 
 @pytest.fixture

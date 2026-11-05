@@ -98,7 +98,7 @@ export function TechnicalReviewCard({ projectId, boardId, revision, onOpenPropos
       <h3>기술 검토 (자동 계산)</h3>
       <p className="muted small">
         회로 데이터로 직접 계산한 결과입니다(AI 아님): 콘덴서 정격 전압·극성, LED 방향·전류, 저항 소비 전력, 레귤레이터 드롭아웃·발열·전류,
-        다이오드 전류·역전압, IC 디커플링, I2C 풀업, 크리스탈 부하 콘덴서. 전압은 아래 전원 조건에 적은 값, 없으면 Net 이름(+5V, +3V3)에서
+        다이오드 전류·역전압, IC 디커플링, I2C 풀업, 크리스탈 부하 콘덴서, 모터 드라이버. 전압은 아래 전원 조건에 적은 값, 없으면 Net 이름(+5V, +3V3)에서
         읽습니다. 확인할 곳을 알려 줄 뿐, 엔지니어 검토를 대신하지 않습니다.
       </p>
       {message && <p className="small bad-text">{message}</p>}

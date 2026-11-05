@@ -12,6 +12,8 @@ from .circuits import rotation_ring
 from .conftest import (
     EXAMPLE_DIR,
     EXAMPLE_NAME,
+    MOTOR_DIR,
+    MOTOR_NAME,
     REGULATOR_DIR,
     REGULATOR_NAME,
     SAMPLE_DIR,
@@ -92,6 +94,28 @@ def test_sample_board_matches_generator(sample_board, library, workdir):
 def test_regulator_board_matches_generator(regulator_board, library, workdir):
     """examples/lm7805-24v-to-5v: a regulator block drawn with wired input and output lines - a fourth golden."""
     check_golden(regulator_board, library, workdir, REGULATOR_NAME, REGULATOR_DIR)
+
+
+def test_motor_board_matches_generator(motor_board, library, workdir):
+    """examples/dc-motor-drv8871 is a golden output too (a power input through a fuse and a diode, a motor driver)."""
+    check_golden(motor_board, library, workdir, MOTOR_NAME, MOTOR_DIR)
+
+
+def test_power_input_through_a_series_chain_is_one_block(motor_board, library):
+    """J1 -> fuse -> reverse-polarity diode -> +12V is one straight line, and the parts on +12V/GND only (TVS, bulk
+    capacitor, power LED) gather by it, while the small capacitor stays wired at the driver's VM pin."""
+    g = generate_schematic(motor_board, library)
+    pins = {(a.reference, a.pin): (a.x, a.y) for a in g.anchors}
+    j1, f1a, f1b = pins[("J1", "1")], pins[("F1", "1")], pins[("F1", "2")]
+    d1a, d1k = pins[("D1", "2")], pins[("D1", "1")]
+    assert j1[1] == f1a[1] == f1b[1] == d1a[1] == d1k[1] and j1[0] < f1a[0] < f1b[0] < d1a[0] < d1k[0]
+    for ref in ("D2", "C1", "R2", "D3"):
+        x, y = pins[(ref, "1")]
+        assert abs(x - j1[0]) <= 101.6 and abs(y - j1[1]) <= 50.8, ref
+        assert abs(x - pins[("U1", "5")][0]) > abs(x - d1k[0]), ref  # nearer the input line than the driver
+    labels = [unquote(lbl[1]) for lbl in children(sexpr.parse(g.text), "label")]
+    assert labels.count("PWR_IN") == 1 and labels.count("VIN_F") == 1  # each line named once, not split
+    assert _wired(g.text, pins[("C2", "1")], pins[("U1", "5")])
 
 
 def test_regulator_block_is_drawn_like_the_textbook(regulator_board, library):

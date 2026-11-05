@@ -1,0 +1,671 @@
+{
+  "schema_version": "0.8.0",
+  "project_id": "dc-motor-drv8871",
+  "title": "12V DC 모터 드라이버 (DRV8871)",
+  "components": [
+    {
+      "id": "j-pwr",
+      "reference": "J1",
+      "value": "12V_IN",
+      "symbol_id": "Connector_Generic:Conn_01x02",
+      "footprint_id": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal",
+      "description": "12V 전원 입력 단자",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1"
+        },
+        {
+          "number": "2",
+          "name": "Pin_2"
+        }
+      ]
+    },
+    {
+      "id": "f-ptc",
+      "reference": "F1",
+      "value": "PTC 2.5A",
+      "symbol_id": "Device:Polyfuse",
+      "footprint_id": "Fuse:Fuse_1812_4532Metric",
+      "description": "자동 복귀 퓨즈 (유지 2.5A)",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "d-rev",
+      "reference": "D1",
+      "value": "SS34",
+      "symbol_id": "Diode:SS34",
+      "footprint_id": "Diode_SMD:D_SMA",
+      "description": "역전압 보호 쇼트키 (직렬)",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "K"
+        },
+        {
+          "number": "2",
+          "name": "A"
+        }
+      ]
+    },
+    {
+      "id": "d-tvs",
+      "reference": "D2",
+      "value": "SMAJ24A",
+      "symbol_id": "Diode:SMAJ24A",
+      "footprint_id": "Diode_SMD:D_SMA",
+      "description": "전원 서지 보호 TVS (1번 핀 = 캐소드)",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "A1"
+        },
+        {
+          "number": "2",
+          "name": "A2"
+        }
+      ]
+    },
+    {
+      "id": "c-bulk",
+      "reference": "C1",
+      "value": "100uF/35V",
+      "symbol_id": "Device:C_Polarized",
+      "footprint_id": "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm",
+      "description": "VM 벌크",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "c-vm",
+      "reference": "C2",
+      "value": "100nF/50V",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0805_2012Metric",
+      "description": "VM 디커플링 (핀 가까이)",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "u-drv",
+      "reference": "U1",
+      "value": "DRV8871DDA",
+      "symbol_id": "Driver_Motor:DRV8871DDA",
+      "footprint_id": "Package_SO:Texas_HTSOP-8-1EP_3.9x4.9mm_P1.27mm_EP2.95x4.9mm_Mask2.4x3.1mm_ThermalVias",
+      "description": "H-브리지 모터 드라이버",
+      "manufacturer": "Texas Instruments",
+      "manufacturer_part_number": "DRV8871DDAR",
+      "pins": [
+        {
+          "number": "1",
+          "name": "GND"
+        },
+        {
+          "number": "2",
+          "name": "IN2"
+        },
+        {
+          "number": "3",
+          "name": "IN1"
+        },
+        {
+          "number": "4",
+          "name": "ILIM"
+        },
+        {
+          "number": "5",
+          "name": "VM"
+        },
+        {
+          "number": "6",
+          "name": "OUT1"
+        },
+        {
+          "number": "7",
+          "name": "GND"
+        },
+        {
+          "number": "8",
+          "name": "OUT2"
+        },
+        {
+          "number": "9",
+          "name": "GND"
+        }
+      ]
+    },
+    {
+      "id": "r-ilim",
+      "reference": "R1",
+      "value": "30k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "description": "전류 제한 설정 (약 2.1A)",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "j-ctl",
+      "reference": "J2",
+      "value": "CTRL",
+      "symbol_id": "Connector_Generic:Conn_01x03",
+      "footprint_id": "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical",
+      "description": "제어 입력: IN1, IN2, GND",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1"
+        },
+        {
+          "number": "2",
+          "name": "Pin_2"
+        },
+        {
+          "number": "3",
+          "name": "Pin_3"
+        }
+      ]
+    },
+    {
+      "id": "j-mot",
+      "reference": "J3",
+      "value": "MOTOR",
+      "symbol_id": "Connector_Generic:Conn_01x02",
+      "footprint_id": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal",
+      "description": "모터 출력 단자",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1"
+        },
+        {
+          "number": "2",
+          "name": "Pin_2"
+        }
+      ]
+    },
+    {
+      "id": "r-led",
+      "reference": "R2",
+      "value": "4.7k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "description": "전원 LED 전류 제한",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "d-led",
+      "reference": "D3",
+      "value": "GREEN",
+      "symbol_id": "Device:LED",
+      "footprint_id": "LED_SMD:LED_0603_1608Metric",
+      "description": "12V 전원 LED",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "K"
+        },
+        {
+          "number": "2",
+          "name": "A"
+        }
+      ]
+    }
+  ],
+  "nets": [
+    {
+      "id": "n0",
+      "name": "PWR_IN",
+      "nodes": [
+        {
+          "component_id": "j-pwr",
+          "pin": "1"
+        },
+        {
+          "component_id": "f-ptc",
+          "pin": "1"
+        }
+      ],
+      "voltage": 12.0
+    },
+    {
+      "id": "n1",
+      "name": "VIN_F",
+      "nodes": [
+        {
+          "component_id": "f-ptc",
+          "pin": "2"
+        },
+        {
+          "component_id": "d-rev",
+          "pin": "2"
+        }
+      ],
+      "voltage": 12.0
+    },
+    {
+      "id": "n2",
+      "name": "+12V",
+      "nodes": [
+        {
+          "component_id": "d-rev",
+          "pin": "1"
+        },
+        {
+          "component_id": "d-tvs",
+          "pin": "1"
+        },
+        {
+          "component_id": "c-bulk",
+          "pin": "1"
+        },
+        {
+          "component_id": "c-vm",
+          "pin": "1"
+        },
+        {
+          "component_id": "u-drv",
+          "pin": "5"
+        },
+        {
+          "component_id": "r-led",
+          "pin": "1"
+        }
+      ],
+      "voltage": 11.6,
+      "load_current": 1.0
+    },
+    {
+      "id": "n3",
+      "name": "GND",
+      "nodes": [
+        {
+          "component_id": "j-pwr",
+          "pin": "2"
+        },
+        {
+          "component_id": "d-tvs",
+          "pin": "2"
+        },
+        {
+          "component_id": "c-bulk",
+          "pin": "2"
+        },
+        {
+          "component_id": "c-vm",
+          "pin": "2"
+        },
+        {
+          "component_id": "u-drv",
+          "pin": "1"
+        },
+        {
+          "component_id": "u-drv",
+          "pin": "7"
+        },
+        {
+          "component_id": "u-drv",
+          "pin": "9"
+        },
+        {
+          "component_id": "r-ilim",
+          "pin": "2"
+        },
+        {
+          "component_id": "j-ctl",
+          "pin": "3"
+        },
+        {
+          "component_id": "d-led",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "n4",
+      "name": "ILIM",
+      "nodes": [
+        {
+          "component_id": "u-drv",
+          "pin": "4"
+        },
+        {
+          "component_id": "r-ilim",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "n5",
+      "name": "IN1",
+      "nodes": [
+        {
+          "component_id": "j-ctl",
+          "pin": "1"
+        },
+        {
+          "component_id": "u-drv",
+          "pin": "3"
+        }
+      ]
+    },
+    {
+      "id": "n6",
+      "name": "IN2",
+      "nodes": [
+        {
+          "component_id": "j-ctl",
+          "pin": "2"
+        },
+        {
+          "component_id": "u-drv",
+          "pin": "2"
+        }
+      ]
+    },
+    {
+      "id": "n7",
+      "name": "MOT_A",
+      "nodes": [
+        {
+          "component_id": "u-drv",
+          "pin": "6"
+        },
+        {
+          "component_id": "j-mot",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "n8",
+      "name": "MOT_B",
+      "nodes": [
+        {
+          "component_id": "u-drv",
+          "pin": "8"
+        },
+        {
+          "component_id": "j-mot",
+          "pin": "2"
+        }
+      ]
+    },
+    {
+      "id": "n9",
+      "name": "LED_A",
+      "nodes": [
+        {
+          "component_id": "r-led",
+          "pin": "2"
+        },
+        {
+          "component_id": "d-led",
+          "pin": "2"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    {
+      "id": "note-in",
+      "text": "12V input: PTC fuse, reverse-polarity diode",
+      "components": [
+        "j-pwr",
+        "f-ptc",
+        "d-rev"
+      ]
+    },
+    {
+      "id": "note-prot",
+      "text": "TVS + bulk cap absorb motor spikes",
+      "components": [
+        "d-tvs",
+        "c-bulk"
+      ]
+    },
+    {
+      "id": "note-drv",
+      "text": "DRV8871 H-bridge, 6.5-45V, limit ~2.1A",
+      "components": [
+        "u-drv",
+        "c-vm"
+      ]
+    },
+    {
+      "id": "note-ilim",
+      "text": "Itrip = 64 / R1(kOhm) = 2.1A",
+      "components": [
+        "r-ilim"
+      ]
+    },
+    {
+      "id": "note-ctl",
+      "text": "IN1/IN2: 3.3V/5V logic, PWM ~20 kHz",
+      "components": [
+        "j-ctl"
+      ]
+    },
+    {
+      "id": "note-mot",
+      "text": "Motor: 12V brushed DC, <1A run",
+      "components": [
+        "j-mot"
+      ]
+    },
+    {
+      "id": "note-led",
+      "text": "Power LED, ~2 mA",
+      "components": [
+        "r-led",
+        "d-led"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "id": "dec-purpose",
+      "topic": "회로 목적",
+      "choice": "DC 모터를 제어하는 드라이버 보드",
+      "by": "requirement",
+      "reason": "요청대로 모터를 제어하는 회로를 만들었습니다. 모터 종류·전압·전류·제어 방식은 요청에 없어서 아래 'AI가 정한 것'에 가정과 이유를 적었습니다.",
+      "components": [
+        "u-drv"
+      ],
+      "request": "모터제어 회로 하나 그려줘봐. 검토까지 끝내고 리포트도 첨부"
+    },
+    {
+      "id": "dec-motor",
+      "topic": "모터와 전원 (가정)",
+      "choice": "12 V 브러시 DC 모터, 연속 1 A 이하, 기동·구속 시 2 A 남짓",
+      "by": "ai",
+      "reason": "가장 흔한 소형 모터(기어드 DC 모터 등)를 가정했습니다. 스테퍼 모터나 BLDC 모터는 드라이버 구조가 완전히 달라 다른 회로가 필요합니다. 실제 모터의 정격 전류·구속 전류로 다시 확인해야 합니다.",
+      "components": [
+        "j-pwr",
+        "j-mot"
+      ]
+    },
+    {
+      "id": "dec-control",
+      "topic": "제어 방식",
+      "choice": "외부 컨트롤러의 신호 2개(IN1, IN2): 정회전·역회전·브레이크·PWM 속도 제어",
+      "by": "ai",
+      "reason": "방향과 속도를 모두 제어하는 가장 일반적인 방식입니다. 보드에 MCU를 넣지 않아 아두이노·ESP32·PLC 출력 등 어떤 컨트롤러와도 쓸 수 있습니다. MCU 없이 쓰려면 PWM을 만드는 회로가 따로 필요합니다. 동작: IN1=PWM·IN2=0이면 정회전, IN1=0·IN2=PWM이면 역회전, 둘 다 1이면 브레이크, 둘 다 0이면 정지(코스트).",
+      "components": [
+        "j-ctl"
+      ],
+      "source": "TI DRV8871 데이터시트 — 입력 진리표. 쪽 번호는 원문 확인 필요"
+    },
+    {
+      "id": "dec-ic",
+      "topic": "모터 드라이버 IC",
+      "choice": "TI DRV8871DDA (H-브리지, VM 6.5~45 V, 최대 3.6 A, 전류 제한 내장)",
+      "by": "ai",
+      "reason": "외부 부품이 적고(전류 제한 저항 하나), 과전류·과열·저전압 보호가 들어 있습니다. 출력 MOSFET의 바디 다이오드가 모터 역기전력 전류를 흘려 외부 플라이백 다이오드가 필요 없습니다. L298N은 출력 강하가 약 2 V로 크고 외부 다이오드 8개가 필요해 고르지 않았습니다. 패키지는 방열 패드가 있는 HTSOP-8입니다.",
+      "components": [
+        "u-drv"
+      ],
+      "source": "TI DRV8871 데이터시트 — 특징, 블록도, 절대 최대 정격. 쪽 번호는 원문 확인 필요"
+    },
+    {
+      "id": "dec-ilim",
+      "topic": "전류 제한",
+      "choice": "R1 = 30 kΩ → 약 2.1 A",
+      "by": "ai",
+      "reason": "모터 기동·구속 전류를 2 A 남짓으로 제한해 모터·배선·퓨즈를 보호합니다. 연속 1 A 가정보다 높게 잡아 기동 토크를 확보했습니다. 전류가 이 값을 넘으면 드라이버가 출력을 잠깐 끊었다 다시 켜며(초핑) 전류를 묶어 둡니다.",
+      "components": [
+        "r-ilim"
+      ],
+      "calc": "I_TRIP = 64 / R_ILIM(kΩ) = 64 / 30 ≈ 2.13 A",
+      "source": "TI DRV8871 데이터시트 — 전류 제한(ILIM) 식. 원문 확인 필요"
+    },
+    {
+      "id": "dec-rev",
+      "topic": "역전압 보호",
+      "choice": "SS34 쇼트키 직렬 (D1)",
+      "by": "ai",
+      "reason": "단자대에 극성을 바꿔 꽂으면 드라이버가 손상됩니다. 쇼트키는 강하가 작고(약 0.4~0.5 V) 부품 하나로 끝납니다. 손실이 1 A에서 약 0.5 W라, 연속 2 A 이상으로 쓰려면 P채널 MOSFET 방식이 낫습니다.",
+      "components": [
+        "d-rev"
+      ],
+      "calc": "P ≈ Vf × I ≈ 0.5 V × 1 A = 0.5 W; +12V ≈ 12 V − 0.4 V = 11.6 V",
+      "source": "SS34 데이터시트(정격 3 A, 40 V). 원문 확인 필요"
+    },
+    {
+      "id": "dec-fuse",
+      "topic": "과전류 보호",
+      "choice": "PTC 퓨즈 유지 2.5 A (F1)",
+      "by": "ai",
+      "reason": "드라이버의 전류 제한은 출력 쪽 문제만 막습니다. 콘덴서·TVS 고장이나 전원 배선 단락은 퓨즈가 막습니다. 자동 복귀형이라 교체가 필요 없습니다. 유지 전류는 전류 제한(2.1 A)보다 조금 높게 잡았습니다.",
+      "components": [
+        "f-ptc"
+      ],
+      "source": "부품 선정 시 유지·트립 전류와 정격 전압(16 V 이상)을 제조사 데이터시트로 확인"
+    },
+    {
+      "id": "dec-tvs",
+      "topic": "전압 서지 보호",
+      "choice": "SMAJ24A TVS (D2, +12V–GND)",
+      "by": "ai",
+      "reason": "모터를 멈추거나 방향을 바꿀 때 모터에 쌓인 에너지가 전원 쪽으로 돌아와 VM 전압이 올라갈 수 있습니다. 24 V 스탠드오프는 12 V 전원(어댑터 최대 약 14 V)보다 충분히 높고, 클램프 전압(약 39 V)은 DRV8871의 VM 최대(동작 45 V)보다 낮습니다.",
+      "components": [
+        "d-tvs"
+      ],
+      "calc": "14 V(전원 최대) < 24 V(스탠드오프) < 약 39 V(클램프) < 45 V(VM 동작 최대)",
+      "source": "SMAJ 시리즈 데이터시트, TI DRV8871 데이터시트 — 원문 확인 필요"
+    },
+    {
+      "id": "dec-caps",
+      "topic": "전원 콘덴서",
+      "choice": "100 µF/35 V 전해(C1) + 100 nF/50 V 세라믹(C2, VM 핀 옆)",
+      "by": "ai",
+      "reason": "PWM으로 모터 전류가 급하게 바뀔 때 전원 전압이 출렁이지 않게 하는 벌크 콘덴서(C1)와, 고주파를 바로 받아 주는 디커플링 콘덴서(C2)입니다. 정격은 TVS 클램프 전압까지 생각해 35 V 이상으로 했습니다. 벌크 용량은 모터와 전원 배선 길이에 따라 늘려야 할 수 있습니다.",
+      "components": [
+        "c-bulk",
+        "c-vm"
+      ],
+      "calc": "35 V / 11.6 V ≈ 3.0배",
+      "source": "TI DRV8871 데이터시트 — 전원 권장 사항. 원문 확인 필요"
+    },
+    {
+      "id": "dec-conn",
+      "topic": "커넥터",
+      "choice": "전원·모터: 5 mm 2핀 단자대(J1, J3), 제어: 2.54 mm 3핀 헤더(J2: IN1, IN2, GND)",
+      "by": "ai",
+      "reason": "모터 전류(최대 2 A 남짓)는 나사 단자대로 단단히 연결하고, 제어 신호는 점퍼선으로 바로 꽂을 수 있게 했습니다. GND를 제어 헤더에 함께 두어 컨트롤러와 기준 전위를 맞춥니다.",
+      "components": [
+        "j-pwr",
+        "j-ctl",
+        "j-mot"
+      ]
+    },
+    {
+      "id": "dec-led",
+      "topic": "전원 표시 LED",
+      "choice": "4.7 kΩ + 녹색 LED (R2, D3)",
+      "by": "ai",
+      "reason": "12 V가 들어왔는지 확인용입니다. 2 mA면 충분히 보이고 손실은 무시할 만합니다.",
+      "components": [
+        "r-led",
+        "d-led"
+      ],
+      "calc": "I = (11.6 V − Vf 2.0~3.2 V) / 4.7 kΩ ≈ 1.8~2.0 mA"
+    },
+    {
+      "id": "dec-pulldown",
+      "topic": "입력 풀다운",
+      "choice": "외부 저항 없음 (DRV8871 내장 풀다운 사용)",
+      "by": "ai",
+      "reason": "제어선이 빠지면 IN1·IN2가 내장 풀다운으로 0이 되어 모터가 멈춥니다. 배선이 길거나 잡음이 많은 환경이면 10 kΩ 외부 풀다운을 추가하세요.",
+      "components": [
+        "j-ctl",
+        "u-drv"
+      ],
+      "source": "TI DRV8871 데이터시트 — 입력 핀 내부 풀다운. 원문 확인 필요"
+    }
+  ]
+}

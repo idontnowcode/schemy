@@ -214,8 +214,27 @@ def test_net_spec_patch_diff_and_validation(led_circuit):
     assert any(i.error_code == "NET_VOLTAGE_MISMATCH" and i.severity == "warning" for i in issues)
 
 
+def test_motor_driver_supply_current_limit_and_loss():
+    drv = [{"number": "1", "name": "GND"}, {"number": "2", "name": "IN2"}, {"number": "3", "name": "IN1"},
+           {"number": "4", "name": "ILIM"}, {"number": "5", "name": "VM"}, {"number": "6", "name": "OUT1"},
+           {"number": "7", "name": "GND"}, {"number": "8", "name": "OUT2"}, {"number": "9", "name": "GND"}]
+
+    def make(vm_net, r_ilim, specs):
+        return board([part("u1", "U1", "DRV8871DDA", "Driver_Motor:DRV8871DDA", drv),
+                      part("r1", "R1", r_ilim, "Device:R"), part("c1", "C1", "100nF/50V", "Device:C")],
+                     {vm_net: [("u1", "5"), ("c1", "1")], "ILIM": [("u1", "4"), ("r1", "1")],
+                      "GND": [("u1", "1"), ("u1", "7"), ("u1", "9"), ("r1", "2"), ("c1", "2")]}, specs=specs)
+
+    found = {f.rule: f for f in engineering_review(make("+12V", "30k", {"+12V": {"load_current": 1.0}}))}
+    assert found["motor_vm"].severity == "ok" and found["motor_ilim"].title.endswith("전류 제한 2.13 A (R R1 30k)")
+    assert found["motor_heat"].severity == "ok" and "565 mW" in found["motor_heat"].title
+    assert found["decoupling"].severity == "ok"  # VM counts as a supply pin
+    bad = {(f.rule, f.severity) for f in engineering_review(make("+48V", "15k", {"+48V": {"load_current": 2.0}}))}
+    assert {("motor_vm", "fail"), ("motor_ilim", "warn"), ("motor_heat", "warn")} <= bad  # 48 V > 45 V, 4.3 A, 2.3 W
+
+
 def test_examples_have_no_failures():
-    for ex in ("lm7805-24v-to-5v", "ne555-led-board", "atmega328p-led-board"):
+    for ex in ("lm7805-24v-to-5v", "ne555-led-board", "atmega328p-led-board", "dc-motor-drv8871"):
         from pathlib import Path
 
         c = CircuitIR.model_validate_json(Path(f"examples/{ex}/circuit.json").read_text(encoding="utf-8"))

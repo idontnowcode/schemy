@@ -126,12 +126,59 @@ def plan_groups(order: list[str], pins: dict[str, list[PinGeom]],
     # A connector that only brings power in (every pin on a rail, a supply among them) anchors a power-input
     # block: the bulk capacitors and power indicator on its rails gather around it instead of scattering.
     driven = {net_of.get((c, p.number)) for c in order if c not in hints for p in pins[c] if p.etype == "power_out"}
-    feeds = [c for c in order if kinds.get(c) == "connector" and c not in hints and nets(c)
-             and not nets(c, signal=True) and any(not is_ground_name(n) and n not in driven for n in nets(c))]
+
+    def series_to_rail(c: str, net: str) -> tuple[list[str], str] | None:
+        """From connector ``c`` along signal ``net``: a straight chain of two-pin parts (fuse, diode, ferrite)
+        ending on a rail - the parts and the rail - or None when the net goes anywhere else."""
+        chain, prev = [], c
+        for _ in range(4):
+            others = [o for o, _ in net_nodes.get(net, []) if o != prev]
+            if len(others) != 1 or others[0] not in here or others[0] in hints or len(pins[others[0]]) != 2:
+                return None
+            part = others[0]
+            chain.append(part)
+            nxt = next((n for n in nets(part) if n != net), None)
+            if nxt is None:
+                return None
+            if nxt in upright:  # a rail drawn with power symbols ends the chain
+                return chain, nxt
+            prev, net = part, nxt
+        return None
+
+    # A connector bringing power in - on rails directly, or through a series chain (fuse, reverse-polarity
+    # diode) onto a rail - anchors a power-input block with that chain on its line.
+    # (A chain into a regulator's input stays on the regulator's wired line instead - step 2b.)
+    reg_lines: set[str] = set()
+    for a in big:
+        if len(pins[a]) <= 5 and kinds.get(a) != "connector":
+            ins = {net_of.get((a, p.number)) for p in pins[a] if p.etype == "power_in"} - {None}
+            outs = {net_of.get((a, p.number)) for p in pins[a] if p.etype == "power_out"} - {None}
+            ins = {n for n in ins if not is_ground_name(n)}
+            if ins and outs:
+                reg_lines |= ins | outs
+    feed_rails: dict[str, set[str]] = {}
+    feed_chain: dict[str, list[str]] = {}
+    for c in order:
+        if kinds.get(c) != "connector" or c in hints or not nets(c):
+            continue
+        rails_of, chain = {n for n in nets(c) if n in upright}, []
+        for n in (n for n in nets(c) if n not in upright):
+            found = series_to_rail(c, n)
+            if found is None or found[1] in reg_lines:
+                break
+            chain += found[0]
+            rails_of.add(found[1])
+        else:
+            if any(not is_ground_name(n) and n not in driven for n in rails_of):
+                feed_rails[c], feed_chain[c] = rails_of, chain
+    feeds = list(feed_rails)
     # Any other connector hangs off the IC it serves (pins facing it) when there is one; otherwise it anchors.
     anchors = [c for c in big if kinds.get(c) != "connector"] or [c for c in big if c not in feeds]
     anchors += [c for c in feeds if c not in anchors]
     group_of: dict[str, str] = {a: a for a in anchors}
+    for f, chain in feed_chain.items():
+        for c in chain:
+            group_of.setdefault(c, f)
     satellites = [c for c in order if c not in group_of and c not in hints]
 
     def propagate() -> None:
@@ -198,9 +245,10 @@ def plan_groups(order: list[str], pins: dict[str, list[PinGeom]],
                                                 for n in supplies for c, p in net_nodes[n] if c == a)]
         drivers = [a for a in anchors if any(etype.get((a, p)) == "power_out"
                                              for n in supplies for c, p in net_nodes[n] if c == a)]
-        drivers += [f for f in feeds if f not in drivers and any(n in nets(f) for n in supplies)]
+        drivers += [f for f in feeds if f not in drivers and any(n in feed_rails[f] for n in supplies)]
         farad = parse_value(values.get(s))
-        bulk = farad is not None and farad > 1.5e-6 and len(pins[s]) == 2
+        # Bulk capacitors and rail protection (a TVS) go where the power comes in; small capacitors to the IC.
+        bulk = len(pins[s]) == 2 and ((farad is not None and farad > 1.5e-6) or kinds.get(s) not in ("rc", "connector"))
         if kinds.get(s) == "connector" and not bulk:
             powered_by = [a for a in powered_by if a not in feeds]
         candidates = (drivers or powered_by) if bulk else (powered_by or drivers)
@@ -226,7 +274,7 @@ def plan_groups(order: list[str], pins: dict[str, list[PinGeom]],
                 queue += [o for o, _ in net_nodes[net] if o in rest and o not in seen]
         # A chain only between one power input's rails (a power LED and its resistor) joins that input.
         rails_used = {n for c in chain for n in nets(c, signal=False)}
-        feed = next((f for f in feeds if rails_used and rails_used <= set(nets(f))), None)
+        feed = next((f for f in feeds if rails_used and rails_used <= feed_rails[f]), None)
         if feed is not None and len(chain) <= MAX_CHAIN:
             for c in chain:
                 group_of[c] = feed
@@ -242,7 +290,7 @@ def plan_groups(order: list[str], pins: dict[str, list[PinGeom]],
     members: dict[str, list[str]] = defaultdict(list)
     for c in order:
         members[group_of[c]].append(c)
-    ctx = _Ctx(pins, extent_of, net_of, net_nodes, upright, kinds, hints, values)
+    ctx = _Ctx(pins, extent_of, net_of, net_nodes, upright, kinds, hints, values, set(feeds))
     groups = [_block(key, ms, key in anchors, ctx, local.get(key, set())) for key, ms in members.items()]
     return _order_groups(groups, group_of, net_of, net_nodes, rail)
 
@@ -258,6 +306,8 @@ class _Ctx:
     kinds: dict[str, str]
     hints: dict[str, str]
     values: dict[str, str] = field(default_factory=dict)
+    feeds: set[str] = field(default_factory=set)
+    """Connectors bringing power in (directly or through a series chain onto a rail)."""
 
 
 def _turned(p: PinGeom, rotation: int, mirror: bool = False) -> tuple[Point, Dir]:
@@ -432,8 +482,9 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx, local: set[s
         else:
             r0 = orient(pins[key][0].out, (-1, 0)) or 0
     q0 = {p.number: reach(net(key, p.number)) for p in pins[key] if (key, p.number) in children}
+    # A power input faces its block.
     m0 = (ctx.kinds.get(key) == "connector" and same_side(key) and pins[key][0].out == (-1, 0)
-          and not any(wired(net(key, p.number)) for p in pins[key]))  # a power input faces its block
+          and (key in ctx.feeds or not any(wired(net(key, p.number)) for p in pins[key])))
     placed[key] = (0.0, 0.0, r0)
     if m0:
         mirrored.add(key)
