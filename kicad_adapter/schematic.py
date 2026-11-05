@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -28,6 +29,8 @@ from circuit_core.models import Pin
 
 from . import sexpr
 from .drawing import (
+    NOTE_FONT,
+    NOTE_LINE,
     OUTWARD,
     PinView,
     Port,
@@ -37,6 +40,8 @@ from .drawing import (
     field_rect,
     grow,
     label_rect,
+    note_rect,
+    place_note,
     plan_ports,
     power_symbol_for,
     r4,
@@ -256,8 +261,11 @@ def _field_rects(sym: LibSymbol, comp, rotation: int, mirror: bool = False) -> l
 
 
 def _part_extent(sym: LibSymbol, comp, net_of: dict, power: dict[str, LibSymbol], rotation: int = 0,
-                 quiet: dict[str, float] | None = None, mirror: bool = False) -> Extent:
-    """Space a placed part needs: body, pins, power symbols, labels (or the wires of ``quiet`` pins), fields."""
+                 quiet: dict[str, float] | None = None, mirror: bool = False, parts: bool = False):
+    """Space a placed part needs: body, pins, power symbols, labels (or the wires of ``quiet`` pins), fields.
+
+    One box around all of it, or with ``parts`` the pieces themselves: an IC's label strips reach out from its
+    pins, and the corners between them stay free for other parts."""
     quiet = quiet or {}
     body = rotate_rect(body_rect(sym, getattr(comp, "unit", 1)), rotation, mirror)
     views = _pin_views(sym, comp, net_of, rotation, mirror, unique=True)
@@ -273,6 +281,8 @@ def _part_extent(sym: LibSymbol, comp, net_of: dict, power: dict[str, LibSymbol]
             rects.append(grow(rect_of([v.end, far]), 1.9))
         else:
             rects.append((*v.end, *v.end))
+    if parts:
+        return [grow(union(body, *texts), GRID), *(grow(r, GRID) for r in rects if r not in texts and r != body)]
     return grow(union(*rects), GRID)
 
 
@@ -540,6 +550,15 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
         net_pages.setdefault(net, set()).add(page_of[comp_id])
     global_nets = {net for net, pages in net_pages.items() if len(pages) > 1}
 
+    def note_page(note) -> str:
+        if note.components:
+            return page_of.get(note.components[0], sheets[0].id)
+        if note.net and net_pages.get(note.net):
+            return next(sh.id for sh in sheets if sh.id in net_pages[note.net])
+        return sheets[0].id
+
+    notes_on = {sh.id: [n for n in circuit.notes if note_page(n) == sh.id] for sh in sheets}
+
     # Placement per page -------------------------------------------------------
     placements: dict[str, Placement] = {}
     mirrored: set[str] = set()
@@ -559,11 +578,17 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
             [c.id for c in free],
             {c.id: [PinGeom(p.number, lp.x, -lp.y, OUTWARD[lp.angle], lp.electrical_type)
                     for p in c.pins if (lp := symbols[c.id].pin(p.number)) is not None] for c in free},
-            lambda cid, rot, quiet, mirror=False, by_id=by_id: _part_extent(symbols[cid], by_id[cid], net_of, power,
-                                                                             rot, quiet, mirror),
+            lambda cid, rot, quiet, mirror=False, parts=False, by_id=by_id: _part_extent(
+                symbols[cid], by_id[cid], net_of, power, rot, quiet, mirror, parts),
             net_of, net_nodes, flag_hints, {c.id: c.value for c in free}, up_of,
             {c.id: _kind(symbols[c.id]) for c in free})
-        auto: list[tuple[str, Extent]] = [(f"group:{g.key}", g.extent) for g in groups]
+        # A group with notes on its parts keeps a line free above it per note, so a caption always fits.
+        lines = Counter(next(g.key for g in groups if n.components[0] in g.offsets)
+                        for n in notes_on[sheet.id] if n.components and any(n.components[0] in g.offsets
+                                                                            for g in groups))
+        auto: list[tuple[str, Extent]] = [
+            (f"group:{g.key}", (g.extent[0], g.extent[1] - NOTE_LINE * lines[g.key], g.extent[2], g.extent[3]))
+            for g in groups]
         if index == 0 and multi:
             auto += [(f"sheet:{sh.id}", (0.0, -2 * GRID, sheet_sizes[sh.id][0], _SHEET_SYMBOL_H + 2 * GRID))
                      for sh in sheets[1:]]
@@ -604,6 +629,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
         terminals: dict[str, list] = {}
         ports: list[tuple[str, Port]] = []
         boxes: list[Extent] = []
+        part_rects: dict[str, list[Extent]] = {}
 
         for comp in comps:
             sym, pl = symbols[comp.id], placements[comp.id]
@@ -613,6 +639,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
             texts = _field_rects(sym, comp, pl.rotation, mirror)
             router.blocks.append(shift(body, pl.x, pl.y))
             boxes += [shift(r, pl.x, pl.y) for r in (body, *texts)]
+            part_rects[comp.id] = [shift(r, pl.x, pl.y) for r in (body, *texts)]
             drawn_pins = {v.number for v in _pin_views(sym, comp, net_of, pl.rotation, mirror, unique=True)}
             for v in views:
                 x, y = r4((pl.x + v.end[0], pl.y + v.end[1]))
@@ -636,6 +663,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                 ports.append((comp.id, port))
                 router.blocks.append(port.rects[0])
                 boxes += port.rects
+                part_rects.setdefault(comp.id, []).extend(port.rects)
                 attach = port.stub_end or port.end
                 if port.stub_end:
                     router.add_wire(port.end, port.stub_end, port.net)
@@ -670,6 +698,39 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
             power_used[port.symbol.lib_id] = port.symbol
             placed.append(_placed_symbol(v, port.symbol, Placement(x=port.at[0], y=port.at[1], rotation=port.rotation),
                                          ids, project_name, instance_path, trace=False, value_at=port.value_at))
+
+        texts_out = []
+        segments = [(a, b) for a, b, _ in wiring.wires]
+        label_boxes: dict[str, list[Extent]] = {}
+        for lbl in wiring.labels:
+            label_boxes.setdefault(lbl.net, []).append(
+                label_rect(lbl.stub_from or lbl.at, lbl.out, lbl.net, 2.54 if lbl.stub_from else 0.0))
+        for note in notes_on[sheet.id]:
+            if note.components:
+                targets = [r for cid in note.components for r in part_rects.get(cid, [])]
+            elif note.net:
+                targets = (label_boxes.get(note.net) or [r for _, port in ports if port.net == note.net
+                                                         for r in port.rects]
+                           or [(a.x, a.y, a.x, a.y) for a in anchors if a.sheet == sheet.id and a.net == note.net])
+            else:
+                targets = []
+            spot = place_note(note.text, targets, boxes, segments, list(router.points)) if targets else None
+            if spot is None:  # nothing free nearby (or a page note): a line above everything on the page
+                top = min((b[1] for b in boxes), default=_MARGIN + NOTE_LINE)
+                left = min((b[0] for b in boxes), default=_MARGIN)
+                taken = sum(1 for t in texts_out if t[0] == "page")
+                at = (_snap_up(left), round(-_snap_up(-(top - GRID)) - NOTE_LINE * taken, 4))
+                rect = note_rect(at, note.text)
+                kind = "page"
+            else:
+                (at, rect), kind = spot, "near"
+            boxes.append(rect)
+            texts_out.append((kind, ["text", q(note.text), ["exclude_from_sim", "no"],
+                                     ["at", num(at[0]), num(at[1]), "0"],
+                                     ["effects", ["font", ["size", num(NOTE_FONT), num(NOTE_FONT)], ["italic", "yes"]],
+                                      ["justify", "left", "bottom"]],
+                                     ["uuid", q(ids("note", note.id))]]))
+        notes_nodes = [node for _, node in texts_out]
 
         # Independent check of the finished page: no geometry may join two nets.
         points: dict[tuple[float, float], set[str]] = {}
@@ -716,6 +777,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
             lib_symbols,
             # KiCad 10 saves items grouped by type and sorted by UUID; doing the same
             # makes a load/save round trip in KiCad a no-op apart from the generator.
+            *sorted(notes_nodes, key=_uuid_of),
             *sorted(junctions, key=_uuid_of),
             *sorted(no_connects, key=_uuid_of),
             *sorted(wires, key=_uuid_of),

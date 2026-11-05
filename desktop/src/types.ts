@@ -522,6 +522,7 @@ export interface ProposalDiff {
   nets_removed: string[];
   moved: string[];
   page_moves: { reference: string; before: string; after: string }[];
+  notes?: { id: string; target: string; before: string | null; after: string | null }[];
 }
 
 export interface AiFinding {

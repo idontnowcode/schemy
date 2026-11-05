@@ -99,6 +99,20 @@ def validate_circuit(circuit: CircuitIR) -> ValidationResult:
                       f"{components[comp_id].reference} is listed on more than one page.", (comp_id,))
             placed_on.setdefault(comp_id, sheet.id)
 
+    net_names = {n.name for n in circuit.nets}
+    for dup in _duplicates(note.id for note in circuit.notes):
+        r.add("DUPLICATE_NOTE_ID", E, f"Note id '{dup}' is used more than once.")
+    for note in circuit.notes:
+        if note.components and note.net:
+            r.add("NOTE_TWO_TARGETS", E, f"Note '{note.id}' names both parts and a net.",
+                  recovery_hint="Attach a note to parts or to one net, not both.")
+        for comp_id in note.components:
+            if comp_id not in components:
+                r.add("NOTE_UNKNOWN_COMPONENT", E, f"Note '{note.id}' refers to unknown component '{comp_id}'.",
+                      (comp_id,))
+        if note.net and note.net not in net_names:
+            r.add("NOTE_UNKNOWN_NET", E, f"Note '{note.id}' refers to unknown net '{note.net}'.")
+
     # --- L1: topology ------------------------------------------------------
     pin_owner: dict[tuple[str, str], str] = {}
     for net in circuit.nets:

@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .models import CircuitIR, Component, NetName, Placement, StableId
+from .models import CircuitIR, Component, NetName, Note, Placement, StableId
 
 PROPERTY_FIELDS = ("value", "footprint_id", "manufacturer", "manufacturer_part_number", "description")
 
@@ -80,6 +80,20 @@ class Move(_Op):
     sheet_id: StableId | None = None
 
 
+class SetNote(_Op):
+    """Add a note, or change the note with the same id. Notes are text on the drawing only."""
+
+    op: Literal["set_note"] = "set_note"
+    note: Note
+    expect_text: str | None = Field(default=None, description="Current text; None when the note is new.")
+
+
+class RemoveNote(_Op):
+    op: Literal["remove_note"] = "remove_note"
+    note_id: StableId
+    expect_text: str
+
+
 class ReplaceCircuit(_Op):
     """The whole circuit at once (a first design, an import). The precondition is the proposal's
     base revision, checked when the proposal is approved."""
@@ -89,7 +103,7 @@ class ReplaceCircuit(_Op):
 
 
 PatchOp = Annotated[SetProperty | AddComponent | RemoveComponent | Connect | Disconnect | RenameNet | SetNoConnect
-                    | Move | ReplaceCircuit, Field(discriminator="op")]
+                    | Move | SetNote | RemoveNote | ReplaceCircuit, Field(discriminator="op")]
 
 
 class PatchFailure(BaseModel):
@@ -186,6 +200,10 @@ def apply_patch(circuit: CircuitIR | None, ops: list) -> CircuitIR:
                 data["layout"].pop(op.component_id, None)
                 for s in data["sheets"]:
                     s["components"] = [x for x in s["components"] if x != op.component_id]
+                for note in data.get("notes", []):
+                    if op.component_id in note["components"]:
+                        note["components"] = [x for x in note["components"] if x != op.component_id]
+                        note["_orphan"] = not note["components"]
         elif isinstance(op, Connect):
             if not all(pin_ok(ref) for ref in op.nodes):
                 continue
@@ -226,6 +244,9 @@ def apply_patch(circuit: CircuitIR | None, ops: list) -> CircuitIR:
                 fail(i, op, "DUPLICATE_NET", f"Net '{op.new_name}' already exists.")
             else:
                 nets[op.net]["name"] = op.new_name
+                for note in data.get("notes", []):
+                    if note.get("net") == op.net:
+                        note["net"] = op.new_name
         elif isinstance(op, SetNoConnect):
             if pin_ok(PinRef(component_id=op.component_id, pin=op.pin)):
                 for p in comps[op.component_id]["pins"]:
@@ -248,8 +269,34 @@ def apply_patch(circuit: CircuitIR | None, ops: list) -> CircuitIR:
                     if s["id"] == op.sheet_id:
                         s["components"].append(op.component_id)
 
+        elif isinstance(op, (SetNote, RemoveNote)):
+            notes = data.setdefault("notes", [])
+            note_id = op.note.id if isinstance(op, SetNote) else op.note_id
+            current = next((n for n in notes if n["id"] == note_id), None)
+            have = current["text"] if current else None
+            if have != op.expect_text:
+                fail(i, op, "PRECONDITION_FAILED", f"Note '{note_id}' text is {have!r}, expected {op.expect_text!r}.")
+            elif isinstance(op, SetNote):
+                new_note = op.note.model_dump(mode="json")
+                bad = [c for c in new_note["components"] if c not in comps]
+                if bad:
+                    fail(i, op, "UNKNOWN_COMPONENT", f"Component '{bad[0]}' does not exist.")
+                elif new_note["net"] and new_note["net"] not in nets:
+                    fail(i, op, "UNKNOWN_NET", f"Net '{new_note['net']}' does not exist.")
+                elif current is None:
+                    notes.append(new_note)
+                else:
+                    notes[notes.index(current)] = new_note
+            else:
+                notes.remove(current)
+
     if failures:
         raise PatchError(failures)
+    if data is not None and data.get("notes"):
+        # A note whose parts were all removed, or whose net is gone, goes with them.
+        names = {n["name"] for n in data["nets"]}
+        data["notes"] = [n for n in data["notes"] if not n.pop("_orphan", False)
+                         and (not n.get("net") or n["net"] in names)]
     if data is None:
         raise PatchError([PatchFailure(index=0, op="-", code="EMPTY_PATCH", message="The patch has no operations.")])
     try:

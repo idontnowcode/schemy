@@ -666,6 +666,19 @@ export function DiffView({ d }: { d: ProposalDiff }) {
               {d.nets_removed.length > 0 && <>· Net 삭제: {d.nets_removed.join(", ")}</>}
             </p>
           )}
+          {d.notes && d.notes.length > 0 && (
+            <>
+              <h4>회로도 주석 (영문)</h4>
+              <table className="table compact">
+                <thead><tr><th>위치</th><th>전</th><th>후</th></tr></thead>
+                <tbody>
+                  {d.notes.map((n) => (
+                    <tr key={n.id}><td>{n.target}</td><td>{n.before ?? "—"}</td><td><b>{n.after ?? "—"}</b></td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
     </>
   );
 }

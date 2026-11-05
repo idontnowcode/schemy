@@ -21,7 +21,7 @@ GRID = 1.27
 STEP = 2.54
 STUB = 2.54
 FONT = 1.27
-MAX_ROUTE = 30.48
+MAX_ROUTE = 35.56
 """Longest wire drawn between two pins (mm); farther pins keep labels."""
 EPS = 1e-6
 
@@ -710,3 +710,48 @@ def wire_page(router: Router, nets: dict[str, list[tuple[Key, Point, Dir]]]) -> 
             counts[pt] += 1
     junctions = sorted(pt for pt, n in counts.items() if n >= 3)
     return Wiring(router.wires, labels, junctions)
+
+
+# --- notes -----------------------------------------------------------------------------------
+
+NOTE_FONT = FONT
+NOTE_LINE = 3.81
+"""Height kept free for one line of note text."""
+
+
+def note_rect(at: Point, text: str) -> Rect:
+    """Space a note takes, written left to right with its bottom-left corner at ``at``."""
+    return at[0], at[1] - NOTE_FONT * 1.3, at[0] + max(len(text), 1) * CHAR, at[1] + 0.3
+
+
+def place_note(text: str, targets: list[Rect], obstacles: list[Rect], wires: list[tuple[Point, Point]],
+               points: list[Point]) -> tuple[Point, Rect] | None:
+    """The first free spot for a note next to ``targets``: above them, then below, then beside, a little
+    further out each round. Free means clear of every obstacle box, wire and connection point."""
+    if not targets:
+        return None
+    x0, y0, x1, y1 = union(*targets)
+    w = max(len(text), 1) * CHAR
+    rise = NOTE_FONT * 1.3
+    xs = [x0, (x0 + x1 - w) / 2, x1 - w] + [x0 + k * 2 * STUB for k in (1, 2, 3, 4)] + [x1 - w - k * 2 * STUB
+                                                                                       for k in (1, 2)]
+
+    def free(rect: Rect) -> bool:
+        box = grow(rect, 0.5)
+        if any(overlaps(box, b) for b in obstacles):
+            return False
+        if any(segment_hits_rect(a, b, box) for a, b in wires):
+            return False
+        return not any(box[0] <= p[0] <= box[2] and box[1] <= p[1] <= box[3] for p in points)
+
+    for ring in range(6):
+        out = ring * STUB
+        spots = [(x, y0 - GRID - out) for x in xs]
+        spots += [(x, y1 + GRID + rise + out) for x in xs]
+        spots += [(x1 + GRID + out, (y0 + y1) / 2 + rise / 2), (x0 - GRID - w - out, (y0 + y1) / 2 + rise / 2)]
+        for sx, sy in spots:
+            at = (snap(sx), snap(sy))
+            rect = note_rect(at, text)
+            if free(rect):
+                return at, rect
+    return None

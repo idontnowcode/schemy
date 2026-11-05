@@ -14,6 +14,7 @@ the generator tests run without a KiCad installation.
 | `Diode.kicad_sym` | `1N5820`, `1N5822` | KiCad 10.0.8 (`1N5822` is derived) |
 | `Regulator_Switching.kicad_sym` | `LM2596S-12`, `LM2596S-5` | KiCad 10.0.8 (`LM2596S-5` is derived) |
 | `Switch.kicad_sym` | `SW_Push` | KiCad 10.0.8 (the sample board's reset button) |
+| `Timer.kicad_sym` | `NE555D`, `NE555P` | KiCad 10.0.8 (the NE555 sample board; `NE555P` is derived) |
 | `power.kicad_sym` | `PWR_FLAG`, `GND`, `VCC`, `+5V`, `+3V3`, `+12V`, `+24V` | KiCad 10.0.8 `/usr/share/kicad/symbols/power.kicad_sym` (rails are drawn with power symbols; the generator adds `PWR_FLAG` where power enters through a connector) |
 
 The symbols are unmodified. They were copied with:
@@ -28,6 +29,7 @@ python scripts/extract_symbol_subset.py <KiCad>/symbols/Regulator_Switching.kica
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Interface_CAN_LIN.kicad_sym tests/fixtures/kicad_symbols/Interface_CAN_LIN.kicad_sym SN65HVD230
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Regulator_Linear.kicad_sym tests/fixtures/kicad_symbols/Regulator_Linear.kicad_sym AP1117-15 AMS1117-3.3
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Switch.kicad_sym tests/fixtures/kicad_symbols/Switch.kicad_sym SW_Push
+python scripts/extract_symbol_subset.py <KiCad>/symbols/Timer.kicad_sym tests/fixtures/kicad_symbols/Timer.kicad_sym NE555D NE555P
 python scripts/extract_symbol_subset.py <KiCad>/symbols/power.kicad_sym tests/fixtures/kicad_symbols/power.kicad_sym PWR_FLAG GND VCC +5V +3V3 +12V +24V
 ```
 

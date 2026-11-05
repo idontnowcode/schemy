@@ -27,7 +27,7 @@ from pydantic import ValidationError
 
 from circuit_core import CircuitIR, validate_circuit
 from circuit_core.export import natural_key
-from circuit_core.models import Component
+from circuit_core.models import Component, Note
 from circuit_core.templates import TEMPLATES, PinsOf, TemplateError, catalog_text, instantiate
 
 from .providers import AiError, LlmProvider, LlmResult
@@ -103,6 +103,11 @@ CONNECT_SCHEMA = {
         "citations": {"type": "array", "items": {"type": "object", "properties": {
             "ref": _STR, "page": {"type": "integer"}, "text": _KO}, "required": ["ref", "text"]}},
         "notes": _KO,
+        "schematic_notes": {"type": "array", "items": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "English, at most 40 characters"},
+            "refs": {"type": "array", "items": {"type": "string", "description": "part reference, e.g. U1"}},
+            "net": {"type": "string", "description": "net name for a net note; empty for a block note"},
+        }, "required": ["text", "refs", "net"]}},
     },
     "required": ["nets", "no_connect"],
 }
@@ -261,6 +266,7 @@ class TemplateBlock:
     components: list[Component]
     nets: dict[str, list[tuple[str, str]]]
     ports: list[str]
+    note: Note | None = None
 
 
 def _template_text(blocks: list[TemplateBlock]) -> str:
@@ -288,6 +294,10 @@ def connect_prompt(inp: DesignInput, plan: dict, parts: list[ResolvedPart],
 - 전원(power_in) 핀은 반드시 전원 Net에 연결하세요. 출력(power_out) 핀끼리 연결하지 마세요.
 - 데이터시트 요약에 있는 외부 부품 연결을 지키고, 근거가 된 쪽을 citations에 적으세요.
 - 값을 바꿔야 하면 values에 적으세요.
+- schematic_notes: 회로도에 그대로 적힐 짧은 주석입니다. **이것만은 영어로** 40자 이내로 쓰세요.
+  블록마다 하나씩 그 블록의 부품 기호(refs)와 함께 무엇을 하는 부분인지와 핵심 사양을 적고(예: "5V input, <100 mA",
+  "Status LED, ~3 mA"), 중요한 신호 Net에는 net 이름과 함께 그 Net이 무엇을 나르는지 적으세요(예: "Timer output, 1 Hz").
+  템플릿 블록에는 이미 주석이 있으니 적지 마세요.
 {_RULES_COMMON}
 
 [설계 요약]
@@ -438,8 +448,9 @@ def build_circuit(parts: list[ResolvedPart], connections: dict, *, project_id: s
                 net = {"id": f"net-{len(nets) + 1:03d}", "name": name, "nodes": []}
                 nets.append(net)
             net["nodes"] += [{"component_id": c, "pin": p} for c, p in pins]
+    notes = _schematic_notes(connections, components, nets, blocks)
     data = {"project_id": project_id, "title": title[:200] or None, "components": components, "nets": nets,
-            "validation": {"status": "unverified", "notes": f"AI 설계안 ({model}). 사람 검토 전."}}
+            "notes": notes, "validation": {"status": "unverified", "notes": f"AI 설계안 ({model}). 사람 검토 전."}}
     try:
         circuit = CircuitIR.model_validate(data)
     except ValidationError as exc:
@@ -450,6 +461,34 @@ def build_circuit(parts: list[ResolvedPart], connections: dict, *, project_id: s
         refs = ", ".join(c.reference for c in circuit.components if c.id in issue.affected_component_ids)
         problems.append(f"{issue.error_code}: {issue.message}" + (f" ({refs})" if refs else ""))
     return circuit, problems
+
+
+def _schematic_notes(connections: dict, components: list[dict], nets: list[dict],
+                     blocks: list[TemplateBlock]) -> list[dict]:
+    """English notes for the drawing: each template's caption, then the AI's notes. A note with an unknown part
+    or net is left out rather than sent back for repair: notes are text on the drawing, not connectivity."""
+    id_of = {c["reference"]: c["id"] for c in components}
+    names = {n["name"] for n in nets}
+    out: list[dict] = [b.note.model_dump(mode="json") for b in blocks if b.note is not None]
+    for raw in connections.get("schematic_notes") or []:
+        if not isinstance(raw, dict):
+            continue
+        text = " ".join(str(raw.get("text") or "").split())[:120]
+        net = str(raw.get("net") or "").strip()
+        refs = [str(r).strip().upper() for r in raw.get("refs") or []]
+        if not text:
+            continue
+        if net:
+            if net not in names:
+                continue
+            note = {"text": text, "components": [], "net": net}
+        else:
+            ids = [id_of[r] for r in refs if r in id_of]
+            if not ids:
+                continue
+            note = {"text": text, "components": ids, "net": None}
+        out.append({"id": f"note-{len(out) + 1:03d}", **note})
+    return out
 
 
 # --- the pipeline --------------------------------------------------------------------------------
@@ -477,7 +516,7 @@ def place_templates(plan: dict, pins_of: PinsOf | None, taken_refs: set[str]) ->
             problems.append(str(exc))
             continue
         blocks.append(TemplateBlock(t.ref, t.title, inst.params, inst.components, inst.nets,
-                                    [inst.params[p.name] for p in t.params if p.kind == "net"]))
+                                    [inst.params[p.name] for p in t.params if p.kind == "net"], inst.note))
     return blocks, problems
 
 

@@ -33,5 +33,6 @@ describe("proposal labels", () => {
     expect(diffFieldLabel("pin 5 no_connect")).toBe("핀 5 미연결 표시");
     expect(diffSummaryText({ components_added: 2, connections_changed: 4, properties_changed: 0 })).toBe("부품 +2 · 연결 4");
     expect(diffSummaryText({})).toBe("바뀐 것 없음");
+    expect(diffSummaryText({ components_added: 2, notes_changed: 2 })).toBe("부품 +2 · 주석 2");
   });
 });

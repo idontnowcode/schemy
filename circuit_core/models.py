@@ -18,9 +18,10 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-SCHEMA_VERSION = "0.4.0"
+SCHEMA_VERSION = "0.5.0"
 """0.2.0 added optional ``sheets`` (pages); 0.3.0 added optional ``Component.manufacturer`` and
-``Pin.no_connect``; 0.4.0 added optional ``Component.origin``. Older documents are still valid."""
+``Pin.no_connect``; 0.4.0 added optional ``Component.origin``; 0.5.0 added optional ``notes``. Older
+documents are still valid."""
 
 StableId = Annotated[
     str,
@@ -135,6 +136,22 @@ class Sheet(_Model):
     components: tuple[StableId, ...] = ()
 
 
+NoteText = Annotated[str, StringConstraints(min_length=1, max_length=120, pattern=r"^[^\r\n]+$")]
+
+
+class Note(_Model):
+    """A short line of text drawn on the schematic: what a block is and its key spec ("555 astable,
+    ~1 Hz"), or what a net carries ("555 output, 1 Hz square wave"). Notes never change connectivity.
+
+    With ``components`` the note goes next to those parts; with ``net`` next to that net's label; with
+    neither, at the top of the first page. Write notes in English so they read the same in every tool."""
+
+    id: StableId
+    text: NoteText
+    components: tuple[StableId, ...] = ()
+    net: NetName | None = None
+
+
 class Validation(_Model):
     status: VerificationStatus = VerificationStatus.UNVERIFIED
     notes: str | None = None
@@ -153,6 +170,9 @@ class CircuitIR(_Model):
     layout: dict[StableId, Placement] = Field(
         default_factory=dict,
         description="Optional placement per component id (on its page); kept apart from connectivity.",
+    )
+    notes: tuple[Note, ...] = Field(
+        default=(), description="Short English notes drawn on the schematic (block captions, net descriptions).",
     )
     validation: Validation = Field(default_factory=Validation)
 

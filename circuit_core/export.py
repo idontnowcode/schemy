@@ -114,6 +114,17 @@ def circuit_markdown(circuit: CircuitIR, *, revision: int | None = None) -> str:
         w(f"| {net.name} | {', '.join(nodes)} |")
     w("")
 
+    if circuit.notes:
+        w("## 회로도 주석")
+        w("")
+        w("| 위치 | 주석 (회로도에 영문으로 표시) |")
+        w("|---|---|")
+        for note in circuit.notes:
+            where = (f"Net {note.net}" if note.net else
+                     ", ".join(sorted((refs.get(c, c) for c in note.components), key=natural_key)) or "페이지")
+            w(f"| {_md_cell(where)} | {_md_cell(note.text)} |")
+        w("")
+
     w("## 핀 정의")
     w("")
     w("연결은 KiCad 심볼의 **핀 번호** 기준입니다. 이름은 라이브러리 대조용 근거입니다.")

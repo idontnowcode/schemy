@@ -9,7 +9,7 @@ from kicad_adapter.schematic import project_file
 from kicad_adapter.sexpr import child, children, head, unquote
 
 from .circuits import rotation_ring
-from .conftest import EXAMPLE_DIR, EXAMPLE_NAME, SAMPLE_DIR, SAMPLE_NAME
+from .conftest import EXAMPLE_DIR, EXAMPLE_NAME, SAMPLE_DIR, SAMPLE_NAME, TIMER_DIR, TIMER_NAME
 
 KICAD_10_NEW_PROJECT_TEMPLATE = """{
   "board": {
@@ -78,6 +78,11 @@ def test_sample_board_matches_generator(sample_board, library, workdir):
     """examples/atmega328p-led-board: the sample MCU board is a second golden, with a template, a crystal
     block and a 32-pin IC, so layout changes show up here too."""
     check_golden(sample_board, library, workdir, SAMPLE_NAME, SAMPLE_DIR)
+
+
+def test_timer_board_matches_generator(timer_board, library, workdir):
+    """examples/ne555-led-board: a board without an MCU, with English notes - a third golden."""
+    check_golden(timer_board, library, workdir, TIMER_NAME, TIMER_DIR)
 
 
 def test_deterministic(led_circuit, library):
@@ -522,20 +527,74 @@ def test_termination_resistor_bridges_the_lines_and_the_connector_lines_up(libra
 
 
 def test_sample_board_draws_the_ir_nets_and_a_textbook_crystal(sample_board, library):
-    """The crystal stands across XTAL1/XTAL2 with C5 straight below it (a capacitor to ground hangs under the
-    end of a bridge that points to ground), and short wires are drawn even where another pin's label space
-    was kept free at first (R2 to D2): every wired piece has one name label."""
+    """The crystal lies along the XTAL1/XTAL2 lines with a load capacitor hanging straight down from each end
+    (one small block, not parts dropped one by one), and every wired piece has one name label."""
     g = generate_schematic(sample_board, library)
     drawn = drawn_nets(g)
     want = ir_nets(sample_board)
     connected = {nodes: tags for nodes, tags in drawn.items() if len(nodes) > 1 or tags}
     assert set(connected) == set(want)
     pins = {(a.reference, a.pin): (a.x, a.y) for a in g.anchors}
-    y2, c5 = pins[("Y1", "2")], pins[("C5", "1")]
-    assert c5[0] == y2[0] and c5[1] > y2[1]
+    y1, y2 = pins[("Y1", "1")], pins[("Y1", "2")]
+    assert y1[1] == y2[1]  # lying flat
+    for cap, end in (("C4", y1), ("C5", y2)):  # XTAL1's cap under the XTAL1 end, XTAL2's under the XTAL2 end
+        top = pins[(cap, "1")]
+        assert top[0] == end[0] and 0 < top[1] - end[1] <= 10.16, cap
     labels = [unquote(lbl[1]) for lbl in children(sexpr.parse(g.text), "label")]
     for net in ("XTAL1", "XTAL2", "STATUS", "STATUS_LED", "RESET", "AREF"):
         assert labels.count(net) == 1, net
+
+
+def test_timer_board_keeps_blocks_together(timer_board, library):
+    """No MCU: a 555 with its timing chain, a power input block and a status LED. The timing parts form the
+    usual vertical chain (+5V - R2 - DISCH - R3 - TRIG/THR - C2 - GND), the CONT capacitor stands beside its pin
+    with ground below it, and the power input J1 keeps its bulk capacitor and power LED next to it."""
+    g = generate_schematic(timer_board, library)
+    drawn = drawn_nets(g)
+    connected = {nodes: tags for nodes, tags in drawn.items() if len(nodes) > 1 or tags}
+    assert set(connected) == set(ir_nets(timer_board))
+    pins = {(a.reference, a.pin): (a.x, a.y) for a in g.anchors}
+    r2, r3, c2 = (pins[(r, "1")] for r in ("R2", "R3", "C2"))
+    assert abs(r2[0] - r3[0]) <= 2.54 and r3[0] == c2[0] and r2[1] < r3[1] < c2[1]
+    assert pins[("C2", "1")][1] - pins[("R3", "2")][1] <= 5.08  # straight under R3
+    assert pins[("C3", "2")][1] > pins[("C3", "1")][1]  # ground below the capacitor, not above it
+    j1 = pins[("J1", "1")]
+    for ref in ("C1", "R1", "D1"):
+        x, y = pins[(ref, "1")]
+        assert abs(x - j1[0]) <= 30.48 and abs(y - j1[1]) <= 30.48, ref
+    labels = [unquote(lbl[1]) for lbl in children(sexpr.parse(g.text), "label")]
+    for net in ("DISCH", "TRIG_THR", "CONT", "STATUS", "STATUS_LED", "PWR_LED"):
+        assert labels.count(net) == 1, net
+
+
+def test_timer_board_notes_sit_by_their_blocks(timer_board, library):
+    """Each English note lands next to what it describes: block notes within a few grid steps of their parts,
+    the STATUS note next to the STATUS label."""
+    from kicad_adapter.drawing import note_rect
+
+    g = generate_schematic(timer_board, library)
+    doc = sexpr.parse(g.text)
+    at = {unquote(t[1]): (float(child(t, "at")[1]), float(child(t, "at")[2])) for t in children(doc, "text")}
+    assert set(at) == {n.text for n in timer_board.notes}
+    pins = {}
+    for a in g.anchors:
+        pins.setdefault(a.reference, []).append((a.x, a.y))
+    refs = {c.id: c.reference for c in timer_board.components}
+
+    def gap(rect, points):
+        xs, ys = [x for x, _ in points], [y for _, y in points]
+        dx = max(min(xs) - rect[2], rect[0] - max(xs), 0)
+        dy = max(min(ys) - rect[3], rect[1] - max(ys), 0)
+        return max(dx, dy)
+
+    for note in timer_board.notes:
+        rect = note_rect(at[note.text], note.text)
+        if note.components:
+            points = [p for cid in note.components for p in pins[refs[cid]]]
+        else:
+            points = [(float(child(lbl, "at")[1]), float(child(lbl, "at")[2])) for lbl in children(doc, "label")
+                      if unquote(lbl[1]) == note.net]
+        assert gap(rect, points) <= 15.24, note.text
 
 
 def test_long_value_slides_off_the_symbol_drawing(library):

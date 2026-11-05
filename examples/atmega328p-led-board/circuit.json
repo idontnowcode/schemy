@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.4.0",
+  "schema_version": "0.5.0",
   "project_id": "atmega328p-led-board",
   "title": "ATmega328P 상태 LED 보드",
   "components": [
@@ -856,5 +856,71 @@
   "validation": {
     "status": "unverified",
     "notes": null
-  }
+  },
+  "notes": [
+    {
+      "id": "note-mcu-u",
+      "text": "MCU core: ATmega328P, 16MHz crystal",
+      "components": [
+        "mcu-u",
+        "mcu-cvcc",
+        "mcu-cavcc",
+        "mcu-caref",
+        "mcu-y",
+        "mcu-cx1",
+        "mcu-cx2",
+        "mcu-rrst"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-power",
+      "text": "5V input (USB adapter), < 100 mA",
+      "components": [
+        "j-pwr",
+        "c-bulk"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-pwr-led",
+      "text": "Power LED, ~3 mA",
+      "components": [
+        "r-pwr",
+        "d-pwr"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-status-led",
+      "text": "Status LED, ~3 mA",
+      "components": [
+        "r-led",
+        "d-led"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-status",
+      "text": "PB5 (Arduino D13), high = LED on",
+      "components": [],
+      "net": "STATUS"
+    },
+    {
+      "id": "note-uart",
+      "text": "UART, 5V level: pin 1 = MCU TXD",
+      "components": [
+        "j-uart"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-reset",
+      "text": "Reset: press as upload starts",
+      "components": [
+        "sw-rst"
+      ],
+      "net": null
+    }
+  ]
 }

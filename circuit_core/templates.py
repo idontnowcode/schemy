@@ -23,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
-from .models import CircuitIR, Component, Net, NetNode, Pin
+from .models import CircuitIR, Component, Net, NetNode, Note, Pin
 
 PinsOf = Callable[[str], "list[tuple[str, str]] | None"]
 """symbol id -> [(pin number, pin name)] from the installed KiCad library, or None if it is not there."""
@@ -95,6 +95,8 @@ class Template:
     basis: tuple[Basis, ...]
     checklist: tuple[Check, ...]
     build: Callable[[dict[str, str]], Fragment] = field(repr=False, compare=False)
+    caption: str = ""
+    """English caption drawn above the block on the schematic; ``{param}`` takes a parameter value."""
 
     @property
     def ref(self) -> str:
@@ -231,7 +233,7 @@ TEMPLATES: dict[str, Template] = {t.id: t for t in (
             Check("thermal", "손실 (Vin − Vout) × Iout이 SOT-223 방열 한계 안인가", "Thermal Considerations"),
             Check("place", "입력·출력 커패시터를 레귤레이터 핀 가까이 배치하는가", "Typical Applications"),
         ),
-        build=_ldo),
+        build=_ldo, caption="3.3 V LDO regulator (AMS1117-3.3)"),
     Template(
         id="buck-lm2596-5v", version=1, title="5V 벅 컨버터 (LM2596S-5)", category="전원",
         summary="7~40V 입력에서 5V를 만드는 스위칭 레귤레이터. 입력 680µF, 33µH, 1N5822, 출력 220µF.",
@@ -256,7 +258,7 @@ TEMPLATES: dict[str, Template] = {t.id: t for t in (
             Check("cout", "출력 커패시터의 ESR·리플 전류 정격이 맞는가", "Output Capacitor Selection"),
             Check("layout", "스위칭 루프(입력 커패시터–VIN–GND–다이오드)를 짧고 굵게 배선하는가", "Layout Guidelines"),
         ),
-        build=_buck),
+        build=_buck, caption="5 V buck regulator (LM2596S-5)"),
     Template(
         id="can-sn65hvd230", version=1, title="CAN 트랜시버 (SN65HVD230)", category="통신",
         summary="3.3V CAN 트랜시버. VCC 디커플링 100nF, Rs는 GND(고속 모드), 버스 끝단이면 120Ω 종단.",
@@ -279,7 +281,7 @@ TEMPLATES: dict[str, Template] = {t.id: t for t in (
             Check("decoupling", "100nF 디커플링을 VCC 핀 가까이 배치하는가", "Typical Application"),
             Check("protection", "버스 쪽 ESD/과전압 보호(TVS 등)가 필요한지 검토했는가", "설계 판단"),
         ),
-        build=_can),
+        build=_can, caption="CAN transceiver (SN65HVD230), 3.3 V"),
     Template(
         id="mcu-atmega328p-min", version=1, title="MCU 최소 회로 (ATmega328P)", category="MCU",
         summary="ATmega328P-AU 최소 회로: VCC·AVCC·AREF 100nF, 크리스탈과 22pF 두 개, RESET 10k 풀업, UART 핀.",
@@ -309,7 +311,7 @@ TEMPLATES: dict[str, Template] = {t.id: t for t in (
             Check("uart", "UART 신호 레벨이 연결할 장치와 맞는가 (VCC 레벨)", "설계 판단"),
             Check("unused", "쓰지 않는 핀(템플릿에서 no-connect)을 실제 용도에 맞게 다시 정했는가", "설계 판단"),
         ),
-        build=_mcu),
+        build=_mcu, caption="MCU core: ATmega328P, {crystal} crystal"),
 )}
 
 
@@ -322,6 +324,15 @@ class Instance:
     components: list[Component]
     nets: dict[str, list[tuple[str, str]]]
     """net name -> [(component id, pin)] after renaming; port nets keep their names and join the board's."""
+
+    @property
+    def note(self) -> Note | None:
+        """The template's English caption, attached to its parts."""
+        if not self.template.caption or not self.components:
+            return None
+        text = self.template.caption.format(**self.params)
+        return Note(id=f"note-{self.components[0].id}"[:64], text=text[:120],
+                    components=tuple(c.id for c in self.components))
 
 
 def resolve_params(t: Template, values: dict[str, str] | None) -> dict[str, str]:
@@ -407,7 +418,8 @@ def as_circuit(inst: Instance, project_id: str, title: str | None = None) -> Cir
     return CircuitIR(
         project_id=project_id, title=title or inst.template.title, components=tuple(inst.components),
         nets=tuple(Net(id=f"net-{i:03d}", name=name, nodes=tuple(NetNode(component_id=c, pin=p) for c, p in nodes))
-                   for i, (name, nodes) in enumerate(inst.nets.items(), start=1)))
+                   for i, (name, nodes) in enumerate(inst.nets.items(), start=1)),
+        notes=(inst.note,) if inst.note else ())
 
 
 def catalog_text() -> str:

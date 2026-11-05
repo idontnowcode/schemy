@@ -207,6 +207,58 @@
       "title": "NetNode",
       "type": "object"
     },
+    "Note": {
+      "additionalProperties": false,
+      "description": "A short line of text drawn on the schematic: what a block is and its key spec (\"555 astable,\n~1 Hz\"), or what a net carries (\"555 output, 1 Hz square wave\"). Notes never change connectivity.\n\nWith ``components`` the note goes next to those parts; with ``net`` next to that net's label; with\nneither, at the top of the first page. Write notes in English so they read the same in every tool.",
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 120,
+          "minLength": 1,
+          "pattern": "^[^\\r\\n]+$",
+          "title": "Text",
+          "type": "string"
+        },
+        "components": {
+          "default": [],
+          "items": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "type": "string"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "net": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_+\\-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Net"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "title": "Note",
+      "type": "object"
+    },
     "Pin": {
       "additionalProperties": false,
       "description": "A physical pin of a component, keyed by the symbol's pin number.",
@@ -343,7 +395,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "default": "0.4.0",
+      "default": "0.5.0",
       "title": "Schema Version",
       "type": "string"
     },
@@ -404,6 +456,15 @@
       },
       "title": "Layout",
       "type": "object"
+    },
+    "notes": {
+      "default": [],
+      "description": "Short English notes drawn on the schematic (block captions, net descriptions).",
+      "items": {
+        "$ref": "#/$defs/Note"
+      },
+      "title": "Notes",
+      "type": "array"
     },
     "validation": {
       "$ref": "#/$defs/Validation"

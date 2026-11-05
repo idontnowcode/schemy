@@ -17,6 +17,8 @@ SYMBOL_DIR = FIXTURES / "kicad_symbols"
 LED_CIRCUIT = EXAMPLE_DIR / "circuit.json"
 SAMPLE_NAME = "atmega328p-led-board"
 SAMPLE_DIR = ROOT.parent / "examples" / SAMPLE_NAME
+TIMER_NAME = "ne555-led-board"
+TIMER_DIR = ROOT.parent / "examples" / TIMER_NAME
 
 
 @pytest.fixture
@@ -28,6 +30,12 @@ def library() -> SymbolLibrary:
 def sample_board() -> CircuitIR:
     """examples/atmega328p-led-board: an MCU board built with a template (multi-pin IC, crystal, reset)."""
     return CircuitIR.model_validate_json((SAMPLE_DIR / "circuit.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def timer_board() -> CircuitIR:
+    """examples/ne555-led-board: a board without an MCU (555 timer, power input block, English notes)."""
+    return CircuitIR.model_validate_json((TIMER_DIR / "circuit.json").read_text(encoding="utf-8"))
 
 
 @pytest.fixture

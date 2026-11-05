@@ -1,7 +1,7 @@
 # AI Circuit Studio
 
 자연어 회로 요구사항 → AI 설계안 → 사용자 승인 → Circuit IR(JSON) → Markdown 문서 + KiCad 회로도를 만드는 Windows 우선 데스크톱 앱입니다.
-기획서는 [`docs/AI_Circuit_Studio_Development_Plan.md`](docs/AI_Circuit_Studio_Development_Plan.md)(v1.7)에 있습니다.
+기획서는 [`docs/AI_Circuit_Studio_Development_Plan.md`](docs/AI_Circuit_Studio_Development_Plan.md)(v1.8)에 있습니다.
 궁극적인 목표는 **하나의 입력 창**에서 회로도, 아트웍(PCB), 펌웨어까지 다루는 것입니다(기획서 1장 제품 비전).
 
 ![AI Circuit Studio — 회로도·검증 화면](docs/images/phase1-schematic.png)
@@ -63,7 +63,7 @@ npm start                                 # 빌드 후 Electron 실행 (백엔�
 
 - 프로젝트는 `문서/AI Circuit Studio/projects/<id>/`에 저장됩니다. 위치를 바꾸려면 `AICS_WORKSPACE`를 설정하세요.
 - 앱을 처음 쓸 때는 **회로 (IR)** 탭의 **예제 불러오기**에서 LED 예제를 저장하고, **회로도 · 검증** 탭에서 생성해 보세요. **회로도 MD 가져오기**로 [`examples/led-resistor-connector/schematic.md`](examples/led-resistor-connector/schematic.md)를 넣어 봐도 됩니다.
-- 조금 더 큰 예제로 **ATmega328P 상태 LED 보드**([`examples/atmega328p-led-board/`](examples/atmega328p-led-board/))가 있습니다. 임의로 정한 요구사항으로 템플릿과 제안 세 개를 거쳐 만든 샘플 보드입니다. 같은 **예제 불러오기**에서 고를 수 있습니다.
+- 조금 더 큰 예제로 **ATmega328P 상태 LED 보드**([`examples/atmega328p-led-board/`](examples/atmega328p-led-board/))와 MCU 없는 **NE555 LED 점멸 보드**([`examples/ne555-led-board/`](examples/ne555-led-board/))가 있습니다. 임의로 정한 요구사항으로 제안을 거쳐 만든 샘플 보드이고, 회로도에 영문 주석(블록 설명·사양·Net 설명)이 들어 있습니다. 같은 **예제 불러오기**에서 고를 수 있습니다.
 - 생성 결과는 **KiCad에서 열기** 버튼이나 보드 폴더의 `outputs/<프로젝트>-<보드>.kicad_pro`로 엽니다.
 
 ### AI 기능 켜기 (선택)
@@ -89,7 +89,7 @@ cd desktop && npm run dev                          # 터미널 2: http://localho
 
 ## KiCad에서 열기
 
-바로 열어 볼 수 있는 예제 프로젝트가 [`examples/led-resistor-connector/`](examples/led-resistor-connector/)와 [`examples/atmega328p-led-board/`](examples/atmega328p-led-board/)에 있습니다.
+바로 열어 볼 수 있는 예제 프로젝트가 [`examples/led-resistor-connector/`](examples/led-resistor-connector/), [`examples/atmega328p-led-board/`](examples/atmega328p-led-board/), [`examples/ne555-led-board/`](examples/ne555-led-board/)에 있습니다.
 
 1. KiCad 10에서 **파일 → 프로젝트 열기**로 `led-resistor-connector.kicad_pro`를 엽니다.
 2. 프로젝트 관리자에서 회로도를 엽니다.

@@ -73,13 +73,29 @@ def diff_circuits(before: CircuitIR | None, after: CircuitIR) -> dict:
     page_moves = [{"reference": a_comps[k].reference, "before": b_pages[k], "after": a_pages[k]}
                   for k in a_pages if k in b_pages and b_pages[k] != a_pages[k]]
 
+    def target(note) -> str:
+        if note.net:
+            return f"net {note.net}"
+        refs = [ref_of.get(c, c) for c in note.components]
+        return ", ".join(sorted(refs, key=natural_key)) if refs else "page"
+
+    b_notes = {n.id: n for n in before.notes} if before else {}
+    a_notes = {n.id: n for n in after.notes}
+    notes = []
+    for k in [*b_notes, *(k for k in a_notes if k not in b_notes)]:
+        old_n, new_n = b_notes.get(k), a_notes.get(k)
+        if old_n == new_n:
+            continue
+        notes.append({"id": k, "target": target(new_n or old_n),
+                      "before": old_n.text if old_n else None, "after": new_n.text if new_n else None})
+
     changed.sort(key=lambda r: (natural_key(r["reference"]), r["field"]))
     added.sort(key=lambda r: natural_key(r["reference"]))
     removed.sort(key=lambda r: natural_key(r["reference"]))
     summary = {"components_added": len(added), "components_removed": len(removed),
                "properties_changed": len(changed), "connections_changed": len(connections),
                "nets_added": len(a_names - b_names), "nets_removed": len(b_names - a_names),
-               "moved": len(moved), "page_moves": len(page_moves)}
+               "moved": len(moved), "page_moves": len(page_moves), "notes_changed": len(notes)}
     return {
         "summary": summary,
         "is_new_circuit": before is None,
@@ -91,6 +107,7 @@ def diff_circuits(before: CircuitIR | None, after: CircuitIR) -> dict:
         "nets_removed": sorted(b_names - a_names, key=natural_key),
         "moved": moved,
         "page_moves": page_moves,
+        "notes": notes,
         "title_changed": None if before is None or before.title == after.title else
         {"before": before.title, "after": after.title},
     }

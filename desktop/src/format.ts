@@ -305,6 +305,7 @@ export function diffSummaryText(s: Record<string, number>): string {
     s.nets_added && `Net +${s.nets_added}`,
     s.nets_removed && `Net −${s.nets_removed}`,
     s.moved && `배치 ${s.moved}`,
+    s.notes_changed && `주석 ${s.notes_changed}`,
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : "바뀐 것 없음";
 }

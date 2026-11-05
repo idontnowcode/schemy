@@ -29,6 +29,7 @@ from circuit_core.datasheets import is_ground_name, net_voltage
 from circuit_core.parts import parse_value
 
 from .drawing import (
+    GRID,
     STUB,
     Dir,
     Point,
@@ -117,8 +118,13 @@ def plan_groups(order: list[str], pins: dict[str, list[PinGeom]],
 
     kinds = kinds or {}
     big = [c for c in order if len(pins[c]) >= 3 and c not in hints]
-    # A connector hangs off the IC it serves (pins facing it) when there is one; otherwise it anchors a group.
-    anchors = [c for c in big if kinds.get(c) != "connector"] or big
+    # A connector that only brings power in (every pin on a rail, a supply among them) anchors a power-input
+    # block: the bulk capacitors and power indicator on its rails gather around it instead of scattering.
+    feeds = [c for c in order if kinds.get(c) == "connector" and c not in hints and nets(c)
+             and not nets(c, signal=True) and any(not is_ground_name(n) for n in nets(c))]
+    # Any other connector hangs off the IC it serves (pins facing it) when there is one; otherwise it anchors.
+    anchors = [c for c in big if kinds.get(c) != "connector"] or [c for c in big if c not in feeds]
+    anchors += [c for c in feeds if c not in anchors]
     group_of: dict[str, str] = {a: a for a in anchors}
     satellites = [c for c in order if c not in group_of and c not in hints]
 
@@ -159,8 +165,11 @@ def plan_groups(order: list[str], pins: dict[str, list[PinGeom]],
                                                 for n in supplies for c, p in net_nodes[n] if c == a)]
         drivers = [a for a in anchors if any(etype.get((a, p)) == "power_out"
                                              for n in supplies for c, p in net_nodes[n] if c == a)]
+        drivers += [f for f in feeds if f not in drivers and any(n in nets(f) for n in supplies)]
         farad = parse_value(values.get(s))
         bulk = farad is not None and farad > 1.5e-6 and len(pins[s]) == 2
+        if kinds.get(s) == "connector" and not bulk:
+            powered_by = [a for a in powered_by if a not in feeds]
         candidates = (drivers or powered_by) if bulk else (powered_by or drivers)
         if candidates:
             target = min(candidates, key=lambda a: (load[a], anchors.index(a)))
@@ -182,6 +191,13 @@ def plan_groups(order: list[str], pins: dict[str, list[PinGeom]],
             chain.append(c)
             for net in nets(c, signal=True):
                 queue += [o for o, _ in net_nodes[net] if o in rest and o not in seen]
+        # A chain only between one power input's rails (a power LED and its resistor) joins that input.
+        rails_used = {n for c in chain for n in nets(c, signal=False)}
+        feed = next((f for f in feeds if rails_used and rails_used <= set(nets(f))), None)
+        if feed is not None and len(chain) <= MAX_CHAIN:
+            for c in chain:
+                group_of[c] = feed
+            continue
         for i in range(0, len(chain), MAX_CHAIN):
             head = chain[i]
             for c in chain[i:i + MAX_CHAIN]:
@@ -244,32 +260,65 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx) -> Group:
         ps = pins[c]
         return len(ps) == 2 and ps[0].out == (-ps[1].out[0], -ps[1].out[1])
 
-    # Tree over wired nets, breadth first from the root.
+    # Tree over wired nets, breadth first from the root (later also from parts placed beside a rail pin).
     parent: dict[str, tuple[str, str, str]] = {}
-    tree = [key]
-    i = 0
-    while i < len(tree):
-        owner = tree[i]
-        i += 1
-        for p in pins[owner]:
-            n = net(owner, p.number)
-            if not wired(n):
-                continue
-            for m in members:
-                if m == key or m in parent:
-                    continue
-                mp = next((q for q in pins[m] if net(m, q.number) == n), None)
-                if mp is not None:
-                    parent[m] = (owner, p.number, mp.number)
-                    tree.append(m)
     children: dict[tuple[str, str], list[str]] = defaultdict(list)
-    for m in tree[1:]:
-        children[parent[m][:2]].append(m)
+
+    def to_rail(m: str, mpin: str) -> str | None:
+        """For a two-pin part hanging by ``mpin``: the rail (drawn with power symbols) its other pin is on."""
+        if not two_opposite(m):
+            return None
+        other = net(m, next(q.number for q in pins[m] if q.number != mpin))
+        return other if other in ctx.upright else None
+
+    def grow_tree(start: str, done: set[str]) -> None:
+        found = [start]
+        i = 0
+        while i < len(found):
+            owner = found[i]
+            i += 1
+            for p in pins[owner]:
+                n = net(owner, p.number)
+                if not wired(n):
+                    continue
+                for m in members:
+                    if m in (key, start) or m in parent or m in done:
+                        continue
+                    mp = next((q for q in pins[m] if net(m, q.number) == n), None)
+                    if mp is not None:
+                        parent[m] = (owner, p.number, mp.number)
+                        found.append(m)
+        new = found[1:]
+        # A part to a rail on a net that a two-pin part spanning two of the owner's lines (a crystal) also
+        # ends on hangs off that part's end, so the crystal and its load capacitors stay one small block.
+        spans = [m for m in new if two_opposite(m) and len({net(m, q.number) for q in pins[m]}) == 2
+                 and all(wired(net(m, q.number)) and any(net(parent[m][0], o.number) == net(m, q.number)
+                                                         for o in pins[parent[m][0]]) for q in pins[m])]
+        for m in new:
+            o, opin, mpin = parent[m]
+            if m in spans or not is_ground_name(to_rail(m, mpin) or ""):
+                continue
+            b = next((b for b in spans if parent[b][0] == o and any(net(b, q.number) == net(o, opin)
+                                                                   for q in pins[b])), None)
+            if b is not None:
+                parent[m] = (b, next(q.number for q in pins[b] if net(b, q.number) == net(o, opin)), mpin)
+        for m in new:
+            children[parent[m][:2]].append(m)
+
+    grow_tree(key, set())
 
     placed: dict[str, tuple[float, float, int]] = {}
     mirrored: set[str] = set()
     boxes: dict[str, Extent] = {}
+    shapes: dict[str, list[Extent]] = {}
+    """Finer outlines for collisions: an IC as its body and the strips its labels and power symbols take."""
     scores: dict[tuple[float, float], int] = {}
+
+    def outline(m: str) -> list[Extent]:
+        return shapes.get(m) or [boxes[m]]
+
+    def collides(box: Extent) -> bool:
+        return any(overlaps(box, r) for m in boxes for r in outline(m))
 
     def abs_pin(c: str, n: str) -> tuple[Point, Dir]:
         dx, dy, r = placed[c]
@@ -299,10 +348,10 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx) -> Group:
                     ox, oy = snap(ox, step), snap(oy, step)
                 ox, oy = round(ox, 4), round(oy, 4)
                 box = shift(e, ox, oy)
-                if any(overlaps(box, b) for b in boxes.values()):
+                if collides(box):
                     continue
-                if line and j == 0 and any(segment_hits_rect(anchor, (tx, ty), b)
-                                           for m, b in boxes.items() if m not in skip):
+                if line and j == 0 and any(segment_hits_rect(anchor, (tx, ty), r)
+                                           for m in boxes if m not in skip for r in outline(m)):
                     continue
                 best = (score, ox, oy)
                 break
@@ -337,12 +386,22 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx) -> Group:
         else:
             r0 = orient(pins[key][0].out, (-1, 0)) or 0
     q0 = {p.number: reach(net(key, p.number)) for p in pins[key] if (key, p.number) in children}
+    m0 = (ctx.kinds.get(key) == "connector" and same_side(key) and pins[key][0].out == (-1, 0)
+          and not any(wired(net(key, p.number)) for p in pins[key]))  # a power input faces its block
     placed[key] = (0.0, 0.0, r0)
-    boxes[key] = ctx.extent_of(key, r0, q0)
+    if m0:
+        mirrored.add(key)
+    boxes[key] = ctx.extent_of(key, r0, q0, m0)
+    if len(pins[key]) >= 3:
+        try:
+            shapes[key] = list(ctx.extent_of(key, r0, q0, m0, True))
+        except TypeError:  # an extent function without outlines
+            pass
 
-    def plan(c: str, cpin: str, owner: str, opin: str, d: Dir) -> tuple[int | None, bool, bool, str | None]:
+    def plan(c: str, cpin: str, owner: str, opin: str, d: Dir) -> tuple[int | None, bool, bool, str | None, bool]:
         """Rotation and mirroring for a member hanging off ``owner``'s pin ``opin`` (pointing ``d``), whether it
-        stands across the line, and for a bridge the owner's other pin it spans to."""
+        stands across the line, for a bridge the owner's other pin it spans to, and whether it stands beside
+        the pin instead (a capacitor to ground on a pin pointing up keeps its ground symbol pointing down)."""
         s = pin(c, cpin)
         back = (-d[0], -d[1])
         if two_opposite(c):
@@ -362,93 +421,135 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx) -> Group:
                     gap = (b[1] - a[1]) if d[1] == 0 else (b[0] - a[0])
                     if gap:
                         toward = (0, 1 if gap > 0 else -1) if d[1] == 0 else (1 if gap > 0 else -1, 0)
-                        return orient(o.out, toward), False, True, q.number
-            if n2 in ctx.upright and d[1] == 0 and (is_ground_name(n2) or ctx.kinds.get(c) == "rc"):
-                return orient(o.out, ctx.upright[n2]), False, True, None
-            return orient(s.out, back), False, False, None
+                        return orient(o.out, toward), False, True, q.number, False
+            if n2 in ctx.upright and (is_ground_name(n2) or ctx.kinds.get(c) == "rc"):
+                if d[1] == 0:
+                    return orient(o.out, ctx.upright[n2]), False, True, None, False
+                if ctx.upright[n2] == back:
+                    return orient(o.out, ctx.upright[n2]), False, True, None, True
+            return orient(s.out, back), False, False, None, False
         if len(pins[c]) == 1 or same_side(c):
-            return (*facing(c, s, back), False, None)
-        return None, False, False, None
+            return (*facing(c, s, back), False, None, False)
+        return None, False, False, None, False
 
     bridges: set[str] = set()
+    flat: set[str] = set()
+    """Bridges laid along the owner's lines (a crystal with a capacitor to ground hanging off each end)."""
 
-    def under_bridge(c: str, cpin: str, n: str | None, quiet: dict[str, float], skip: set[str]):
-        if not two_opposite(c):
-            return None
-        rail = net(c, next(q.number for q in pins[c] if q.number != cpin))
-        if rail not in ctx.upright:
-            return None
-        for b in sorted(bridges):
-            for bp in pins[b]:
-                if net(b, bp.number) != n:
-                    continue
-                a, bd = abs_pin(b, bp.number)
-                if bd != ctx.upright[rail]:
-                    continue
-                rotation = orient(pin(c, cpin).out, (-bd[0], -bd[1])) or 0
-                e = ctx.extent_of(c, rotation, quiet, False)
-                rel, _ = _turned(pin(c, cpin), rotation, False)
-                spot = search(e, a, bd, rel, True, skip | {b})
-                if on_line(spot, rel, a, bd):
-                    return rotation, False, e, rel, spot, a, bd
-        return None
+    def place_tree(start: str) -> None:
+        """Wired members, nearest first; at one pin, a bridge first, then parts across the line, then the one
+        continuing it."""
+        queue = [start]
+        while queue:
+            owner = queue.pop(0)
+            for p in pins[owner]:
+                kids = children.get((owner, p.number), [])
+                todo = [k for k in kids if k not in placed]
+                if todo:
+                    place_kids(owner, p.number, todo)
+                queue += kids
 
-    # Wired members, nearest first; at one pin, parts across the line come before the one continuing it.
-    queue = [key]
-    while queue:
-        owner = queue.pop(0)
-        for p in pins[owner]:
-            kids = children.get((owner, p.number), [])
-            if not kids:
-                continue
-            anchor, d = abs_pin(owner, p.number)
-            plans = {c: plan(c, parent[c][2], owner, p.number, d) for c in kids}
-            for c in sorted(kids, key=lambda c: (not plans[c][2], kids.index(c))):
-                rotation = plans[c][0] if plans[c][0] is not None else 0
-                mirror, twin = plans[c][1], plans[c][3]
-                line_at = anchor
-                cpin = parent[c][2]
-                quiet = {cpin: 0.0}
-                for q in pins[c]:
-                    if (c, q.number) in children:
-                        quiet[q.number] = reach(net(c, q.number))
-                    elif twin is not None:  # a bridge's other end is wired to the owner's other row, no label
-                        quiet[q.number] = 0.0
+    def place_kids(owner: str, opin: str, kids: list[str]) -> None:
+        anchor, d = abs_pin(owner, opin)
+        back = (-d[0], -d[1])
+        plans = {c: plan(c, parent[c][2], owner, opin, d) for c in kids}
+        for c in sorted(kids, key=lambda c: (not plans[c][2], plans[c][3] is None, kids.index(c))):
+            rotation = plans[c][0] if plans[c][0] is not None else 0
+            mirror, twin, beside = plans[c][1], plans[c][3], plans[c][4]
+            line_at: Point | None = anchor
+            cpin = parent[c][2]
+            quiet = {cpin: 0.0}
+            for q in pins[c]:
+                if twin is not None:  # a bridge's ends are wired to the owner's rows: no label room needed
+                    quiet[q.number] = 0.0
+                elif (c, q.number) in children:
+                    quiet[q.number] = reach(net(c, q.number))
+            e = ctx.extent_of(c, rotation, quiet, mirror)
+            rel, _ = _turned(pin(c, cpin), rotation, mirror)
+            skip = {owner} | {x for s in kids if s in placed and plans[s][2] for x in (s, f"~{s}")}
+            rail = to_rail(c, cpin)
+            grounded_ends = [q for q in pins[c] if any(is_ground_name(to_rail(k, parent[k][2]) or "")
+                                                       for k in children.get((c, q.number), []))]
+            if twin is not None and d[1] == 0 and len(grounded_ends) == 2:
+                # A crystal with a load capacitor at each end: it lies along the lines below the lower one, the
+                # lower line's end toward the owner, so both lines drop straight onto its ends and the
+                # capacitors hang straight down from them.
+                b, _ = abs_pin(owner, twin)
+                low_net, low_y = (net(owner, twin), b[1]) if b[1] > anchor[1] else (net(owner, opin), anchor[1])
+                near = next(q for q in pins[c] if net(c, q.number) == low_net)
+                rotation, mirror = orient(near.out, back) or 0, False
+                e = ctx.extent_of(c, rotation, {q.number: 0.0 for q in pins[c]}, False)
+                rel_near, _ = _turned(near, rotation, False)
+                # Room before the near end: the lower line's label, then the near capacitor's text (it is
+                # mirrored to face out).
+                cap = next((k for k in children.get((c, near.number), []) if to_rail(k, parent[k][2])), None)
+                band = [r for r in outline(owner) if r[3] > low_y - STEP and r[1] < low_y + 6 * STEP]
+                edge = (max(r[2] for r in band) if d[0] > 0 else min(r[0] for r in band)) if band else anchor[0]
+                room = max(reach(low_net) + GRID, (edge - anchor[0]) * d[0])
+                if cap is not None:
+                    up = ctx.upright[to_rail(cap, parent[cap][2]) or ""]
+                    ce = ctx.extent_of(cap, orient(pin(cap, parent[cap][2]).out, (-up[0], -up[1])) or 0,
+                                       {parent[cap][2]: 0.0}, True)
+                    room += -ce[0]
+                start = (round(anchor[0] + d[0] * -(-room // STEP) * STEP, 4), low_y)
+                spot = search(e, start, (0, 1), rel_near, False, skip, weights=(1, 1))
+                bridges.add(c)
+                flat.add(c)
+                line_at = None
+            elif twin is not None:  # centre the bridge between the two pin rows
+                b, _ = abs_pin(owner, twin)
+                o_rel, _ = _turned(next(q for q in pins[c] if q.number != cpin), rotation, mirror)
+                i = 1 if d[1] == 0 else 0
+                offset = snap((b[i] - anchor[i]) / 2 - ((rel[i] + o_rel[i]) / 2 - rel[i]))
+                start = ((anchor[0], round(anchor[1] + offset, 4)) if i
+                         else (round(anchor[0] + offset, 4), anchor[1]))
+                spot = search(e, start, d, rel, False, skip)
+                bridges.add(c)
+                line_at = None
+            elif owner in bridges and rail is not None and (owner in flat or d == ctx.upright[rail]):
+                # A capacitor to ground hangs straight down from its end of the crystal (or from the lower end of
+                # an upright bridge). At the left end of a crystal lying along the lines it is mirrored, so its
+                # text faces out and the two capacitors fit side by side under the crystal.
+                down = ctx.upright[rail]
+                rotation = orient(pin(c, cpin).out, (-down[0], -down[1])) or 0
+                # Text faces away from the rest of the block: out at the left end of a lying crystal, away from
+                # the IC under an upright bridge.
+                ic = parent.get(owner, (owner,))[0]
+                mirror = (d[0] < 0) if owner in flat else (
+                    ic in boxes and (boxes[ic][0] + boxes[ic][2]) / 2 > anchor[0])
                 e = ctx.extent_of(c, rotation, quiet, mirror)
                 rel, _ = _turned(pin(c, cpin), rotation, mirror)
-                skip = {owner} | {x for s in kids if s in placed and plans[s][2] for x in (s, f"~{s}")}
-                if twin is not None:  # centre the bridge between the two pin rows
-                    b, _ = abs_pin(owner, twin)
-                    o_rel, _ = _turned(next(q for q in pins[c] if q.number != cpin), rotation, mirror)
-                    i = 1 if d[1] == 0 else 0
-                    offset = snap((b[i] - anchor[i]) / 2 - ((rel[i] + o_rel[i]) / 2 - rel[i]))
-                    start = ((anchor[0], round(anchor[1] + offset, 4)) if i
-                             else (round(anchor[0] + offset, 4), anchor[1]))
-                    spot = search(e, start, d, rel, False, skip)
-                    bridges.add(c)
-                elif (below := under_bridge(c, cpin, net(owner, p.number), quiet, skip)) is not None:
-                    # A capacitor to ground on a net a bridge (a crystal) also ends on, where that end points
-                    # toward ground: it hangs straight below the bridge, the textbook crystal circuit.
-                    rotation, mirror, e, rel, spot, line_at, _ = below
-                else:
-                    spot = search(e, anchor, d, rel, True, skip)
-                    turn = orient(pin(c, cpin).out, (-d[0], -d[1])) if plans[c][2] and two_opposite(c) else None
-                    if turn is not None and turn != rotation:
-                        # No room to stand across the line near the pin (other parts take the space beside
-                        # it): continue the line instead when that keeps the wire straight and lands clearly
-                        # closer - e.g. an LED to ground after its resistor, next to a crystal block.
-                        e2 = ctx.extent_of(c, turn, quiet, False)
-                        rel2, _ = _turned(pin(c, cpin), turn, False)
-                        spot2 = search(e2, anchor, d, rel2, True, skip)
-                        if on_line(spot2, rel2, anchor, d) and (
-                                not on_line(spot, rel, anchor, d) or scores[spot2] + 3 <= scores[spot]):
-                            rotation, mirror, e, rel, spot = turn, False, e2, rel2, spot2
-                put(c, rotation, e, spot, mirror)
-                if spot is not None:  # keep the straight wire's path free for later parts
-                    end = (spot[0] + rel[0], spot[1] + rel[1])
-                    if end[0] == line_at[0] or end[1] == line_at[1]:
-                        boxes[f"~{c}"] = grow(rect_of([line_at, end]), 1.0)
-                queue.append(c)
+                spot = search(e, anchor, down, rel, True, skip)
+            elif beside:
+                # Beside the pin, standing upright; the wire goes out of the pin, across and into the part.
+                options = [sp for side in ((1, 0), (-1, 0)) if (sp := search(e, anchor, side, rel, False, skip))]
+                spot = min(options, key=lambda sp: scores[sp]) if options else None
+                line_at = None
+            else:
+                spot = search(e, anchor, d, rel, True, skip)
+                turn = orient(pin(c, cpin).out, back) if plans[c][2] and two_opposite(c) else None
+                if turn is not None and turn != rotation:
+                    # No room to stand across the line near the pin (other parts take the space beside it):
+                    # continue the line instead when that keeps the wire straight and lands clearly closer
+                    # - e.g. an LED to ground after its resistor, next to a crystal block.
+                    e2 = ctx.extent_of(c, turn, quiet, False)
+                    rel2, _ = _turned(pin(c, cpin), turn, False)
+                    spot2 = search(e2, anchor, d, rel2, True, skip)
+                    if on_line(spot2, rel2, anchor, d) and (
+                            not on_line(spot, rel, anchor, d) or scores[spot2] + 3 <= scores[spot]):
+                        rotation, mirror, e, rel, spot = turn, False, e2, rel2, spot2
+            put(c, rotation, e, spot, mirror)
+            if spot is not None and line_at is not None:  # keep the straight wire's path free for later parts
+                end = (spot[0] + rel[0], spot[1] + rel[1])
+                if end[0] == line_at[0] or end[1] == line_at[1]:
+                    boxes[f"~{c}"] = grow(rect_of([line_at, end]), 1.0)
+            if c in bridges:  # a crystal's capacitors come with it, before other parts take the room around it
+                for q in pins[c]:
+                    todo = [k for k in children.get((c, q.number), []) if k not in placed]
+                    if todo:
+                        place_kids(c, q.number, todo)
+
+    place_tree(key)
 
     # Members only on rails: upright, in a row beside the pin of their rail (supply before ground), parts
     # first and connectors outermost. Generator-added PWR_FLAGs go right above the part feeding their rail.
@@ -458,6 +559,8 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx) -> Group:
                   key=lambda m: (ctx.kinds.get(m) == "connector", members.index(m)))
     loose = []
     for m in rest:
+        if m in placed:  # already hung off a part placed earlier in this loop (an LED after its resistor)
+            continue
         rails = sorted({n for q in pins[m] if (n := net(m, q.number)) in ctx.upright},
                        key=lambda n: (is_ground_name(n), n))
         farad = parse_value(ctx.values.get(m)) if ctx.kinds.get(m) == "rc" else None
@@ -470,9 +573,12 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx) -> Group:
             continue
         anchor, d = abs_pin(*found)
         sides = [(anchor, d)]
-        if d[0] == 0:  # a pin on top or bottom: also try beside the owner; the closest spot wins
-            ob = boxes[found[0]]
-            sides += [((ob[2], anchor[1]), (1, 0)), ((ob[0], anchor[1]), (-1, 0))]
+        if d[0] == 0:  # a pin on top or bottom: also try beside it (beside the owner); the closest spot wins
+            if found[0] in shapes:  # the owner's outline leaves the corners next to its pins free
+                sides += [(anchor, (1, 0)), (anchor, (-1, 0))]
+            else:
+                ob = boxes[found[0]]
+                sides += [((ob[2], anchor[1]), (1, 0)), ((ob[0], anchor[1]), (-1, 0))]
         options = []
         for side_anchor, sd in sides:
             mirror = False
@@ -494,6 +600,9 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx) -> Group:
             put(m, rotation, e, spot, mirror)
         else:
             put(m, 0, ctx.extent_of(m, 0, {}), None)
+        # Parts wired only to this one (a power LED after its resistor) hang off it like any other member.
+        grow_tree(m, set(placed))
+        place_tree(m)
     for m in flags:
         n = next((net(m, q.number) for q in pins[m] if net(m, q.number)), None)
         rotation = 0
@@ -505,6 +614,8 @@ def _block(key: str, members: list[str], anchored: bool, ctx: _Ctx) -> Group:
         put(m, rotation, e, search(e, ((fb[0] + fb[2]) / 2, fb[1]), (0, -1), ((e[0] + e[2]) / 2, e[3]), False,
                                    set(), weights=(2, 1), step=STEP))
     for m in loose:
+        if m in placed:
+            continue
         e = ctx.extent_of(m, 0, {})
         x0, _, x1, y1 = union(*boxes.values())
         put(m, 0, e, search(e, ((x0 + x1) / 2, y1), (0, 1), ((e[0] + e[2]) / 2, e[1]), False, set(),

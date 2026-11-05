@@ -1,0 +1,606 @@
+{
+  "schema_version": "0.5.0",
+  "project_id": "ne555-led-board",
+  "title": "NE555 LED 점멸 보드",
+  "components": [
+    {
+      "id": "j-pwr",
+      "reference": "J1",
+      "value": "5V_IN",
+      "symbol_id": "Connector_Generic:Conn_01x02",
+      "footprint_id": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "Pin_2",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": "5V 전원 입력",
+      "origin": null
+    },
+    {
+      "id": "c-bulk",
+      "reference": "C1",
+      "value": "10uF",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0805_2012Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": "5V 입력 벌크 콘덴서",
+      "origin": null
+    },
+    {
+      "id": "r-pwr",
+      "reference": "R1",
+      "value": "1k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": "전원 LED 전류 제한 (약 3mA)",
+      "origin": null
+    },
+    {
+      "id": "d-pwr",
+      "reference": "D1",
+      "value": "RED",
+      "symbol_id": "Device:LED",
+      "footprint_id": "LED_SMD:LED_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "K",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "A",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": "전원 LED",
+      "origin": null
+    },
+    {
+      "id": "u-tmr",
+      "reference": "U1",
+      "value": "NE555D",
+      "symbol_id": "Timer:NE555D",
+      "footprint_id": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "GND",
+          "no_connect": false
+        },
+        {
+          "number": "8",
+          "name": "VCC",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "TRIG",
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": "OUT",
+          "no_connect": false
+        },
+        {
+          "number": "4",
+          "name": "~{RST}",
+          "no_connect": false
+        },
+        {
+          "number": "5",
+          "name": "CONT",
+          "no_connect": false
+        },
+        {
+          "number": "6",
+          "name": "THRES",
+          "no_connect": false
+        },
+        {
+          "number": "7",
+          "name": "DISCH",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": "555 타이머 (비안정)",
+      "origin": null
+    },
+    {
+      "id": "r-a",
+      "reference": "R2",
+      "value": "10k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": "타이밍 저항 RA (VCC-DISCH)",
+      "origin": null
+    },
+    {
+      "id": "r-b",
+      "reference": "R3",
+      "value": "68k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": "타이밍 저항 RB (DISCH-THRES/TRIG)",
+      "origin": null
+    },
+    {
+      "id": "c-t",
+      "reference": "C2",
+      "value": "10uF",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0805_2012Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": "타이밍 콘덴서",
+      "origin": null
+    },
+    {
+      "id": "c-ctl",
+      "reference": "C3",
+      "value": "10nF",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": "CONT 핀 바이패스",
+      "origin": null
+    },
+    {
+      "id": "c-dec",
+      "reference": "C4",
+      "value": "100nF",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": "555 전원 디커플링",
+      "origin": null
+    },
+    {
+      "id": "r-led",
+      "reference": "R4",
+      "value": "470",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": "상태 LED 전류 제한 (약 3mA)",
+      "origin": null
+    },
+    {
+      "id": "d-led",
+      "reference": "D2",
+      "value": "GREEN",
+      "symbol_id": "Device:LED",
+      "footprint_id": "LED_SMD:LED_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "K",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "A",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": null,
+        "notes": null
+      },
+      "description": "상태 LED (1Hz 점멸)",
+      "origin": null
+    }
+  ],
+  "nets": [
+    {
+      "id": "n-5v",
+      "name": "+5V",
+      "nodes": [
+        {
+          "component_id": "j-pwr",
+          "pin": "1"
+        },
+        {
+          "component_id": "c-bulk",
+          "pin": "1"
+        },
+        {
+          "component_id": "r-pwr",
+          "pin": "1"
+        },
+        {
+          "component_id": "u-tmr",
+          "pin": "8"
+        },
+        {
+          "component_id": "u-tmr",
+          "pin": "4"
+        },
+        {
+          "component_id": "r-a",
+          "pin": "1"
+        },
+        {
+          "component_id": "c-dec",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "n-gnd",
+      "name": "GND",
+      "nodes": [
+        {
+          "component_id": "j-pwr",
+          "pin": "2"
+        },
+        {
+          "component_id": "c-bulk",
+          "pin": "2"
+        },
+        {
+          "component_id": "d-pwr",
+          "pin": "1"
+        },
+        {
+          "component_id": "u-tmr",
+          "pin": "1"
+        },
+        {
+          "component_id": "c-t",
+          "pin": "2"
+        },
+        {
+          "component_id": "c-ctl",
+          "pin": "2"
+        },
+        {
+          "component_id": "c-dec",
+          "pin": "2"
+        },
+        {
+          "component_id": "d-led",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "n-pled",
+      "name": "PWR_LED",
+      "nodes": [
+        {
+          "component_id": "r-pwr",
+          "pin": "2"
+        },
+        {
+          "component_id": "d-pwr",
+          "pin": "2"
+        }
+      ]
+    },
+    {
+      "id": "net-disch",
+      "name": "DISCH",
+      "nodes": [
+        {
+          "component_id": "u-tmr",
+          "pin": "7"
+        },
+        {
+          "component_id": "r-a",
+          "pin": "2"
+        },
+        {
+          "component_id": "r-b",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "net-trig_thr",
+      "name": "TRIG_THR",
+      "nodes": [
+        {
+          "component_id": "u-tmr",
+          "pin": "2"
+        },
+        {
+          "component_id": "u-tmr",
+          "pin": "6"
+        },
+        {
+          "component_id": "r-b",
+          "pin": "2"
+        },
+        {
+          "component_id": "c-t",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "net-cont",
+      "name": "CONT",
+      "nodes": [
+        {
+          "component_id": "u-tmr",
+          "pin": "5"
+        },
+        {
+          "component_id": "c-ctl",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "net-status",
+      "name": "STATUS",
+      "nodes": [
+        {
+          "component_id": "u-tmr",
+          "pin": "3"
+        },
+        {
+          "component_id": "r-led",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "net-status_led",
+      "name": "STATUS_LED",
+      "nodes": [
+        {
+          "component_id": "r-led",
+          "pin": "2"
+        },
+        {
+          "component_id": "d-led",
+          "pin": "2"
+        }
+      ]
+    }
+  ],
+  "sheets": [],
+  "layout": {},
+  "notes": [
+    {
+      "id": "note-power",
+      "text": "5V input (USB adapter), < 50 mA",
+      "components": [
+        "j-pwr",
+        "c-bulk"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-pwr-led",
+      "text": "Power LED, ~3 mA",
+      "components": [
+        "r-pwr",
+        "d-pwr"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-timer",
+      "text": "555 astable: ~1 Hz, ~53% duty",
+      "components": [
+        "u-tmr",
+        "r-a",
+        "r-b",
+        "c-t"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-timer-f",
+      "text": "f = 1.44 / ((R2 + 2*R3) * C2)",
+      "components": [
+        "u-tmr",
+        "r-a",
+        "r-b",
+        "c-t"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-status-led",
+      "text": "Status LED, ~3 mA",
+      "components": [
+        "r-led",
+        "d-led"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-status",
+      "text": "555 output, 1 Hz square wave",
+      "components": [],
+      "net": "STATUS"
+    }
+  ],
+  "validation": {
+    "status": "unverified",
+    "notes": null
+  }
+}
