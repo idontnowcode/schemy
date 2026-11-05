@@ -266,7 +266,16 @@ export function proposalStatusLabel(status: string): Label {
 }
 
 export function proposalSourceLabel(source: string): string {
-  return { user: "직접 제안", ai_design: "AI 설계", ai_revision: "AI 수정안", ai_pdf_import: "PDF 가져오기 (AI)" }[source] ?? source;
+  return (
+    {
+      user: "직접 제안",
+      ai_design: "AI 설계",
+      ai_revision: "AI 수정안",
+      ai_pdf_import: "PDF 가져오기 (AI)",
+      template: "템플릿",
+      agent: "AI Agent",
+    }[source] ?? source
+  );
 }
 
 const DIFF_FIELD: Record<string, string> = {
@@ -310,4 +319,12 @@ export function providerShortName(provider: string | undefined | null): string {
 
 export function providerLabel(provider: string | undefined | null): string {
   return provider === "claude" ? "Anthropic Claude API" : "Google Gemini API";
+}
+
+/** Where a part came from: a reviewed template, an AI design, or by hand. */
+export function originLabel(origin: string | null | undefined): string {
+  if (!origin) return "직접";
+  if (origin === "ai") return "AI";
+  const m = /^template:(.+)$/.exec(origin);
+  return m ? `템플릿 ${m[1]}` : origin;
 }

@@ -16,7 +16,7 @@ from ai_engine.design import DesignInput, circuit_text, design_circuit, review_c
 from circuit_core import CircuitIR, validate_circuit
 from circuit_core.diff import diff_circuits
 from circuit_core.patch import ReplaceCircuit
-from kicad_adapter import SymbolLibrary
+from kicad_adapter import SymbolLibrary, SymbolLibraryError
 
 from .ai_access import AiAccess, api_error, run_record
 from .config import Settings
@@ -116,6 +116,15 @@ def proposal_check_findings(p: Proposal) -> list[dict]:
     for x in (p.ai or {}).get("remaining_problems") or []:
         out.append(_finding("error", "AI 연결 검사에서 남은 문제", x))
     return out
+
+
+def _pins_of(lib: SymbolLibrary):
+    def lookup(symbol_id: str):
+        try:
+            return [(p.number, p.name) for p in lib.get(symbol_id).pins]
+        except SymbolLibraryError:
+            return None
+    return lookup
 
 
 def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalService, inventory: InventoryStore,
@@ -231,7 +240,7 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                                                       "findings": len(findings or [])})
             try:
                 result = design_circuit(provider, inp, resolver, project_id=project_id,
-                                        max_output_tokens=cfg.max_output_tokens)
+                                        max_output_tokens=cfg.max_output_tokens, pins_of=_pins_of(lib))
             except AiError as exc:
                 record.update(status="failed", error={"code": exc.code, "message": exc.message})
                 save_run(project_id, board_id, record)
@@ -254,6 +263,8 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                   "citations": [{"reference": str(c.get("ref", "")), "page": c.get("page"), "text": str(c.get("text", ""))}
                                 for c in result.connections.get("citations") or [] if isinstance(c, dict)],
                   "parts": [{"key": p.ref, "role": p.role, "symbol_id": p.symbol_id, "how": p.how} for p in result.parts],
+                  "templates": [{"ref": b.ref, "title": b.title, "params": b.params,
+                                 "parts": [c.reference for c in b.components]} for b in result.templates],
                   "attempts": result.attempts, "remaining_problems": result.problems,
                   "notes": str(result.connections.get("notes") or ""), "parent": parent, "review": None,
                   "addressed": [{"severity": f.get("severity"), "title": f.get("title"), "detail": f.get("detail"),

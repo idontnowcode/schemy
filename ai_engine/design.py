@@ -27,6 +27,8 @@ from pydantic import ValidationError
 
 from circuit_core import CircuitIR, validate_circuit
 from circuit_core.export import natural_key
+from circuit_core.models import Component
+from circuit_core.templates import TEMPLATES, PinsOf, TemplateError, catalog_text, instantiate
 
 from .providers import AiError, LlmProvider, LlmResult
 
@@ -77,6 +79,13 @@ PLAN_SCHEMA = {
             "search_terms": _STRS,
             "inventory_part_id": _STR,
         }, "required": ["ref", "role", "category", "value"]}},
+        "templates": {"type": "array", "description": "검토된 회로 템플릿을 쓸 블록", "items": {
+            "type": "object", "properties": {
+                "id": {"type": "string", "enum": list(TEMPLATES)},
+                "params": {"type": "array", "items": {"type": "object", "properties": {"name": _STR, "value": _STR},
+                                                      "required": ["name", "value"]}},
+                "why": _KO,
+            }, "required": ["id", "params"]}},
     },
     "required": ["title", "summary", "assumptions", "questions", "parts"],
 }
@@ -156,6 +165,7 @@ class DesignResult:
     attempts: int = 0
     calls: list[LlmResult] = field(default_factory=list)
     connections: dict = field(default_factory=dict)
+    templates: list[TemplateBlock] = field(default_factory=list)
 
 
 def _json(result: LlmResult, what: str) -> dict:
@@ -221,6 +231,12 @@ def plan_prompt(inp: DesignInput) -> str:
 - 데이터시트가 요구하는 주변 부품(디커플링 콘덴서, 풀업 저항 등)을 빠뜨리지 마세요.
 - 부품은 {MAX_PARTS}개 이하로 하세요.
 
+[검토된 회로 템플릿 — 요구사항의 한 블록에 맞으면 직접 고르지 말고 우선 쓰세요]
+- 쓸 템플릿은 templates에 id와 params(name/value)를 적으세요. params는 그 블록이 연결될 Net 이름입니다(예: vin=+12V).
+- 템플릿의 부품은 parts에 다시 넣지 마세요. 템플릿에 없는 부품(커넥터, LED 등)만 parts에 넣으세요.
+- 맞는 템플릿이 없으면 templates를 비워 두세요.
+{catalog_text()}
+
 {_requirements_block(inp)}{inv}
 
 정해진 JSON 형식으로만 답하세요."""
@@ -235,7 +251,34 @@ def _pin_table(part: ResolvedPart) -> str:
     return "\n".join(lines)
 
 
-def connect_prompt(inp: DesignInput, plan: dict, parts: list[ResolvedPart]) -> str:
+@dataclass
+class TemplateBlock:
+    """A reviewed template placed in an AI design: its parts and connections are fixed by code."""
+
+    ref: str
+    title: str
+    params: dict[str, str]
+    components: list[Component]
+    nets: dict[str, list[tuple[str, str]]]
+    ports: list[str]
+
+
+def _template_text(blocks: list[TemplateBlock]) -> str:
+    if not blocks:
+        return ""
+    lines = ["[템플릿 — 이미 연결이 끝난 블록. 이 부품들의 핀은 다시 쓰지 마세요]"]
+    internal = sorted({n for b in blocks for n in b.nets if n not in b.ports})
+    for b in blocks:
+        parts = ", ".join(f"{c.reference} {c.value}({c.description or ''})" for c in b.components)
+        lines.append(f"- {b.title} [{b.ref}]: {parts}")
+        lines.append(f"  단자 Net(다른 부품을 이 블록에 연결하려면 같은 이름을 쓰세요): {', '.join(b.ports)}")
+    if internal:
+        lines.append(f"- 템플릿 내부 Net(쓰지 마세요): {', '.join(internal)}")
+    return "\n".join(lines) + "\n"
+
+
+def connect_prompt(inp: DesignInput, plan: dict, parts: list[ResolvedPart],
+                   blocks: list[TemplateBlock] | None = None) -> str:
     return f"""당신은 전자회로 설계 엔지니어입니다. 부품이 정해졌습니다. 아래 핀 표만 써서 회로의 연결(Net)을 정하세요.
 
 [연결 규칙]
@@ -250,6 +293,7 @@ def connect_prompt(inp: DesignInput, plan: dict, parts: list[ResolvedPart]) -> s
 [설계 요약]
 {plan.get('summary', '')}
 
+{_template_text(blocks or [])}
 [부품과 핀 표 — (번호=이름(전기적 종류))]
 {chr(10).join(_pin_table(p) for p in parts)}
 
@@ -277,8 +321,11 @@ def _net_name(raw: str, used: set[str]) -> str:
 
 
 def build_circuit(parts: list[ResolvedPart], connections: dict, *, project_id: str, title: str,
-                  model: str) -> tuple[CircuitIR | None, list[str]]:
-    """Turn the AI's pin lists into an IR. Returns (circuit or None, problems for the AI to fix)."""
+                  model: str, blocks: list[TemplateBlock] | None = None) -> tuple[CircuitIR | None, list[str]]:
+    """Turn the AI's pin lists into an IR. Returns (circuit or None, problems for the AI to fix).
+
+    Template ``blocks`` come in already connected; the AI's nets join their port nets by name."""
+    blocks = blocks or []
     problems: list[str] = []
     by_ref = {p.ref: p for p in parts}
     pin_sets = {p.ref: {n for n, _, _ in p.pins} for p in parts}
@@ -289,6 +336,9 @@ def build_circuit(parts: list[ResolvedPart], connections: dict, *, project_id: s
             problems.append(f"'{token}': 'U1.3'처럼 기호.핀번호로 써야 합니다.")
             return None
         ref, pin = m.group(1).upper(), m.group(2)
+        if ref in template_refs:
+            problems.append(f"{ref}: 템플릿 부품입니다. 템플릿 핀은 이미 연결되어 있으니 단자 Net 이름으로 연결하세요.")
+            return None
         if ref not in by_ref:
             problems.append(f"{ref}: 부품 목록에 없는 기호입니다.")
             return None
@@ -303,10 +353,20 @@ def build_circuit(parts: list[ResolvedPart], connections: dict, *, project_id: s
     owner: dict[tuple[str, str], str] = {}
     nets: list[dict] = []
     used_names: set[str] = set()
+    ports = {n for b in blocks for n in b.ports}
+    internal = {n for b in blocks for n in b.nets if n not in b.ports}
+    template_refs = {c.reference for b in blocks for c in b.components}
     for raw in connections.get("nets") or []:
         if not isinstance(raw, dict):
             continue
-        name = _net_name(str(raw.get("name") or "N"), used_names)
+        raw_name = re.sub(r"[^A-Za-z0-9_+\-]+", "_", str(raw.get("name") or "N").strip()).strip("_")
+        if raw_name in internal:
+            problems.append(f"'{raw_name}'은(는) 템플릿 내부 Net 이름이라 쓸 수 없습니다. 다른 이름을 쓰세요.")
+            continue
+        if raw_name in ports and raw_name in used_names:
+            name = raw_name  # two AI nets naming the same template port: one net
+        else:
+            name = _net_name(str(raw.get("name") or "N"), used_names)
         nodes = []
         for token in raw.get("pins") or []:
             key = parse(token)
@@ -319,7 +379,11 @@ def build_circuit(parts: list[ResolvedPart], connections: dict, *, project_id: s
                 owner[key] = name
                 nodes.append({"component_id": key[0].lower(), "pin": key[1]})
         if nodes:
-            nets.append({"id": f"net-{len(nets) + 1:03d}", "name": name, "nodes": nodes})
+            existing = next((x for x in nets if x["name"] == name), None)
+            if existing is not None:
+                existing["nodes"].extend(nodes)
+            else:
+                nets.append({"id": f"net-{len(nets) + 1:03d}", "name": name, "nodes": nodes})
     no_connect: set[tuple[str, str]] = set()
     for token in connections.get("no_connect") or []:
         key = parse(token)
@@ -364,7 +428,16 @@ def build_circuit(parts: list[ResolvedPart], connections: dict, *, project_id: s
             "pin_map_evidence": {"status": "unverified", "source": f"KiCad 라이브러리 {p.symbol_id} ({p.how})",
                                  "notes": None},
             "description": p.role[:200] or None,
+            "origin": "ai",
         })
+    for b in blocks:
+        components += [c.model_dump(mode="json") for c in b.components]
+        for name, pins in b.nets.items():
+            net = next((x for x in nets if x["name"] == name), None)
+            if net is None:
+                net = {"id": f"net-{len(nets) + 1:03d}", "name": name, "nodes": []}
+                nets.append(net)
+            net["nodes"] += [{"component_id": c, "pin": p} for c, p in pins]
     data = {"project_id": project_id, "title": title[:200] or None, "components": components, "nets": nets,
             "validation": {"status": "unverified", "notes": f"AI 설계안 ({model}). 사람 검토 전."}}
     try:
@@ -381,13 +454,41 @@ def build_circuit(parts: list[ResolvedPart], connections: dict, *, project_id: s
 
 # --- the pipeline --------------------------------------------------------------------------------
 
+def place_templates(plan: dict, pins_of: PinsOf | None, taken_refs: set[str]) -> tuple[list[TemplateBlock], list[str]]:
+    """Expand the templates the plan chose into fixed blocks. Returns (blocks, problems)."""
+    blocks: list[TemplateBlock] = []
+    problems: list[str] = []
+    reserved = (set(), set(taken_refs), set())
+    for raw in plan.get("templates") or []:
+        if not isinstance(raw, dict):
+            continue
+        t = TEMPLATES.get(str(raw.get("id", "")))
+        if t is None:
+            problems.append(f"템플릿 '{raw.get('id')}'은(는) 없습니다.")
+            continue
+        if pins_of is None:
+            problems.append(f"{t.title}: KiCad 라이브러리가 없어 템플릿을 쓸 수 없습니다.")
+            continue
+        values = {str(p.get("name")): str(p.get("value")) for p in raw.get("params") or [] if isinstance(p, dict)}
+        values = {k: v for k, v in values.items() if k in {p.name for p in t.params}}
+        try:
+            inst = instantiate(t, values, None, pins_of, reserved=reserved)
+        except TemplateError as exc:
+            problems.append(str(exc))
+            continue
+        blocks.append(TemplateBlock(t.ref, t.title, inst.params, inst.components, inst.nets,
+                                    [inst.params[p.name] for p in t.params if p.kind == "net"]))
+    return blocks, problems
+
+
 def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *, project_id: str,
-                   max_repairs: int = 2, max_output_tokens: int = 32768) -> DesignResult:
+                   max_repairs: int = 2, max_output_tokens: int = 32768,
+                   pins_of: PinsOf | None = None) -> DesignResult:
     plan_call = provider.generate(prompt=plan_prompt(inp), json_schema=PLAN_SCHEMA, max_output_tokens=max_output_tokens)
     plan = _json(plan_call, "부품 계획")
     result = DesignResult(circuit=None, plan=plan, calls=[plan_call])
     raw_parts = [p for p in plan.get("parts") or [] if isinstance(p, dict)]
-    if not raw_parts:
+    if not raw_parts and not plan.get("templates"):
         raise AiError("AI_BAD_OUTPUT", "AI가 부품을 하나도 정하지 않았습니다.", "요구사항을 더 구체적으로 적어 보세요.")
     if len(raw_parts) > MAX_PARTS:
         raise AiError("AI_BAD_OUTPUT", f"부품이 {len(raw_parts)}개로 너무 많습니다(최대 {MAX_PARTS}).",
@@ -404,11 +505,14 @@ def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *
             result.unresolved.append(f"{ref} ({raw.get('role', '')}, {raw.get('mpn') or raw.get('value', '')}): {message}")
         else:
             result.parts.append(resolved)
+    blocks, template_problems = place_templates(plan, pins_of, seen)
+    result.templates = blocks
+    result.unresolved += template_problems
     if result.unresolved:
         result.problems = list(result.unresolved)
         return result
 
-    prompt = connect_prompt(inp, plan, result.parts)
+    prompt = connect_prompt(inp, plan, result.parts, blocks)
     title = str(plan.get("title") or "AI 설계안")
     for attempt in range(max_repairs + 1):
         call = provider.generate(prompt=prompt, json_schema=CONNECT_SCHEMA, max_output_tokens=max_output_tokens)
@@ -417,11 +521,11 @@ def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *
         connections = _json(call, "연결")
         result.connections = connections
         circuit, problems = build_circuit(result.parts, connections, project_id=project_id, title=title,
-                                          model=call.model)
+                                          model=call.model, blocks=blocks)
         result.circuit, result.problems = circuit, problems
         if not problems:
             break
-        prompt = connect_prompt(inp, plan, result.parts) + "\n\n" + repair_prompt(connections, problems)
+        prompt = connect_prompt(inp, plan, result.parts, blocks) + "\n\n" + repair_prompt(connections, problems)
     return result
 
 

@@ -8,6 +8,7 @@ import {
   diffFieldLabel,
   diffSummaryText,
   formatTime,
+  originLabel,
   proposalSourceLabel,
   proposalStatusLabel,
   providerLabel,
@@ -16,6 +17,7 @@ import {
 import type { AiStatus, BoardReview, CircuitIR, Job, Proposal, ProposalDiff, RevisionInputs } from "../types";
 import { Chip } from "./Chip";
 import { IssueList } from "./IssueList";
+import { TemplateEvidence } from "./TemplatesTab";
 
 interface Props {
   projectId: string;
@@ -391,6 +393,18 @@ function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRe
         {revising && revisionPanel}
       </div>
 
+      {p.template && (
+        <>
+          <div className="card">
+            <h3>템플릿: {p.template.title} <span className="muted small">{p.template.ref}</span></h3>
+            <p className="small">{p.template.summary}</p>
+            <p className="small muted">
+              템플릿은 검토의 시작점입니다. 승인 후 「검토」 탭에서 아래 체크리스트를 데이터시트와 대조해 기록하세요.
+            </p>
+          </div>
+          <TemplateEvidence template={p.template} />
+        </>
+      )}
       {p.ai && <AiInfo p={p} />}
 
       <div className="card">
@@ -462,6 +476,20 @@ function AiInfo({ p }: { p: Proposal }) {
     <div className="card">
       <h3>{ai.parent ? `AI 수정안 메모 — 제안 #${Number(ai.parent)}의 수정안` : "AI 설계 메모"}</h3>
       {ai.summary && <p className="small">{ai.summary}</p>}
+      {ai.templates && ai.templates.length > 0 && (
+        <>
+          <h4>사용한 검토된 템플릿</h4>
+          <ul className="small">
+            {ai.templates.map((t) => (
+              <li key={t.ref}>
+                {t.title} <span className="muted">({t.ref})</span>: {t.parts.join(", ")} —{" "}
+                {Object.entries(t.params).map(([k, v]) => `${k}=${v}`).join(", ")}
+              </li>
+            ))}
+          </ul>
+          <p className="small muted">템플릿 부품은 표의 「출처」에 「템플릿」으로, AI가 고른 부품은 「AI」로 표시됩니다.</p>
+        </>
+      )}
       {(ai.addressed?.length || ai.instructions) && (
         <>
           <h4>반영을 요청한 내용</h4>
@@ -582,11 +610,15 @@ export function DiffView({ d }: { d: ProposalDiff }) {
               <h4>{d.is_new_circuit ? "부품" : "추가되는 부품"}</h4>
               <table className="table compact">
                 <thead>
-                  <tr><th>기호</th><th>값</th><th>KiCad 심볼</th><th>풋프린트</th><th>품번</th></tr>
+                  <tr><th>기호</th><th>값</th><th>KiCad 심볼</th><th>풋프린트</th><th>품번</th><th>출처</th></tr>
                 </thead>
                 <tbody>
                   {d.components_added.map((c) => (
-                    <tr key={c.id}><td>{c.reference}</td><td>{c.value}</td><td>{c.symbol_id}</td><td>{c.footprint_id ?? "—"}</td><td>{c.manufacturer_part_number ?? "—"}</td></tr>
+                    <tr key={c.id}>
+                      <td>{c.reference}</td><td>{c.value}</td><td>{c.symbol_id}</td><td>{c.footprint_id ?? "—"}</td>
+                      <td>{c.manufacturer_part_number ?? "—"}</td>
+                      <td><span className={`chip ${c.origin?.startsWith("template:") ? "chip-ok" : c.origin === "ai" ? "chip-info" : "chip-muted"}`}>{originLabel(c.origin)}</span></td>
+                    </tr>
                   ))}
                 </tbody>
               </table>

@@ -18,9 +18,9 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-SCHEMA_VERSION = "0.3.0"
+SCHEMA_VERSION = "0.4.0"
 """0.2.0 added optional ``sheets`` (pages); 0.3.0 added optional ``Component.manufacturer`` and
-``Pin.no_connect``. Older documents are still valid."""
+``Pin.no_connect``; 0.4.0 added optional ``Component.origin``. Older documents are still valid."""
 
 StableId = Annotated[
     str,
@@ -97,6 +97,11 @@ class Component(_Model):
     pins: tuple[Pin, ...] = Field(min_length=1)
     pin_map_evidence: Evidence = Field(default_factory=Evidence)
     description: str | None = None
+    origin: str | None = Field(
+        default=None, max_length=120,
+        description="Where the part came from: 'template:<id>@<version>' for a part placed from a reviewed "
+        "template, 'ai' for a part an AI design chose, None for parts entered by hand or imported.",
+    )
 
     def pin_numbers(self) -> tuple[str, ...]:
         return tuple(p.number for p in self.pins)

@@ -32,7 +32,7 @@ from .errors import ApiError, issue_dict
 from .schemas import AutomatedCheck, PageOutput
 from .store import ProjectStore, atomic_write, kicad_project_name, now_iso
 
-ProposalSource = Literal["user", "ai_design", "ai_revision", "ai_pdf_import"]
+ProposalSource = Literal["user", "ai_design", "ai_revision", "ai_pdf_import", "template", "agent"]
 ProposalStatus = Literal["checking", "ready", "invalid", "check_failed", "approved", "rejected", "stale"]
 OPEN = ("checking", "ready", "invalid", "check_failed")
 
@@ -69,6 +69,8 @@ class Proposal(BaseModel):
     diff: dict
     evidence: ProposalEvidence | None = None
     ai: dict | None = Field(default=None, description="AI metadata: model, assumptions, questions, citations, review.")
+    template: dict | None = Field(default=None, description="Template placed: ref, title, params, basis, checklist.")
+    agent: dict | None = Field(default=None, description="Agent run that submitted the proposal: run id, scope.")
 
 
 class ProposalStore:
@@ -92,9 +94,15 @@ class ProposalStore:
     # --- create / read ----------------------------------------------------------------------
 
     def create(self, project_id: str, board_id: str, *, title: str, ops: list, source: ProposalSource,
-               rationale: str | None = None, ai: dict | None = None) -> Proposal:
+               rationale: str | None = None, ai: dict | None = None, template: dict | None = None,
+               agent: dict | None = None, base_revision: int | None = -1) -> Proposal:
+        """``base_revision`` (when given) must still be the board's revision, so a proposal built from an older
+        read (an agent run) is refused instead of overwriting newer work."""
         self.store.get_board(project_id, board_id)
         current, revision = self.store.get_circuit(project_id, board_id)
+        if base_revision != -1 and base_revision != revision:
+            raise ApiError(409, "STALE_BASE", f"The board changed (revision {revision}) since revision {base_revision} "
+                           "this change was built on.", recovery_hint="Run it again on the current revision.")
         try:
             candidate = apply_patch(current, ops)
         except PatchError as exc:
@@ -110,7 +118,8 @@ class ProposalStore:
             ts = now_iso()
             p = Proposal(id=pid, project_id=project_id, board_id=board_id, title=title.strip() or "변경 제안",
                          rationale=rationale, source=source, base_revision=revision, ops=ops, status="checking",
-                         created_at=ts, updated_at=ts, diff=diff_circuits(current, candidate), ai=ai)
+                         created_at=ts, updated_at=ts, diff=diff_circuits(current, candidate), ai=ai,
+                         template=template, agent=agent)
             atomic_write(self._path(project_id, board_id, pid) / "candidate.circuit.json", canonical_json(candidate))
             return self._save(p)
 

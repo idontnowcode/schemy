@@ -26,7 +26,8 @@ def diff_circuits(before: CircuitIR | None, after: CircuitIR) -> dict:
 
     def comp_summary(c) -> dict:
         return {"id": c.id, "reference": c.reference, "value": c.value, "symbol_id": c.symbol_id,
-                "footprint_id": c.footprint_id, "manufacturer_part_number": c.manufacturer_part_number}
+                "footprint_id": c.footprint_id, "manufacturer_part_number": c.manufacturer_part_number,
+                "origin": c.origin}
 
     added = [comp_summary(a_comps[k]) for k in a_comps if k not in b_comps]
     removed = [comp_summary(b_comps[k]) for k in b_comps if k not in a_comps]

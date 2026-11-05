@@ -65,6 +65,8 @@ export interface Component {
   pins: Pin[];
   pin_map_evidence?: { status: VerificationStatus; source?: string | null; notes?: string | null };
   description?: string | null;
+  /** "template:<id>@<version>", "ai", or absent for parts entered by hand. */
+  origin?: string | null;
 }
 
 export interface Net {
@@ -466,10 +468,53 @@ export interface DatasheetSummaryResult {
 
 export type ProposalStatus = "checking" | "ready" | "invalid" | "check_failed" | "approved" | "rejected" | "stale";
 
+// --- templates ---------------------------------------------------------------------------------
+
+export interface TemplateBasis {
+  part: string;
+  document: string;
+  section: string;
+  supports: string;
+  url: string | null;
+  page: string | null;
+}
+
+export interface TemplateCheck {
+  id: string;
+  text: string;
+  basis: string;
+}
+
+export interface CircuitTemplate {
+  id: string;
+  version: number;
+  ref: string;
+  title: string;
+  category: string;
+  summary: string;
+  params: { name: string; label: string; default: string; kind: "net" | "value" | "flag" }[];
+  basis: TemplateBasis[];
+  checklist: TemplateCheck[];
+  parts: { key: string; prefix: string; value: string; symbol_id: string; role: string; footprint_id: string | null; mpn: string | null }[];
+}
+
+export interface PlacedTemplate extends CircuitTemplate {
+  params_used?: Record<string, string>;
+  components: Record<string, string>;
+}
+
 export interface ProposalDiff {
   summary: Record<string, number>;
   is_new_circuit: boolean;
-  components_added: { id: string; reference: string; value: string; symbol_id: string; footprint_id: string | null; manufacturer_part_number: string | null }[];
+  components_added: {
+    id: string;
+    reference: string;
+    value: string;
+    symbol_id: string;
+    footprint_id: string | null;
+    manufacturer_part_number: string | null;
+    origin?: string | null;
+  }[];
   components_removed: { id: string; reference: string; value: string; symbol_id: string }[];
   properties_changed: { id: string; reference: string; field: string; before: string | null; after: string | null }[];
   connections: { reference: string; pin: string; pin_name: string | null; before: string | null; after: string | null }[];
@@ -494,6 +539,7 @@ export interface ProposalAi {
   questions?: string[];
   citations?: { reference: string; page: number | null; text: string }[];
   parts?: { key: string; role: string; symbol_id: string; how: string }[];
+  templates?: { ref: string; title: string; params: Record<string, string>; parts: string[] }[];
   attempts?: number;
   review?: { findings: AiFinding[]; summary: string; model?: string; created_at?: string } | null;
   parent?: string | null;
@@ -514,7 +560,7 @@ export interface Proposal {
   board_id: string;
   title: string;
   rationale: string | null;
-  source: "user" | "ai_design" | "ai_revision" | "ai_pdf_import";
+  source: "user" | "ai_design" | "ai_revision" | "ai_pdf_import" | "template" | "agent";
   base_revision: number | null;
   status: ProposalStatus;
   created_at: string;
@@ -543,6 +589,8 @@ export interface Proposal {
     }[];
   } | null;
   ai: ProposalAi | null;
+  template?: (CircuitTemplate & { params: Record<string, string> | CircuitTemplate["params"]; components: Record<string, string> }) | null;
+  agent?: { run_id: string; scope: ScopeItem[] } | null;
   candidate?: CircuitIR;
 }
 
@@ -575,4 +623,50 @@ export interface BoardReview {
   model?: string;
   created_at?: string;
   revision?: number | null;
+}
+
+export interface ScopeItem {
+  op: string;
+  target: string;
+  field?: string | null;
+  net?: string | null;
+}
+
+// --- engineering review -------------------------------------------------------------------------
+
+export type ReviewStatus = "unverified" | "needs_review" | "verified";
+
+export interface ReviewCheckItem {
+  item: string;
+  source: string;
+  result: "ok" | "issue" | "na";
+  note?: string | null;
+}
+
+export interface EngineeringReview {
+  id: string;
+  revision: number;
+  reviewer: string;
+  reviewed_at: string;
+  scope: "board" | "components";
+  component_ids: string[];
+  covered: string[];
+  datasheets: { part: string; document: string; revision: string | null; pages: string | null }[];
+  checks: ReviewCheckItem[];
+  result: "verified" | "needs_changes";
+  notes: string | null;
+}
+
+export interface BoardReviewStatus {
+  board: ReviewStatus | null;
+  components: Record<string, ReviewStatus>;
+  revision: number | null;
+  latest: EngineeringReview | null;
+}
+
+export interface ChecklistSuggestion {
+  source: string;
+  item: string;
+  basis: string;
+  group: string;
 }

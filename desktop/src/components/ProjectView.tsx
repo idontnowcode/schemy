@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, errorText } from "../api";
 import { outputsLabel, reviewLabel } from "../format";
-import type { CircuitIR, OutputsStatus, ProjectSummary, SystemInfo } from "../types";
+import type { CircuitIR, OutputsStatus, ProjectSummary, ReviewStatus, SystemInfo } from "../types";
 import { Chip } from "./Chip";
 import { CircuitTab } from "./CircuitTab";
 import { DatasheetsTab } from "./DatasheetsTab";
@@ -11,15 +11,19 @@ import { HistoryTab } from "./HistoryTab";
 import { MaterialsTab } from "./MaterialsTab";
 import { ProposalsTab } from "./ProposalsTab";
 import { RequirementsTab } from "./RequirementsTab";
+import { ReviewTab } from "./ReviewTab";
 import { SchematicTab } from "./SchematicTab";
+import { TemplatesTab } from "./TemplatesTab";
 
 export const TABS = [
   { id: "requirements", label: "요구사항" },
+  { id: "templates", label: "템플릿" },
   { id: "proposals", label: "제안" },
   { id: "circuit", label: "회로 (IR)" },
   { id: "schematic", label: "회로도 · 검증" },
   { id: "materials", label: "자재" },
   { id: "datasheets", label: "데이터시트" },
+  { id: "review", label: "검토" },
   { id: "documents", label: "문서 · BOM" },
   { id: "history", label: "이력" },
 ] as const;
@@ -45,9 +49,10 @@ export interface BoardData {
   circuit: CircuitIR | null;
   revision: number | null;
   outputs: OutputsStatus | null;
+  review: ReviewStatus | null;
 }
 
-const EMPTY: BoardData = { circuit: null, revision: null, outputs: null };
+const EMPTY: BoardData = { circuit: null, revision: null, outputs: null, review: null };
 
 export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onProjectChanged, onError }: Props) {
   // Data is stored with the board it belongs to, so a tab never sees the previous board's revision.
@@ -64,8 +69,12 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onP
 
   const reload = useCallback(async () => {
     try {
-      const [c, o] = await Promise.all([api.circuit(project.id, boardId), api.outputs(project.id, boardId)]);
-      setLoaded({ boardId, data: { circuit: c.circuit, revision: c.revision, outputs: o } });
+      const [c, o, r] = await Promise.all([
+        api.circuit(project.id, boardId),
+        api.outputs(project.id, boardId),
+        api.reviews(project.id, boardId).catch(() => null),
+      ]);
+      setLoaded({ boardId, data: { circuit: c.circuit, revision: c.revision, outputs: o, review: r?.status.board ?? null } });
     } catch (e) {
       onError(errorText(e));
     }
@@ -106,7 +115,8 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onP
   };
 
   const automated = outputsLabel(data.outputs);
-  const review = reviewLabel(data.circuit?.validation?.status ?? (data.circuit ? "unverified" : null));
+  // The engineering review axis comes only from engineers' review records (plan 10.1).
+  const review = reviewLabel(data.circuit ? (data.review ?? "unverified") : null);
 
   return (
     <section className="project">
@@ -172,6 +182,7 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onP
             onOpenProposal={openProposal}
           />
         )}
+        {tab === "templates" && <TemplatesTab projectId={project.id} boardId={board.id} onOpenProposal={openProposal} />}
         {tab === "proposals" && (
           <ProposalsTab
             projectId={project.id}
@@ -206,6 +217,9 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onP
           <MaterialsTab projectId={project.id} boardId={board.id} revision={data.revision} onApplied={afterChange} />
         )}
         {tab === "datasheets" && <DatasheetsTab projectId={project.id} boardId={board.id} revision={data.revision} />}
+        {tab === "review" && (
+          <ReviewTab projectId={project.id} boardId={board.id} circuit={data.circuit} revision={data.revision} onChanged={afterChange} />
+        )}
         {tab === "documents" && <DocumentsTab projectId={project.id} boardId={board.id} revision={data.revision} />}
         {tab === "history" && (
           <HistoryTab projectId={project.id} boardId={board.id} revision={data.revision} onRestored={afterChange} />

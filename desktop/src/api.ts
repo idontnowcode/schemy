@@ -8,12 +8,16 @@ import type {
   AppSettings,
   BoardSummary,
   BomTable,
+  BoardReviewStatus,
+  ChecklistSuggestion,
   CircuitIR,
+  CircuitTemplate,
   ClaudeLoginStatus,
   DatasheetEntry,
   DatasheetReport,
   DatasheetSummaryResult,
   DesignPreview,
+  EngineeringReview,
   Example,
   InventoryApplyResult,
   InventoryImportResult,
@@ -199,6 +203,15 @@ export const api = {
     request<AiStatus>("PUT", "/ai/settings", s),
   saveAiKey: (apiKey: string) => request<{ key: AiStatus["key"] }>("PUT", "/ai/key", { api_key: apiKey }),
   deleteAiKey: () => request<{ key: AiStatus["key"] }>("DELETE", "/ai/key"),
+  templates: () => request<{ templates: CircuitTemplate[] }>("GET", "/templates"),
+  reviews: (p: string, b: string) =>
+    request<{ status: BoardReviewStatus; reviews: EngineeringReview[] }>("GET", `${board(p, b)}/reviews`),
+  reviewChecklist: (p: string, b: string) =>
+    request<{ revision: number | null; items: ChecklistSuggestion[] }>("GET", `${board(p, b)}/reviews/checklist`),
+  addReview: (p: string, b: string, body: Omit<EngineeringReview, "id" | "reviewed_at" | "covered">) =>
+    request<{ review: EngineeringReview; status: BoardReviewStatus }>("POST", `${board(p, b)}/reviews`, body),
+  placeTemplate: (p: string, b: string, id: string, params: Record<string, string>) =>
+    request<{ proposal: Proposal; job: Job }>("POST", `${board(p, b)}/templates/${encodeURIComponent(id)}`, { params }),
   claudeLogin: () => request<ClaudeLoginStatus>("GET", "/ai/claude/login"),
   startClaudeLogin: () => request<ClaudeLoginStatus & { started: boolean }>("POST", "/ai/claude/login"),
   claudeLogout: () => request<ClaudeLoginStatus>("POST", "/ai/claude/logout"),

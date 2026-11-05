@@ -86,6 +86,20 @@
           ],
           "default": null,
           "title": "Description"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where the part came from: 'template:<id>@<version>' for a part placed from a reviewed template, 'ai' for a part an AI design chose, None for parts entered by hand or imported.",
+          "title": "Origin"
         }
       },
       "required": [
@@ -329,7 +343,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "default": "0.3.0",
+      "default": "0.4.0",
       "title": "Schema Version",
       "type": "string"
     },

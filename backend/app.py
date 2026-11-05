@@ -34,11 +34,14 @@ from .exports import external_edit_error, output_path, outputs_status, run_expor
 from .inventory_store import InventoryStore
 from .jobs import JobRunner
 from .proposals import ProposalStore
+from .reviews import ReviewStore
 from .routes_ai import build_ai_router
 from .routes_datasheets import build_datasheet_router
 from .routes_design import build_design_router
 from .routes_inventory import build_inventory_router
 from .routes_proposals import ProposalService, build_proposal_router
+from .routes_reviews import build_review_router
+from .routes_templates import build_template_router
 from .schemas import (
     AppSettings,
     BoardCreate,
@@ -381,6 +384,10 @@ def create_app(settings: Settings) -> FastAPI:
     proposal_service = ProposalService(store, jobs, proposals, datasheets, settings, checker)
     app.state.proposal_service = proposal_service
     app.include_router(build_ai_router(store, jobs, inventory, settings, pin_lookup, datasheets, proposal_service))
+    app.include_router(build_template_router(store, proposal_service, pin_lookup))
+    reviews = ReviewStore(store)
+    app.state.reviews = reviews
+    app.include_router(build_review_router(store, reviews))
     app.include_router(build_datasheet_router(store, jobs, datasheets, settings, checker.library))
     app.include_router(build_proposal_router(proposal_service))
     app.include_router(build_design_router(store, jobs, proposal_service, inventory, datasheets, settings))

@@ -299,3 +299,47 @@ def test_stacked_pins_join_the_net_of_the_visible_pin():
                                                        {"name": "+5V", "pins": ["U1.4", "U1.21", "J1.1"]}]},
                                 project_id="p", title="t", model="m")
     assert any("겹친 핀" in p for p in problems)
+
+
+TEMPLATE_PLAN = {
+    "title": "CAN 노드 (템플릿)", "summary": "검토된 CAN 템플릿에 커넥터만 붙임.", "assumptions": [], "questions": [],
+    "parts": [
+        {"ref": "J1", "role": "전원 입력", "category": "connector", "value": "PWR", "pin_count": 2},
+        {"ref": "J2", "role": "CAN 버스", "category": "connector", "value": "CAN", "pin_count": 2},
+        {"ref": "J3", "role": "UART", "category": "connector", "value": "UART", "pin_count": 2},
+    ],
+    "templates": [{"id": "can-sn65hvd230", "params": [{"name": "vcc", "value": "+3V3"}], "why": "검토된 회로"}],
+}
+TEMPLATE_CONNECT = {
+    "nets": [{"name": "+3V3", "pins": ["J1.1"]}, {"name": "GND", "pins": ["J1.2"]},
+             {"name": "CANH", "pins": ["J2.1"]}, {"name": "CANL", "pins": ["J2.2"]},
+             {"name": "TXD", "pins": ["J3.1"]}, {"name": "RXD", "pins": ["J3.2"]}],
+    "no_connect": [],
+}
+
+
+def test_design_uses_a_template_and_marks_where_parts_came_from(library, resolver):
+    calls = {"connect": 0}
+
+    def reply(prompt):
+        if "부품 목록을 정하세요" in prompt:
+            assert "can-sn65hvd230" in prompt  # the catalog is offered
+            return json.dumps(TEMPLATE_PLAN, ensure_ascii=False)
+        calls["connect"] += 1
+        assert "이미 연결이 끝난 블록" in prompt and "U1 SN65HVD230" in prompt
+        if calls["connect"] == 1:  # the AI first tries to wire a template pin itself
+            return json.dumps({**TEMPLATE_CONNECT, "nets": [*TEMPLATE_CONNECT["nets"][:5],
+                                                            {"name": "RXD", "pins": ["J3.2", "U1.4"]}]})
+        return json.dumps(TEMPLATE_CONNECT)
+
+    pins_of = lambda s: [(p.number, p.name) for p in library.get(s).pins]  # noqa: E731
+    result = design_circuit(Scripted(reply), DesignInput(requirements=REQUIREMENTS), resolver, project_id="can",
+                            pins_of=pins_of)
+    assert result.problems == [] and result.attempts == 2
+    c = result.circuit
+    origins = {comp.reference: comp.origin for comp in c.components}
+    assert origins["J1"] == "ai" and origins["U1"] == origins["C1"] == origins["R1"] == "template:can-sn65hvd230@1"
+    nets = {n.name: {(x.component_id, x.pin) for x in n.nodes} for n in c.nets}
+    assert ("j1", "1") in nets["+3V3"] and ("can-u", "3") in nets["+3V3"]
+    assert [b.ref for b in result.templates] == ["can-sn65hvd230@1"]
+    assert generate_schematic(c, library).power_flags == ["+3V3", "GND"]
