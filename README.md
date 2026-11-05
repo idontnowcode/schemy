@@ -1,7 +1,7 @@
 # AI Circuit Studio
 
 자연어 회로 요구사항 → AI 설계안 → 사용자 승인 → Circuit IR(JSON) → Markdown 문서 + KiCad 회로도를 만드는 Windows 우선 데스크톱 앱입니다.
-기획서는 [`docs/AI_Circuit_Studio_Development_Plan.md`](docs/AI_Circuit_Studio_Development_Plan.md)(v1.8)에 있습니다.
+기획서는 [`docs/AI_Circuit_Studio_Development_Plan.md`](docs/AI_Circuit_Studio_Development_Plan.md)(v1.9)에 있습니다.
 궁극적인 목표는 **하나의 입력 창**에서 회로도, 아트웍(PCB), 펌웨어까지 다루는 것입니다(기획서 1장 제품 비전).
 
 ![AI Circuit Studio — 회로도·검증 화면](docs/images/phase1-schematic.png)
@@ -18,6 +18,7 @@
 | Phase 2 이후 개선 | ✅ 완료 | AI 출력 한국어, 검토 반영 수정안, 읽기 쉬운 회로도(블록 배치·전원 심볼·직접 배선), Claude 공급자 ([회로도 예](docs/images/schematic-auto-layout.png)) |
 | Phase 3 — 엔지니어링 템플릿 | ✅ 완료 | 다중 유닛 심볼, 검토된 회로 템플릿 4종, AI 설계의 템플릿 우선 사용, 엔지니어 검토 기록 ([보고서](docs/phase3-report.md)) |
 | Phase 4 — 제한된 AI EDA Agent | ✅ 완료 | 계획(dry-run) → 범위 승인 → 허용 도구만 쓰는 격리 실행 → 코드 검증 → 제안 → 승인 ([보고서](docs/phase4-report.md)) |
+| Phase 4 이후 개선 | ✅ 완료 | 회로도 영문 주석, 레귤레이터·크리스탈 블록, KiCad 배치 가져오기, Windows 설치 파일, 선택 근거 기록·기술 검토·근거 리포트 ([ADR-009](docs/adr/ADR-009-schematic-notes-and-compact-blocks.md)~[ADR-011](docs/adr/ADR-011-design-decisions-and-technical-review.md)) |
 | Phase 5 — PCB·펌웨어 | 장기 | 각 기능의 검증 방법을 정한 뒤 착수 |
 
 ## 지금 할 수 있는 것
@@ -28,6 +29,9 @@
   3. 결과는 「제안」 탭에 나옵니다. 앱이 계산한 비교 표, 제안 전용 폴더에서 돌린 KiCad ERC·Netlist 검사, 데이터시트 대조, AI 검토 의견을 보고 **승인**하면 회로가 저장되고 회로도가 다시 생성됩니다. **거부**하면 아무것도 바뀌지 않습니다.
   4. 검토 의견을 반영한 **수정안**도 만들 수 있고, 저장된 회로를 **AI 검토**할 수도 있습니다. 직접 값을 바꾸는 제안(예: R1 330→1k)도 같은 화면에서 만듭니다.
 - **검토된 회로 템플릿.** 「템플릿」 탭에서 3.3V LDO(AMS1117), 5V 벅(LM2596), CAN 트랜시버(SN65HVD230), MCU 최소 회로(ATmega328P)를 골라 연결할 Net 이름만 정하면 제안으로 들어갑니다. 템플릿마다 데이터시트 근거 절과 검토 체크리스트가 있고, AI 설계도 맞는 템플릿을 먼저 씁니다(제안 표의 「출처」에 템플릿/AI 표시).
+- **선택의 근거 기록.** 회로에 "설계 결정"을 남깁니다. 결정마다 무엇을 골랐는지, 누가 정했는지(사용자 요구 반영 / 요구 수정 / AI 선정 / 템플릿 / 엔지니어), 이유, 계산, 출처가 들어갑니다. AI 설계와 템플릿은 자동으로 남기고, 「제안」 탭에서 엔지니어가 직접 적을 수도 있습니다. 요구를 바꾼 결정은 원래 요청도 함께 적어야 합니다.
+- **기술 검토 (자동 계산).** 「검토」 탭 맨 위에 콘덴서 정격 전압·극성, LED 방향·직렬 저항·전류, 저항 소비 전력, 레귤레이터 드롭아웃·발열, IC 디커플링을 계산한 결과가 계산식과 함께 나옵니다. AI가 아니라 코드가 계산하며, 설계 검증이 아니라 확인할 목록입니다(ADR-011).
+- **근거 리포트.** 「문서 · BOM → 근거 리포트」에서 요구사항 원문, 결정과 근거(누가 정했는지별), 부품별 근거(근거가 없는 부품 표시), 기술 검토, 제안·승인 이력, 리뷰 체크리스트를 한 문서로 봅니다. 생성 결과물에 `rationale.md`로도 저장됩니다.
 - **엔지니어 검토 기록.** 「검토」 탭에 검토자, 확인한 데이터시트(개정·쪽), 체크 항목 결과를 남깁니다. 이 기록만 헤더의 「엔지니어링 검토」 상태를 바꾸고, 회로가 바뀌면 다시 「검토 필요」가 됩니다.
 - **제한된 AI Agent.** 「Agent」 탭에 변경을 요청하면 AI가 먼저 계획과 변경 범위(연산·대상)만 제안합니다. 범위를 승인하면 허용된 EDA 도구(회로 읽기·검증·patch·회로도 생성·ERC·Netlist 비교)만으로 격리된 폴더에서 실행하고, 앱이 코드로 다시 검증한 뒤 결과를 제안으로 올립니다. 호출 수·토큰·시간 상한이 있고 모든 단계가 기록됩니다.
 - **프로젝트 → 보드(A, B, …) → 페이지.** 보드 하나가 회로 하나, revision 이력 하나, KiCad 프로젝트 하나입니다. 보드 안의 회로는 여러 페이지로 나눌 수 있고, 페이지를 오가는 Net은 자동으로 연결됩니다.
@@ -63,7 +67,7 @@ npm start                                 # 빌드 후 Electron 실행 (백엔�
 
 - 프로젝트는 `문서/AI Circuit Studio/projects/<id>/`에 저장됩니다. 위치를 바꾸려면 `AICS_WORKSPACE`를 설정하세요.
 - 앱을 처음 쓸 때는 **회로 (IR)** 탭의 **예제 불러오기**에서 LED 예제를 저장하고, **회로도 · 검증** 탭에서 생성해 보세요. **회로도 MD 가져오기**로 [`examples/led-resistor-connector/schematic.md`](examples/led-resistor-connector/schematic.md)를 넣어 봐도 됩니다.
-- 조금 더 큰 예제로 **ATmega328P 상태 LED 보드**([`examples/atmega328p-led-board/`](examples/atmega328p-led-board/))와 MCU 없는 **NE555 LED 점멸 보드**([`examples/ne555-led-board/`](examples/ne555-led-board/)), **24V → 5V 레귤레이터 (7805)**([`examples/lm7805-24v-to-5v/`](examples/lm7805-24v-to-5v/))가 있습니다. 임의로 정한 요구사항으로 제안을 거쳐 만든 샘플 보드이고, 회로도에 영문 주석(블록 설명·사양·Net 설명)이 들어 있습니다. 같은 **예제 불러오기**에서 고를 수 있습니다.
+- 조금 더 큰 예제로 **ATmega328P 상태 LED 보드**([`examples/atmega328p-led-board/`](examples/atmega328p-led-board/))와 MCU 없는 **NE555 LED 점멸 보드**([`examples/ne555-led-board/`](examples/ne555-led-board/)), **24V → 5V 레귤레이터 (7805)**([`examples/lm7805-24v-to-5v/`](examples/lm7805-24v-to-5v/))가 있습니다. 임의로 정한 요구사항으로 제안을 거쳐 만든 샘플 보드이고, 회로도에 영문 주석(블록 설명·사양·Net 설명)이 들어 있고, 폴더마다 근거 리포트(`rationale.md`)가 있습니다. 같은 **예제 불러오기**에서 고를 수 있습니다.
 - 생성 결과는 **KiCad에서 열기** 버튼이나 보드 폴더의 `outputs/<프로젝트>-<보드>.kicad_pro`로 엽니다.
 - KiCad에서 부품을 옮기고 저장했다면 **회로도 · 검증** 탭의 **KiCad 배치 가져오기**를 누르세요. 위치·회전·반전이 제안으로 만들어지고, 승인하면 다음 생성부터 그 배치를 유지합니다(배선은 다시 그림, ADR-010). **자동 배치로 되돌리기**로 언제든 되돌릴 수 있습니다.
 
@@ -107,7 +111,7 @@ cd desktop && npm run dev                          # 터미널 2: http://localho
 
 ## KiCad에서 열기
 
-바로 열어 볼 수 있는 예제 프로젝트가 [`examples/led-resistor-connector/`](examples/led-resistor-connector/), [`examples/atmega328p-led-board/`](examples/atmega328p-led-board/), [`examples/ne555-led-board/`](examples/ne555-led-board/)에 있습니다.
+바로 열어 볼 수 있는 예제 프로젝트가 [`examples/led-resistor-connector/`](examples/led-resistor-connector/), [`examples/atmega328p-led-board/`](examples/atmega328p-led-board/), [`examples/ne555-led-board/`](examples/ne555-led-board/), [`examples/lm7805-24v-to-5v/`](examples/lm7805-24v-to-5v/)에 있습니다.
 
 1. KiCad 10에서 **파일 → 프로젝트 열기**로 `led-resistor-connector.kicad_pro`를 엽니다.
 2. 프로젝트 관리자에서 회로도를 엽니다.
@@ -150,6 +154,11 @@ uv run aics generate examples/led-resistor-connector/circuit.json \
     --out my-led --symbol-dir tests/fixtures/kicad_symbols --check
 ```
 
+```bash
+uv run aics report examples/lm7805-24v-to-5v/circuit.json \
+    --requirements examples/lm7805-24v-to-5v/requirements.md --out rationale.md   # 근거 리포트 (제안 이력 없음)
+```
+
 종료 코드는 `0` 성공, `1` 생성 또는 검사 실패, `2` 입력 오류, `3` kicad-cli가 없어 **검사를 하지 않음**(성공 아님)입니다.
 
 ## 프로젝트 폴더 구조
@@ -180,7 +189,7 @@ uv run aics generate examples/led-resistor-connector/circuit.json \
         <프로젝트>-<보드>.kicad_pro / .kicad_sch          # 1페이지(루트)
         <프로젝트>-<보드>-p<번호>-<페이지 id>.kicad_sch   # 2페이지부터
         <프로젝트>-<보드>.svg, <프로젝트>-<보드>-<페이지 이름>.svg, .net, erc.json, check_report.json
-        circuit.md, circuit.json, bom.csv, symbol_sources.json
+        circuit.md, circuit.json, bom.csv, symbol_sources.json, rationale.md (근거 리포트)
 ```
 
 - Phase 1 구조(프로젝트 폴더 바로 아래 `circuit.json`)는 처음 열 때 `boards/a/`로 자동으로 옮깁니다.
@@ -195,17 +204,19 @@ uv run aics generate examples/led-resistor-connector/circuit.json \
 
 ```text
 circuit_core/     Circuit IR 모델(Pydantic), 규칙 검사, Markdown/JSON/BOM 생성, patch 연산·비교 표,
-                  회로도 MD 가져오기, 보유 자재 목록 읽기·대조, 데이터시트 요약 읽기·대조
-kicad_adapter/    .kicad_sch 생성기(여러 페이지, no-connect, PWR_FLAG, 파생 심볼), 심볼 라이브러리 읽기·색인,
-                  kicad-cli 실행, Netlist/ERC 파싱
-ai_engine/        AI 공급자(Gemini) 어댑터, API 키 저장소, AI 회로 설계·검토·요구사항 정리,
+                  회로도 MD 가져오기, 보유 자재 목록 읽기·대조, 데이터시트 요약 읽기·대조,
+                  템플릿, 계산 기반 기술 검토(engineering), 근거 리포트(rationale)
+kicad_adapter/    .kicad_sch 생성기(여러 페이지, 자동 배치·배선, 주석, 다중 유닛), 심볼 라이브러리 읽기·색인,
+                  kicad-cli 실행, Netlist/ERC 파싱, KiCad 배치 읽기
+ai_engine/        AI 공급자(Gemini, Claude) 어댑터, API 키 저장소, AI 회로 설계·검토·요구사항 정리,
                   PDF 변환·대체 추천·데이터시트 요약 작업과 프롬프트
 backend/          FastAPI 로컬 API: 프로젝트·보드·revision·제안·생성 job·산출물·자재·데이터시트·AI (127.0.0.1 + 토큰)
 desktop/          Electron 셸 + React UI (Vite), e2e 테스트(Playwright)
-examples/         예제 IR과 KiCad 프로젝트 (golden 파일 겸용)
+examples/         예제 IR과 KiCad 프로젝트, 근거 리포트 (golden 파일 겸용)
+packaging/        Windows 설치 파일 빌드 (PyInstaller 백엔드)
 experiments/      ADR 실험 기록 (SKiDL/schematizer)
 tests/            Python 단위·API·KiCad 통합 테스트
-docs/             기획서 v1.3, ADR, IR JSON Schema, 단계별 보고서, 코파일럿용 프롬프트
+docs/             기획서 v1.9, ADR, IR JSON Schema, 단계별 보고서, 코파일럿용 프롬프트
 ```
 
 ## 테스트
@@ -246,12 +257,12 @@ xvfb-run -a npx playwright test e2e/electron.spec.ts       # Electron 셸 e2e (L
 - **Windows 11에서는 아직 실행해 보지 않았습니다.** 검증은 Linux 컨테이너(KiCad 10.0.8 Docker, Electron 45 + Xvfb)에서 했습니다.
 - **Gemini API는 실제로 호출해 보지 않았습니다.** 개발 환경에 키가 없어 가짜 공급자로만 시험했습니다. PDF 변환 정확도도 실제 회로도로 재지 않았습니다([Phase 1.5 보고서](docs/phase1_5-report.md)).
 - **AI 회로 설계·검토는 실제 Gemini로 시험하지 않았습니다.** 흐름과 검사는 각본대로 답하는 가짜 AI로 확인했습니다. 실제 모델의 설계 품질은 키를 넣고 확인해야 합니다.
-- AI 설계는 KiCad 라이브러리에 있는 단일 유닛 심볼만 씁니다. OP앰프 같은 다중 유닛 부품은 아직 설계하지 못하고, 그 이유를 보여 줍니다.
+- AI 설계는 KiCad 라이브러리에 있는 단일 유닛 심볼만 고릅니다. 다중 유닛 부품(OP앰프 등)은 생성기와 템플릿에서는 쓰지만 AI가 직접 고르지는 못합니다.
 - **데이터시트를 실제 제조사 사이트에서 받아 보지 않았습니다.** 개발 환경에서 외부 사이트가 막혀 있어 로컬 테스트 서버로만 시험했습니다. 사이트가 자동 다운로드를 막으면 브라우저로 받아 **PDF 올리기**로 넣으세요.
 - 데이터시트 전압 점검은 Net 이름에 전압이 있을 때만 합니다(+3V3, +5V, VCC_12V). 패키지가 여러 개인 부품은 핀 수와 풋프린트로 고르고, 못 고르면 풋프린트를 지정해야 합니다.
-- **설치 패키지가 아직 없습니다.** 지금은 소스에서 실행하며, 앱이 `uv`로 백엔드를 띄웁니다([ADR-003](docs/adr/ADR-003-desktop-shell.md)).
+- **Windows 설치 파일은 실제 Windows에서 만들어 보지 않았습니다.** 같은 구성을 Linux에서 만들어 실행까지 확인했고, Windows용은 GitHub Actions 워크플로로 만듭니다([ADR-003](docs/adr/ADR-003-desktop-shell.md)). 코드 서명은 없습니다.
 - KiCad 10.0.x만 지원합니다([ADR-002](docs/adr/ADR-002-kicad-version.md)).
-- 생성기가 지원하지 않는 것: 다중 유닛 심볼, 미러, 전원 심볼. 만나면 오류를 냅니다. 계층 시트는 페이지 나누기 용도로만 씁니다. no-connect 표시, PWR_FLAG(커넥터로 전원이 들어오는 Net에 자동), 파생 심볼은 지원합니다.
-- 연결은 핀마다 짧은 선과 Net 라벨을 붙이는 방식이라, 부품 사이를 직접 잇는 배선이 없습니다. 자동 배치는 부품 크기만 고려하고 신호 흐름은 고려하지 않습니다.
+- 계층 시트는 페이지 나누기 용도로만 씁니다. 자동 배치는 연결 기반 블록 단위이며, 사람이 그린 회로도만큼 정돈되지는 않습니다. KiCad에서 옮긴 배치는 가져올 수 있지만, KiCad에서 바꾼 연결·추가한 부품은 가져오지 않고 알려 주기만 합니다(ADR-010).
+- 기술 검토(자동 계산)는 전압을 Net 이름에서만 읽고, 레귤레이터 발열은 100 mA 기준으로 계산합니다. 트랜지스터·MOSFET·OP앰프는 검토하지 않습니다(ADR-011).
 - 보유 자재 대조는 값·패키지·종류·품번만 봅니다. 정격(전압·전력)과 허용오차는 비교하지 않습니다.
-- 실행 중인 생성 작업은 취소할 수 없습니다. 필드형 요구사항은 Phase 2에서 추가합니다.
+- 실행 중인 생성 작업은 취소할 수 없습니다.
