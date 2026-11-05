@@ -380,10 +380,14 @@ def _port(pin: PinView, sym: LibSymbol, stub: float, rotation: int) -> Port:
 
 
 def _crosses_row(pin: PinView, up: Dir, pins: list[PinView], power: dict[str, LibSymbol]) -> bool:
-    """An upright power symbol on sideways ``pin`` would span another signal pin's row on the same side."""
+    """An upright power symbol on sideways ``pin`` would span another pin's row on the same side: a signal's (its
+    wire or label runs along it), or another rail's short wire when ``pin`` is a supply - e.g. a supply under the
+    ground pin of a turned connector. Ground keeps pointing down; the supply lies along its pin instead."""
     reach = 5.08  # graphic and text of a power symbol
     for q in pins:
-        if q is pin or q.out != pin.out or not q.net or q.net in power:
+        if q is pin or q.out != pin.out or not q.net or q.net == pin.net:
+            continue
+        if q.net in power and is_ground_name(pin.net or ""):
             continue
         gap = (q.end[1] - pin.end[1]) * up[1] + (q.end[0] - pin.end[0]) * up[0]
         if 0 < gap < reach:

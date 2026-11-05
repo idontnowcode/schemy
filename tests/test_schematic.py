@@ -793,3 +793,17 @@ def test_connector_facing_up_keeps_pin_1_on_the_left():
     (x1, _), (x2, _) = (transform(p.x, p.y, rotation, mirror) for p in pins["j"])
     assert transform_dir((-1, 0), rotation, mirror) == (0, -1)  # facing up, toward the pins above
     assert x1 < x2
+
+
+def test_supply_lies_along_its_pin_instead_of_crossing_the_ground_wire(led_circuit, library):
+    """The LED example's connector is turned (pin 2 = GND above pin 1 = VIN): an upright VIN arrow would cut
+    through the GND wire, so VIN lies along its pin while ground keeps pointing down."""
+    g = generate_schematic(led_circuit, library)
+    pins = {(a.reference, a.pin): (a.x, a.y) for a in g.anchors}
+    j1 = pins[("J1", "1")]
+    vin = [s for s in children(sexpr.parse(g.text), "symbol") if child(s, "lib_id") is not None
+           and unquote(child(s, "lib_id")[1]).startswith("power:")
+           and any(unquote(p[1]) == "Value" and unquote(p[2]) == "VIN" for p in children(s, "property"))]
+    at = [(float(child(s, "at")[1]), float(child(s, "at")[2]), int(float(child(s, "at")[3]))) for s in vin]
+    near = min(at, key=lambda a: abs(a[0] - j1[0]) + abs(a[1] - j1[1]))
+    assert near[1] == j1[1] and near[2] in (90, 270), near

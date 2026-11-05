@@ -891,16 +891,6 @@
 	)
 	(wire
 		(pts
-			(xy 68.58 81.28) (xy 73.66 81.28)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "7bf75dda-2926-55cc-be67-d35148602eee")
-	)
-	(wire
-		(pts
 			(xy 88.9 107.95) (xy 88.9 110.49)
 		)
 		(stroke
@@ -1032,7 +1022,7 @@
 	)
 	(symbol
 		(lib_id "power:PWR_FLAG")
-		(at 73.66 81.28 180)
+		(at 68.58 81.28 180)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -1042,7 +1032,7 @@
 		(dnp no)
 		(uuid "229c427d-6ffa-5755-a5a9-721659793601")
 		(property "Reference" "#FLG01"
-			(at 73.66 83.185 0)
+			(at 68.58 83.185 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1053,7 +1043,7 @@
 			)
 		)
 		(property "Value" "PWR_FLAG"
-			(at 73.66 85.09 0)
+			(at 68.58 85.09 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -1063,7 +1053,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 73.66 81.28 0)
+			(at 68.58 81.28 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1074,7 +1064,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 73.66 81.28 0)
+			(at 68.58 81.28 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1085,7 +1075,7 @@
 			)
 		)
 		(property "Description" "Special symbol for telling ERC where power comes from"
-			(at 73.66 81.28 0)
+			(at 68.58 81.28 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1340,7 +1330,7 @@
 	)
 	(symbol
 		(lib_id "power:VCC")
-		(at 73.66 81.28 0)
+		(at 68.58 81.28 270)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -1350,7 +1340,7 @@
 		(dnp no)
 		(uuid "a2d42f45-3c1f-59f8-8920-c7a41001a8b6")
 		(property "Reference" "#PWR01"
-			(at 73.66 85.09 0)
+			(at 64.77 81.28 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1361,17 +1351,18 @@
 			)
 		)
 		(property "Value" "VIN"
-			(at 73.66 77.724 0)
+			(at 71.755 81.28 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
+				(justify left)
 			)
 		)
 		(property "Footprint" ""
-			(at 73.66 81.28 0)
+			(at 68.58 81.28 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1382,7 +1373,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 73.66 81.28 0)
+			(at 68.58 81.28 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1393,7 +1384,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"VCC\""
-			(at 73.66 81.28 0)
+			(at 68.58 81.28 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
