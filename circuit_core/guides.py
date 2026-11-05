@@ -102,7 +102,8 @@ class GuideEntry(GuideDraft):
 
 # --- built-in baseline ---------------------------------------------------------------------------------
 
-SEED_VERSION = 1
+SEED_VERSION = 2
+"""2: an entry applies by its first topic; LDO entries lead with "ldo"."""
 _P = "일반 설계 관행 (앱 기본 지침)"
 
 
@@ -123,12 +124,12 @@ SEED: list[dict] = [
           "최대 부하 전류보다 여유(보통 1.5~2배)를 둔다.",
           "부하 전류를 모르면 발열·정격 검토를 할 수 없고, 여유 없는 정격은 발열과 수명 문제로 이어진다.", "unknown_voltage",
           keywords=["전원", "power", "배터리", "battery", "어댑터"]),
-    _seed("G-PWR-02", ["power", "ldo"], "must", "리니어 레귤레이터 발열을 계산한다",
+    _seed("G-PWR-02", ["ldo", "power"], "must", "리니어 레귤레이터 발열을 계산한다",
           "손실 P = (Vin − Vout) × Iload 를 계산하고, 데이터시트의 열저항(θJA)으로 접합 온도가 최대값보다 충분히 낮은지 본다. "
           "전압 차이나 전류가 커서 발열이 크면 스위칭 레귤레이터를 검토한다.",
           "리니어 레귤레이터는 전압 차이를 모두 열로 버린다. 열 차단이나 수명 저하가 생긴다.", "reg_heat",
           extra="각 레귤레이터 데이터시트의 열 특성(Thermal Information) 표"),
-    _seed("G-PWR-03", ["power", "ldo"], "must", "드롭아웃 전압을 확인한다",
+    _seed("G-PWR-03", ["ldo", "power"], "must", "드롭아웃 전압을 확인한다",
           "최소 입력 전압 ≥ 출력 전압 + 드롭아웃 전압(데이터시트 최대값, 실제 부하 전류 조건)인지 확인한다.",
           "입력이 낮아지면 출력이 정격 전압을 유지하지 못한다(배터리 방전, 다이오드 강하 후 전압).", "reg_dropout"),
     _seed("G-PWR-04", ["power", "ldo", "dcdc"], "must", "레귤레이터 입출력 콘덴서는 데이터시트대로",
@@ -156,7 +157,7 @@ SEED: list[dict] = [
           "케이블은 정전기와 유도 서지가 들어오는 길이다."),
     _seed("G-MCU-01", ["mcu"], "must", "리셋 핀을 떠 있게 두지 않는다",
           "MCU 리셋 핀은 데이터시트 권장대로 풀업 저항(필요하면 콘덴서)을 둔다.",
-          "떠 있는 리셋 핀은 잡음으로 리셋이 걸린다.", "floating_input", keywords=["mcu", "마이컴", "마이크로컨트롤러"]),
+          "떠 있는 리셋 핀은 잡음으로 리셋이 걸린다.", "floating_input"),
     _seed("G-MCU-02", ["mcu"], "must", "부트 모드 핀은 정해진 레벨로 고정",
           "BOOT0 같은 부트 모드 핀은 데이터시트대로 풀다운(또는 풀업)으로 고정한다.",
           "떠 있으면 전원을 켤 때마다 부팅 모드가 바뀔 수 있다.", "floating_input", parts=["STM32"]),
@@ -171,16 +172,16 @@ SEED: list[dict] = [
     _seed("G-IF-01", ["interface"], "must", "I2C 버스마다 풀업 저항",
           "I2C의 SDA·SCL마다 전원으로 가는 풀업 저항을 버스에 하나씩 둔다(보통 2.2~10 kΩ, 버스 용량과 속도로 계산). "
           "여러 모듈의 풀업이 병렬로 겹쳐 너무 작아지지 않게 한다.", "I2C는 오픈 드레인이라 풀업이 없으면 동작하지 않는다.", "i2c_pullup",
-          keywords=["i2c"]),
+          keywords=["I2C"]),
     _seed("G-IF-02", ["interface"], "consider", "CAN 버스 종단은 양 끝에만 120 Ω",
           "CAN 버스는 양 끝 노드에만 120 Ω 종단 저항을 둔다. 중간 노드에는 두지 않거나 점퍼로 끌 수 있게 한다.",
-          "종단이 없거나 많으면 반사로 통신 오류가 난다.", parts=["SN65HVD", "MCP25", "TJA10"], keywords=["can"]),
+          "종단이 없거나 많으면 반사로 통신 오류가 난다.", parts=["SN65HVD", "MCP25", "TJA10"], keywords=["CAN"]),
     _seed("G-CLK-01", ["clock", "mcu"], "should", "크리스탈 부하 콘덴서를 계산한다",
           "크리스탈 양단 콘덴서는 C = 2 × (CL − Cstray)로 정한다(CL은 크리스탈 데이터시트, Cstray는 보통 2~5 pF). 크리스탈 가까이 둔다.",
           "부하 용량이 맞지 않으면 주파수가 틀어지거나 발진하지 않는다.", "crystal_caps"),
     _seed("G-LED-01", ["led"], "must", "LED 직렬 저항을 계산한다",
           "R = (공급 전압 − LED 순방향 전압) / 원하는 전류 로 정하고, 저항 전력 I²R이 정격 안인지 본다.",
-          "저항이 없거나 작으면 LED와 구동 핀이 과전류로 손상된다.", "led_current", keywords=["led"]),
+          "저항이 없거나 작으면 LED와 구동 핀이 과전류로 손상된다.", "led_current", keywords=["LED"]),
     _seed("G-LED-02", ["led"], "must", "LED 방향을 확인한다",
           "애노드(A)는 전원·구동 쪽, 캐소드(K)는 GND·싱크 쪽에 연결한다.", "거꾸로 연결하면 켜지지 않는다.", "led_direction"),
     _seed("G-MOT-01", ["motor"], "must", "모터 드라이버 공급 전압에 여유를 둔다",
@@ -219,22 +220,37 @@ SEED: list[dict] = [
 # --- which guides apply ----------------------------------------------------------------------------------
 
 _REQ_TOPICS: list[tuple[str, tuple[str, ...]]] = [
-    ("power", ("전원", "power", "배터리", "battery", "어댑터", "adapter", "volt", "레귤레이터", "regulator", "ldo", "벅", "buck")),
-    ("ldo", ("ldo", "리니어", "linear", "7805", "1117", "레귤레이터")),
-    ("dcdc", ("벅", "buck", "boost", "부스트", "dc-dc", "dcdc", "스위칭")),
-    ("protection", ("보호", "역전압", "역극성", "서지", "esd", "퓨즈", "fuse", "tvs", "외부 전원")),
-    ("mcu", ("mcu", "마이컴", "마이크로컨트롤러", "microcontroller", "stm32", "atmega", "esp32", "rp2040", "펌웨어")),
-    ("interface", ("i2c", "spi", "uart", "can", "usb", "rs485", "rs-485", "통신")),
+    # Acronyms in capitals match only in capitals (see has_word).
+    ("power", ("전원", "power", "배터리", "battery", "어댑터", "adapter", "레귤레이터", "regulator", "LDO", "벅", "buck")),
+    ("ldo", ("LDO", "리니어", "linear", "7805", "1117", "레귤레이터")),
+    ("dcdc", ("벅", "buck", "boost", "부스트", "DC-DC", "DCDC", "스위칭")),
+    ("protection", ("보호", "역전압", "역극성", "서지", "ESD", "퓨즈", "fuse", "TVS", "외부 전원")),
+    ("mcu", ("MCU", "마이컴", "마이크로컨트롤러", "microcontroller", "STM32", "ATmega", "ESP32", "RP2040", "펌웨어")),
+    ("interface", ("I2C", "SPI", "UART", "CAN", "USB", "RS485", "RS-485", "통신")),
     ("motor", ("모터", "motor")),
-    ("led", ("led", "표시등", "램프")),
+    ("led", ("LED", "표시등", "램프")),
     ("clock", ("크리스탈", "crystal", "클럭", "clock", "발진")),
-    ("analog", ("op앰프", "opamp", "op-amp", "센서", "sensor", "adc", "증폭")),
+    ("analog", ("OP앰프", "opamp", "op-amp", "센서", "sensor", "ADC", "증폭")),
 ]
 
 
+def has_word(text: str, word: str) -> bool:
+    """``word`` in ``text``: Latin words as whole words ("led" is not in "controlled", "can" not in "scan"),
+    other scripts as a substring (Korean particles attach to the word: "모터를")."""
+    raw = word.strip()
+    if not raw:
+        return False
+    if re.fullmatch(r"[A-Z0-9][A-Z0-9 .\-]*", raw) and re.search(r"[A-Z]", raw):
+        # An acronym (CAN, I2C, LED): capitals only, so the English word "can" does not count.
+        return re.search(rf"(?<![A-Za-z0-9]){re.escape(raw)}(?![A-Za-z0-9])", text) is not None
+    w = raw.lower()
+    if re.fullmatch(r"[a-z0-9][a-z0-9 .\-]*", w):
+        return re.search(rf"(?<![a-z0-9]){re.escape(w)}(?![a-z0-9])", text.lower()) is not None
+    return w in text.lower()
+
+
 def topics_of_text(text: str) -> set[str]:
-    low = (text or "").lower()
-    return {topic for topic, words in _REQ_TOPICS if any(w in low for w in words)}
+    return {topic for topic, words in _REQ_TOPICS if any(has_word(text or "", w) for w in words)}
 
 
 def topics_of_circuit(circuit: CircuitIR | None) -> set[str]:
@@ -266,11 +282,15 @@ def topics_of_circuit(circuit: CircuitIR | None) -> set[str]:
             found.add("connector")
         if cat in ("fuse",) or (cat == "diode" and "TVS" in comp.symbol_id.upper()):
             found.add("protection")
+    connectors = {c.id for c in circuit.components if category_of(c.symbol_id, c.reference) == "connector"}
     for net in circuit.nets:
         if re.search(r"(^|_)(SDA|SCL|CAN|TX|RX|MOSI|MISO|USB)", net.name, re.I):
             found.add("interface")
-        if net.name.startswith("+") or net.voltage:
+        supply = net.name.startswith("+") or bool(net.voltage) or bool(re.search(r"VIN|VBUS|VCC|PWR", net.name, re.I))
+        if supply:
             found.add("power")
+            if any(n.component_id in connectors for n in net.nodes):
+                found.add("protection")  # power comes in (or goes out) through a connector
     return found
 
 
@@ -286,19 +306,26 @@ def _part_hit(entry: GuideEntry, components: Iterable[Component]) -> bool:
 
 
 def relevant(entries: Iterable[GuideEntry], *, circuit: CircuitIR | None = None, text: str = "",
-             statuses: tuple[str, ...] = ("adopted",)) -> list[GuideEntry]:
-    """Entries that apply to a circuit and/or a requirements text, strongest first."""
-    topics = topics_of_circuit(circuit) | topics_of_text(text)
+             statuses: tuple[str, ...] = ("adopted",), text_topics: bool | None = None) -> list[GuideEntry]:
+    """Entries that apply to a circuit and/or a requirements text, strongest first.
+
+    An entry applies by its first (main) topic; the others are tags (a motor entry tagged "power" is not a power
+    entry). The text's words count as topics only when ``text_topics`` (default: when there is no circuit yet, as in
+    a new design); with a circuit they only match an entry's own keywords and part names ("host MCU" in the text does
+    not mean this board has an MCU)."""
+    use_text = circuit is None if text_topics is None else text_topics
+    topics = topics_of_circuit(circuit) | (topics_of_text(text) if use_text else set())
     low = (text or "").lower()
     out = []
     for e in entries:
         if e.status not in statuses:
             continue
-        hit = bool(set(e.topics) & topics)
+        hit = bool(e.topics) and e.topics[0] in topics
         if e.scope.parts:
             # A part-specific entry needs its part (unless the requirements name one of its words).
+            # Part names are prefixes of real part numbers: "SN65HVD" names SN65HVD230.
             hit = _part_hit(e, circuit.components if circuit else []) or any(w.lower() in low for w in e.scope.parts)
-        if not hit and e.scope.keywords and any(k.lower() in low for k in e.scope.keywords):
+        if not hit and e.scope.keywords and any(has_word(text or "", k) for k in e.scope.keywords):
             hit = True
         if hit:
             out.append(e)

@@ -39,8 +39,9 @@ from .store import atomic_write, atomic_write_bytes, now_iso, sha256_bytes
 from .uploads import MB
 
 MAX_DATASHEET_BYTES = 50 * MB
-TEXT_PAGES = 6
-"""Pages read for the part-number check (part numbers are on the first pages)."""
+TEXT_PAGES = 40
+"""Pages read from each end for the part-number check: the title pages name the family, the orderable part numbers
+are often in an addendum further in (TI LM1117: pages 23-30 of 47). A 47-page datasheet reads in about 3 s."""
 
 Fetcher = Callable[[str], tuple[bytes, str]]
 """url -> (pdf bytes, final url after redirects). Tests inject a fake."""
@@ -114,7 +115,8 @@ def read_pdf_text(data: bytes, pages: int = TEXT_PAGES) -> tuple[str, int | None
                 return "", None, None
         count = len(reader.pages)
         chunks = []
-        for page in reader.pages[:pages]:
+        picked = list(range(min(pages, count))) + [i for i in range(max(count - pages, pages), count)]
+        for page in (reader.pages[i] for i in picked):
             try:
                 chunks.append(page.extract_text() or "")
             except Exception:  # noqa: BLE001 - one bad page must not hide the others

@@ -213,6 +213,43 @@ def test_exposed_pad_pairs_with_numbered_symbol_pin():
             "kind": "기타", "page": 4, "status": "match"} in rows
 
 
+def test_real_regulator_names_and_tab_pin():
+    """LM1117 (TI SNOS412Q p.3) names its SOT-223 pins ADJ/GND, VOUT, VIN, VOUT (TAB);
+    KiCad's symbol says GND, VO, VI."""
+    from circuit_core.datasheet_checks import pin_map_check
+    from circuit_core.datasheets import DatasheetFacts, DsPin, pin_names_match
+
+    assert pin_names_match("VI", "VIN") and pin_names_match("VO", "VOUT") and pin_names_match("GND", "ADJ/GND")
+    assert pin_names_match("OUT", "VOUT") and not pin_names_match("VIN", "VOUT") and not pin_names_match("ADJ", "VIN")
+    pkg = "SOT-223 (DCY)"
+    names = (("1", "ADJ/GND"), ("2", "VOUT"), ("3", "VIN"), ("4", "VOUT"))
+    f = DatasheetFacts(format="데이터시트 요약 MD v0.1",
+                       pins=[DsPin(package=pkg, number=n, name=name, page=3) for n, name in names])
+    result = pin_map_check(f, pkg, [("1", "GND"), ("2", "VO"), ("3", "VI")])
+    assert result["status"] == "match" and result["counts"] == {"match": 3, "same_as": 1}
+    assert result["rows"][3]["twin"] == "2"
+
+
+def test_real_lm1117_summary_checks_the_i2c_example():
+    """The I2C sensor example with a summary written from TI's real LM1117 datasheet (SNOS412Q)."""
+    from circuit_core import CircuitIR
+    from circuit_core.datasheet_checks import check_component
+    from circuit_core.datasheet_md import import_datasheet_markdown
+    from kicad_adapter import SymbolLibrary
+
+    from .conftest import I2C_DIR, SYMBOL_DIR
+
+    board = CircuitIR.model_validate_json((I2C_DIR / "circuit.json").read_text(encoding="utf-8"))
+    summary = import_datasheet_markdown((I2C_DIR / "lm1117-datasheet-summary.md").read_text(encoding="utf-8"))
+    assert summary.ok, summary.issues
+    u1 = next(c for c in board.components if c.reference == "U1")
+    pins = [(p.number, p.name) for p in SymbolLibrary([SYMBOL_DIR]).get(u1.symbol_id).pins]
+    r = check_component(board, u1, summary.facts, pins, [])
+    assert r["pin_map"]["status"] == "match" and r["pin_map"]["counts"] == {"match": 3, "same_as": 1}
+    assert r["ratings"]["status"] == "ok"
+    assert [x["status"] for x in r["external"]["rows"]] == ["present", "present"]
+
+
 # --- library -----------------------------------------------------------------------------------
 
 def test_read_pdf_text():

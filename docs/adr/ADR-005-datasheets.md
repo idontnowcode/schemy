@@ -58,6 +58,8 @@
 - `desktop/e2e/datasheets.spec.ts`, `fixes.spec.ts`: 받을 곳 선택 상자(심볼 링크·TI 규칙), 키가 없으면 유통사 검색 꺼짐, 제안 화면의 데이터시트 찾기. `electron.spec.ts`: 브라우저 열기가 `https://` 외 주소를 거부.
 - **실제 사이트**: 앱의 다운로드 코드로 TI 규칙을 확인했다(2026-11-05). DRV8871DDAR → `lit/gpn/drv8871`(제품군 확인됨), SN65HVD230DR → 품번 확인됨, TPS7A0233PDBVR → `tps7a02`, TLV70033DDCR → `tlv700`(제품군 확인됨). ST 사이트는 이 환경에서 정직한 User-Agent의 자동 요청에 응답하지 않았다(빈 응답). onsemi·Diodes·Nexperia는 이 환경에서 접속할 수 없어 받아 보지 않았다. Mouser·DigiKey는 키가 없어 실제 호출하지 않았다.
 
+실제 데이터시트로 돌려 본 결과(2026-11-05, `examples/i2c-sensor-3v3`, TI LM1117 SNOS412Q): 처음에는 핀맵이 「불일치 3」, 전압·외부 부품이 「확인 불가」였다. 데이터시트는 VIN·VOUT·ADJ/GND, KiCad 심볼은 VI·VO·GND로 이름이 달랐기 때문이다. 핀 이름 비교에 흔한 별칭(VIN = VI = IN, VOUT = VO = OUT), 겸용 이름(「ADJ/GND」는 고정 전압판의 GND), 같은 신호의 탭·중복 핀(SOT-223 TAB = VOUT, 상태 `same_as`)을 더했다. 품번 확인은 앞 6쪽만 읽어 TI 주문 품번(23쪽)을 놓쳤으므로 앞뒤 40쪽까지 읽는다(47쪽 3.3 s). 고친 뒤 핀맵 일치, 전압 정상, 필수·권장 콘덴서 있음, 품번 확인됨.
+
 출처:
 - Mouser API Swagger: https://api.mouser.com/api/docs/v1 (UI: https://api.mouser.com/api/docs/ui/index)
 - DigiKey Product Information v4 KeywordSearch: https://developer.digikey.com/products/product-information-v4/productsearch/keywordsearch

@@ -77,6 +77,7 @@ def pin_map_check(facts: DatasheetFacts, package: str | None, pin_names: PinName
     for number in sorted(set(ds) | set(sym), key=natural_key):
         if number in pairs.values():
             continue
+        twin = None
         d = ds.get(number)
         s_number = pairs.get(number, number)
         s_name = sym.get(s_number)
@@ -86,13 +87,18 @@ def pin_map_check(facts: DatasheetFacts, package: str | None, pin_names: PinName
             else:
                 status = "match" if pin_names_match(s_name, d.name) else "mismatch"
         elif d is not None:
-            status = "missing_in_symbol"
+            # A tab or a repeated pin (SOT-223 TAB = VOUT) that the symbol draws as one of its pins is not missing.
+            twin = next((n for n in ds if n != number and n in sym and pin_names_match(ds[n].name, d.name)
+                         and pin_names_match(sym[n], d.name)), None)
+            status = "same_as" if twin else "missing_in_symbol"
         else:
             status = "missing_in_datasheet"
         rows.append({"number": s_number if d is not None and s_name is not None else number,
                      "datasheet_number": d.number if d else None, "symbol_name": s_name,
                      "datasheet_name": d.name if d else None, "kind": d.kind if d else None,
                      "page": d.page if d else None, "status": status})
+        if twin:
+            rows[-1]["twin"] = twin
     counts: dict[str, int] = {}
     for r in rows:
         counts[r["status"]] = counts.get(r["status"], 0) + 1

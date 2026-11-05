@@ -469,6 +469,7 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - 검토·검사 결과에 바로 조치: AI 검토 의견마다 「이 의견 반영하기」, 의견 모두 반영·검사 문제 고치기 수정안(AI). 떠 있는 입력 핀은 「바로 고치기」로 AI 없이 풀다운·풀업·직접 연결을 고르면 후속 제안을 만든다(`circuit_core/quick_fixes.py`, `GET/POST …/quick-fixes`, 제안의 `parent`·`diff_from_parent`). KiCad ERC 경고는 쉬운 설명을 붙인다.
 - 데이터시트 찾기(ADR-005 추가 결정): 받을 곳 후보 = Mouser·DigiKey 검색(키는 OS 보안 저장소), KiCad 심볼 링크, 제조사 주소 규칙(KiCad 라이브러리 링크 형태에서 도출). 부품마다 골라 받고, 실패하면 다음 후보, 규칙 주소는 받은 PDF에 품번·제품군이 있어야 저장. 「제안」 탭에서도 승인 전에 받기 → AI 요약 → 대조 다시 하기(`GET …/datasheets?proposal_id=`, `POST …/datasheets/search`, `POST …/proposals/{id}/recheck-datasheets`, `/api/datasheet-search/keys`).
 - 설계 가이드(ADR-013): `circuit_core/guides.py`(지침 모델, 기본 지침 30개, 해당 지침 고르기, 체크리스트, Markdown), `backend/guides.py`(워크스페이스 저장·이력), `/api/guides*`, `GET/POST …/guides(?proposal_id=)`, `POST …/guides/draft`(AI 초안). AI 설계·수정·검토·Agent 프롬프트에 채택 지침, `guides_applied`·검토 의견의 `guide`, 엔지니어 검토 체크리스트 항목 `guide:<id>`. 화면: 사이드바 「설계 가이드」, 제안·「검토」 탭의 「설계 지침 확인」과 피드백, AI 의견의 「지침 후보로」, 거부 이유·수정 요청 저장.
+- 샘플 보드 `examples/i2c-sensor-3v3`(5 V → 3.3 V LDO, I2C 풀업)를 앱으로 끝까지 돌려 찾은 문제 수정: 실제 데이터시트 핀 이름 별칭·탭 핀(ADR-005), 품번 확인 쪽 수, 설계 지침 고르기(주 분야, 회로가 있으면 글로 분야를 늘리지 않음, 낱말 단위 비교, 기본 지침 업데이트) 와 「검사 통과」 표시(ADR-013).
 - AI 공급자 ChatGPT(내 계정 로그인, ADR-004 추가 결정): OpenAI Sign in with ChatGPT(PKCE, 앱 등록, ID 토큰 검증)로 로그인하고 Responses API(`store: false`, 스트리밍)를 쓴다. 토큰은 사용자 폴더 `chatgpt.json`(0600)에만. `GET/POST /api/ai/chatgpt/login`, `POST /api/ai/chatgpt/logout`.
 
 ### v1.8 (2026-11-05)

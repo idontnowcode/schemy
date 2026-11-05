@@ -8,7 +8,7 @@ the generator tests run without a KiCad installation.
 | `Device.kicad_sym` | `R`, `LED`, `C`, `C_Polarized`, `L`, `Crystal`, `Polyfuse` | KiCad 10.0.8 `/usr/share/kicad/symbols/Device.kicad_sym` (Docker image `kicad/kicad:10.0.8`) |
 | `Connector_Generic.kicad_sym` | `Conn_01x02`, `Conn_01x03`, `Conn_01x04` | KiCad 10.0.8 `/usr/share/kicad/symbols/Connector_Generic.kicad_sym` |
 | `Interface_CAN_LIN.kicad_sym` | `SN65HVD230` | KiCad 10.0.8 `/usr/share/kicad/symbols/Interface_CAN_LIN.kicad_sym` (an IC with a datasheet link, for datasheet tests) |
-| `Regulator_Linear.kicad_sym` | `AP1117-15`, `AMS1117-3.3`, `L7805` | KiCad 10.0.8 `/usr/share/kicad/symbols/Regulator_Linear.kicad_sym` (`AMS1117-3.3` is a derived symbol) |
+| `Regulator_Linear.kicad_sym` | `AP1117-15`, `AMS1117-3.3`, `L7805`, `LM1117MP-3.3` | KiCad 10.0.8 `/usr/share/kicad/symbols/Regulator_Linear.kicad_sym` (`AMS1117-3.3` is a derived symbol; `LM1117MP-3.3` is the I2C sensor sample board's regulator) |
 | `Amplifier_Operational.kicad_sym` | `LM2904`, `LM358` | KiCad 10.0.8 (a multi-unit symbol: two op-amps and a power unit; `LM358` is derived) |
 | `MCU_Microchip_ATmega.kicad_sym` | `ATmega48PV-10A`, `ATmega328P-A` | KiCad 10.0.8 (stacked GND/VCC pins; `ATmega328P-A` is derived) |
 | `Diode.kicad_sym` | `1N5820`, `1N5822`, `1N4001`, `1N4007`, `SB120`, `SS34`, `SM6T6V8A`, `SMAJ24A` | KiCad 10.0.8 (`1N5822`, `1N4007`, `SS34` and `SMAJ24A` are derived) |
@@ -29,7 +29,7 @@ python scripts/extract_symbol_subset.py <KiCad>/symbols/Diode.kicad_sym tests/fi
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Driver_Motor.kicad_sym tests/fixtures/kicad_symbols/Driver_Motor.kicad_sym DRV8871DDA
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Regulator_Switching.kicad_sym tests/fixtures/kicad_symbols/Regulator_Switching.kicad_sym LM2596S-12 LM2596S-5
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Interface_CAN_LIN.kicad_sym tests/fixtures/kicad_symbols/Interface_CAN_LIN.kicad_sym SN65HVD230
-python scripts/extract_symbol_subset.py <KiCad>/symbols/Regulator_Linear.kicad_sym tests/fixtures/kicad_symbols/Regulator_Linear.kicad_sym AP1117-15 AMS1117-3.3 L7805
+python scripts/extract_symbol_subset.py <KiCad>/symbols/Regulator_Linear.kicad_sym tests/fixtures/kicad_symbols/Regulator_Linear.kicad_sym AP1117-15 AMS1117-3.3 L7805 LM1117MP-3.3
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Switch.kicad_sym tests/fixtures/kicad_symbols/Switch.kicad_sym SW_Push
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Timer.kicad_sym tests/fixtures/kicad_symbols/Timer.kicad_sym NE555D NE555P
 python scripts/extract_symbol_subset.py <KiCad>/symbols/power.kicad_sym tests/fixtures/kicad_symbols/power.kicad_sym PWR_FLAG GND VCC +5V +3V3 +12V +24V

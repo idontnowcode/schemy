@@ -23,6 +23,8 @@ REGULATOR_NAME = "lm7805-24v-to-5v"
 REGULATOR_DIR = ROOT.parent / "examples" / REGULATOR_NAME
 MOTOR_NAME = "dc-motor-drv8871"
 MOTOR_DIR = ROOT.parent / "examples" / MOTOR_NAME
+I2C_NAME = "i2c-sensor-3v3"
+I2C_DIR = ROOT.parent / "examples" / I2C_NAME
 
 
 @pytest.fixture

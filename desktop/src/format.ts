@@ -220,6 +220,7 @@ export const ROW_STATUS: Record<string, Label> = {
   match: { text: "일치", tone: "ok" },
   mismatch: { text: "불일치", tone: "bad" },
   missing_in_symbol: { text: "심볼에 없음", tone: "bad" },
+  same_as: { text: "같은 신호의 탭·중복 핀", tone: "ok" },
   missing_in_datasheet: { text: "데이터시트에 없음", tone: "bad" },
   no_name: { text: "이름 없음", tone: "muted" },
   ok: { text: "정상", tone: "ok" },

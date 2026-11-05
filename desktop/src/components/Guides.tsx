@@ -49,7 +49,7 @@ const ORIGIN_TEXT: Record<GuideOrigin, string> = {
 const CHECK_STATUS: Record<string, { text: string; tone: Tone }> = {
   fail: { text: "위반", tone: "bad" },
   warn: { text: "확인 필요", tone: "warn" },
-  ok: { text: "충족", tone: "ok" },
+  ok: { text: "검사 통과", tone: "ok" },
   manual: { text: "직접 확인", tone: "muted" },
 };
 const EVENT_TEXT: Record<string, string> = {
@@ -587,7 +587,7 @@ export function GuideChecklistPanel({ projectId, boardId, proposalId, refreshKey
       <h4>
         설계 지침 확인{" "}
         <span className="muted small">
-          적용 {items.length}개 · 자동 확인에서 문제 {problems.length}개{data.candidates ? ` · 검토 대기 후보 ${data.candidates}개` : ""}
+          적용 {items.length}개 · 자동 검사에서 문제 {problems.length}개{data.candidates ? ` · 검토 대기 후보 ${data.candidates}개` : ""}
         </span>
       </h4>
       <ul className="issues">
@@ -601,8 +601,11 @@ export function GuideChecklistPanel({ projectId, boardId, proposalId, refreshKey
           </li>
         ))}
       </ul>
+      <p className="small muted">
+        「검사 통과」는 지침에 연결된 자동 검사(계산·연결 확인)가 보는 부분만 통과했다는 뜻입니다. 부품 종류·ESR·배치처럼 회로 정보에 없는 내용은 직접 확인하세요.
+      </p>
       <label className="small">
-        <input type="checkbox" checked={showOk} onChange={(e) => setShowOk(e.target.checked)} /> 자동 확인에서 충족된 것도 보기
+        <input type="checkbox" checked={showOk} onChange={(e) => setShowOk(e.target.checked)} /> 자동 검사를 통과한 것도 보기
       </label>
       <GuideFeedback projectId={projectId} boardId={boardId} proposalId={proposalId} aiReady={aiReady} listing={listing} onSaved={load} />
     </section>

@@ -193,15 +193,27 @@ def norm_pin_name(name: str | None) -> str:
     return s
 
 
+# Names that datasheets and KiCad symbols use for the same regulator / supply pin (LM1117: VIN = VI, VOUT = VO).
+_PIN_ALIASES = {"VI": "VIN", "IN": "VIN", "INPUT": "VIN", "VO": "VOUT", "OUT": "VOUT", "OUTPUT": "VOUT"}
+
+
+def _alias(name: str) -> str:
+    return _PIN_ALIASES.get(name, name)
+
+
 def pin_names_match(a: str | None, b: str | None) -> bool:
-    """True if two pin names mean the same pin (alternate functions like 'PA0-WKUP/ADC_IN0' allowed)."""
+    """True if two pin names mean the same pin: alternate functions ('PA0-WKUP/ADC_IN0'), names listing several
+    roles ('ADJ/GND' is the GND pin of a fixed regulator) and common aliases (VIN = VI = IN, VOUT = VO = OUT)."""
     x, y = norm_pin_name(a), norm_pin_name(b)
     if not x or not y:
         return False
-    if x == y:
+    if _alias(x) == _alias(y):
         return True
     first = lambda s: re.split(r"[/\-+]", s, maxsplit=1)[0]  # noqa: E731
-    return bool(first(x)) and first(x) == first(y)
+    if first(x) and _alias(first(x)) == _alias(first(y)):
+        return True
+    roles = lambda s: {_alias(norm_pin_name(r)) for r in s.split("/") if norm_pin_name(r)}  # noqa: E731
+    return bool(roles(x) & roles(y)) and ("/" in x or "/" in y)
 
 
 def is_ground_name(name: str | None) -> bool:

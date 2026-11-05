@@ -29,7 +29,8 @@ def build_review_router(store: ProjectStore, reviews: ReviewStore, guides: Guide
         if guides is not None and circuit is not None:
             # The adopted design-guide entries that apply, as items the engineer can tick.
             label = {"must": "필수", "should": "권장", "consider": "검토"}
-            for e in relevant(guides.entries(), circuit=circuit, text=store.get_requirements(project_id)):
+            for e in relevant(guides.entries(), circuit=circuit, text=store.get_requirements(project_id),
+                              text_topics=False):
                 if e.strength == "consider":
                     continue
                 items.append({"source": f"guide:{e.id}", "item": f"[{label[e.strength]}] {e.title}: {e.rule}",

@@ -200,3 +200,45 @@ def test_agent_plan_gets_the_guide(tmp_path):
     prompts = [c["prompt"] for p in created if hasattr(p, "calls") for c in p.calls]
     plan = next(p for p in prompts if "회로 변경을 계획하는 EDA 에이전트" in p)
     assert "[설계 지침" in plan and "G-LED-01" in plan
+
+
+def test_a_simple_power_board_gets_only_its_guides():
+    """Found by running the I2C sensor example: motor/MCU/crystal/DC-DC guides showed up on a board with none of
+    them (any tag matched, and "호스트 MCU" in the requirements counted as an MCU)."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "examples" / "i2c-sensor-3v3"
+    board = CircuitIR.model_validate(json.loads((root / "circuit.json").read_text(encoding="utf-8")))
+    text = (root / "requirements.md").read_text(encoding="utf-8")
+    ids = {e.id for e in relevant(entries(), circuit=board, text=text, text_topics=False)}
+    assert {"G-PWR-01", "G-PWR-02", "G-PWR-03", "G-PWR-05", "G-PRT-01", "G-PRT-02", "G-IF-01", "G-LED-01"} <= ids
+    assert not ids & {"G-MCU-01", "G-MCU-03", "G-MCU-05", "G-MOT-02", "G-MOT-05", "G-CLK-01", "G-DCDC-01"}
+    # Before a circuit exists (a new AI design), the requirements' words still pick topics.
+    assert "G-MCU-01" in {e.id for e in relevant(entries(), text=text)}
+
+
+def test_untouched_builtin_guides_take_app_updates(tmp_path):
+    lib = GuideLibrary(tmp_path)
+    mine = next(e for e in lib.entries() if e.id == "G-PWR-03")
+    old_topics = ["power", "ldo"]  # as version 1 shipped G-PWR-02/03
+    draft = GuideDraft(**{**{k: getattr(mine, k) for k in GuideDraft.model_fields}, "topics": old_topics})
+    lib.update("G-PWR-03", draft, by="박팀장")  # a person's edit
+    raw = json.loads(lib.path.read_text(encoding="utf-8"))
+    raw["seed_version"] = 1
+    for e in raw["entries"]:
+        if e["id"] == "G-PWR-02":
+            e["topics"] = old_topics
+    lib.path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    after = {e.id: e for e in GuideLibrary(tmp_path).entries()}
+    assert after["G-PWR-02"].topics == ["ldo", "power"]  # nobody touched it: updated
+    assert after["G-PWR-03"].topics == old_topics and after["G-PWR-03"].version == 2  # a person's edit stays
+    updates = [ev for ev in lib.history() if ev["event"] == "seed_updated"]
+    assert len(updates) == 1 and "G-PWR-02" in updates[0]["ids"] and "G-LED-01" not in updates[0]["ids"]
+
+
+def test_keywords_match_whole_latin_words():
+    from circuit_core.guides import has_word, topics_of_text
+
+    assert has_word("Status LED 하나", "led") and not has_word("PWM controlled fan", "led")
+    assert has_word("모터를 돌린다", "모터") and not has_word("scan chain", "can")
+    assert topics_of_text("CAN 통신") >= {"interface"} and "interface" not in topics_of_text("we can do it")

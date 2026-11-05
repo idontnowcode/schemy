@@ -425,7 +425,7 @@ def create_app(settings: Settings) -> FastAPI:
                 for _, s in index.search([query], limit=10)]
 
     def agent_guides(circuit, request: str) -> str:
-        return guide_prompt_text(relevant(guides.entries(), circuit=circuit, text=request))
+        return guide_prompt_text(relevant(guides.entries(), circuit=circuit, text=request, text_topics=True))
 
     agent_runner = AgentRunner(store, jobs, proposals, proposal_service, provider_for=agent_provider,
                                library=checker.library, kicad=settings.kicad_factory, search_symbols=search_symbols,

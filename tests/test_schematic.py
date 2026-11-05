@@ -12,6 +12,8 @@ from .circuits import rotation_ring
 from .conftest import (
     EXAMPLE_DIR,
     EXAMPLE_NAME,
+    I2C_DIR,
+    I2C_NAME,
     MOTOR_DIR,
     MOTOR_NAME,
     REGULATOR_DIR,
@@ -99,6 +101,13 @@ def test_regulator_board_matches_generator(regulator_board, library, workdir):
 def test_motor_board_matches_generator(motor_board, library, workdir):
     """examples/dc-motor-drv8871 is a golden output too (a power input through a fuse and a diode, a motor driver)."""
     check_golden(motor_board, library, workdir, MOTOR_NAME, MOTOR_DIR)
+
+
+def test_i2c_sensor_board_matches_generator(library, workdir):
+    """examples/i2c-sensor-3v3: a 5 V -> 3.3 V LDO board with I2C pull-ups, designed and checked through the app
+    (KiCad ERC 0/0, real LM1117 datasheet) - a golden too."""
+    board = CircuitIR.model_validate_json((I2C_DIR / "circuit.json").read_text(encoding="utf-8"))
+    check_golden(board, library, workdir, I2C_NAME, I2C_DIR)
 
 
 def test_power_input_through_a_series_chain_is_one_block(motor_board, library):

@@ -143,6 +143,7 @@ def test_examples_are_offered(tmp_path):
     timer = next(e for e in examples if e["id"] == "ne555-led-board")
     assert timer["title"] == "NE555 LED 점멸 보드" and timer["circuit"]["notes"]
     assert any(e["id"] == "lm7805-24v-to-5v" for e in examples)
+    assert any(e["id"] == "i2c-sensor-3v3" for e in examples)
 
 
 

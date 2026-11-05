@@ -169,7 +169,7 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             return []
         spec = store.get_requirements_spec(project_id)
         text = " ".join([store.get_requirements(project_id), extra, json.dumps(spec, ensure_ascii=False) if spec else ""])
-        return relevant(guides.entries(), circuit=circuit, text=text)
+        return relevant(guides.entries(), circuit=circuit, text=text, text_topics=True)
 
     def run_review(cfg, provider, project_id: str, circuit: CircuitIR, evidence: str,
                    context: dict | None = None) -> tuple[dict, object]:

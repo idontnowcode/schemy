@@ -496,7 +496,9 @@ export interface PinMapRow {
   datasheet_name: string | null;
   kind: string | null;
   page: number | null;
-  status: "match" | "mismatch" | "missing_in_symbol" | "missing_in_datasheet" | "no_name";
+  status: "match" | "mismatch" | "missing_in_symbol" | "missing_in_datasheet" | "no_name" | "same_as";
+  /** For a tab or repeated pin: the symbol pin it is the same signal as. */
+  twin?: string | null;
 }
 
 export interface RatingRef {

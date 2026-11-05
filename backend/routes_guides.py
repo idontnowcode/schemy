@@ -43,14 +43,14 @@ def board_checklist(store: ProjectStore, proposals: ProposalStore, guides: Guide
         return {"revision": None, "items": [], "candidates": 0, "ai_applied": []}
     text = store.get_requirements(project_id)
     entries = guides.entries()
-    applicable = relevant(entries, circuit=circuit, text=text)
+    applicable = relevant(entries, circuit=circuit, text=text, text_topics=False)
     refs = {c.id: c.reference for c in circuit.components}
     findings = [f.to_dict(refs) for f in engineering_review(circuit)]
     floating = [f.to_dict() for f in floating_pins(circuit, pin_types_for(circuit, settings.symbol_dirs))]
     items = checklist(applicable, findings, floating)
     for item in items:
         item["ai_applied"] = item["id"] in ai_applied
-    pending = relevant(entries, circuit=circuit, text=text, statuses=("candidate",))
+    pending = relevant(entries, circuit=circuit, text=text, statuses=("candidate",), text_topics=False)
     return {"revision": revision, "proposal_id": proposal_id, "items": items, "candidates": len(pending),
             "ai_applied": ai_applied}
 

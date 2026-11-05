@@ -59,7 +59,16 @@ class GuideLibrary:
             return raw
         have = {e["id"] for e in raw["entries"]}
         now = now_iso()
-        added = []
+        added, updated = [], []
+        # Built-in entries nobody has edited or decided on take the new app version's text.
+        seeds = {s["id"]: s for s in SEED}
+        for i, e in enumerate(raw["entries"]):
+            s = seeds.get(e["id"])
+            if s and e.get("origin") == "seed" and e.get("version", 1) == 1 and e.get("decided_by") == "앱 기본":
+                fresh = GuideEntry.model_validate({**e, **s, "seed_version": SEED_VERSION}).model_dump(mode="json")
+                if any(fresh[k] != e.get(k) for k in s):
+                    updated.append(e["id"])  # the text changed, not just the version stamp
+                raw["entries"][i] = fresh
         for s in SEED:
             if s["id"] in have:
                 continue
@@ -71,6 +80,8 @@ class GuideLibrary:
         self._save(raw)
         if added:
             self._log("seeded", None, "앱 기본", ids=added, seed_version=SEED_VERSION)
+        if updated:
+            self._log("seed_updated", None, "앱 기본", ids=updated, seed_version=SEED_VERSION)
         return raw
 
     def entries(self) -> list[GuideEntry]:

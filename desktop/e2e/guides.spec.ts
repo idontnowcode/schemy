@@ -43,7 +43,7 @@ test("design guide grows from people's feedback and is checked on a board", asyn
   await page.getByRole("tab", { name: "검토" }).click();
   const checklist = page.getByLabel("설계 지침 확인");
   await expect(checklist).toContainText("G-PRT-02");
-  await checklist.getByRole("checkbox", { name: "자동 확인에서 충족된 것도 보기" }).check();
+  await checklist.getByRole("checkbox", { name: "자동 검사를 통과한 것도 보기" }).check();
   await expect(checklist).toContainText("모터 전원 입력에 TVS");
 
   // Feedback from the review becomes a candidate (written as is, no AI).
