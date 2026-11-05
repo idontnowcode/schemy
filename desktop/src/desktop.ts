@@ -5,6 +5,8 @@ export interface DesktopBridge {
   platform: string;
   /** Opens a file or folder inside the workspace with the system default app (e.g. KiCad for .kicad_pro). */
   openPath(path: string): Promise<string>;
+  /** Opens an https:// page in the system browser (older desktop builds lack it). */
+  openExternal?(url: string): Promise<string>;
 }
 
 declare global {

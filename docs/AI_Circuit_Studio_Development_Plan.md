@@ -448,7 +448,7 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 | Windows 단일 플랫폼 우선 여부 | Windows 11 우선 유지. 개발·CI는 Linux에서도 동작 |
 | LLM 제공자 및 API 키 입력 방식 | **결정: Google Gemini 기본, AI는 선택 기능.** 키는 OS 보안 저장소(keyring) 또는 `GEMINI_API_KEY` (ADR-004). **(v1.6)** Claude 추가: API 키(keyring, `ANTHROPIC_API_KEY`) 또는 Anthropic CLI 로그인. **(v1.9)** ChatGPT 추가: API 키 없이 Sign in with ChatGPT(사용자 요금제 사용량). Claude 구독(Pro/Max) 로그인은 Anthropic 정책상 넣지 않음 |
 | 여러 보드 지원 | **결정: 프로젝트 → 보드 → 페이지** (사용자 결정, 2026-11-04) |
-| 데이터시트 출처 | **결정: KiCad 심볼 링크 + 직접 올리기** (사용자 결정, 2026-11-04). 유통사 API(DigiKey·Mouser)와 AI 검색은 쓰지 않음. 필요해지면 키를 받아 추가 (ADR-005) |
+| 데이터시트 출처 | **결정: KiCad 심볼 링크 + 직접 올리기** (사용자 결정, 2026-11-04). **(v1.9)** 제조사 주소 규칙(TI·ST·onsemi·Diodes·Nexperia)과 Mouser·DigiKey 검색(사용자 키, 선택)을 추가(사용자 승인). AI 웹 검색은 쓰지 않음 (ADR-005) |
 | KiCad 생성 어댑터 최종 채택 | **결정: 직접 생성기** (ADR-001) |
 | 템플릿의 검증/승인 책임과 출처 관리 정책 | **결정: 템플릿은 저장소 코드(검토·버전), 근거는 제조사 데이터시트 응용 회로의 절, 쪽 번호는 검토자가 기록, 템플릿 부품은 needs_review로 시작, verified는 엔지니어 검토 기록만** (ADR-007) |
 | 선택 근거와 기술 검토 | **결정: 근거는 IR `decisions`(누가 정했는지 5종), 기술 검토는 AI가 아닌 코드 계산, 근거 리포트는 Markdown(앱·`outputs/rationale.md`·`aics report`)** (ADR-011) |
@@ -466,6 +466,7 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - 샘플 보드 `examples/dc-motor-drv8871`(12V DC 모터 드라이버, 설계 검토 리포트 포함). 기술 검토에 모터 드라이버 규칙(VM 범위·전류 제한·출력 손실), 전원 핀 이름에 VM. 배치: 퓨즈·다이오드를 거쳐 레일로 들어가는 전원 입력도 전원 입력 블록으로(ADR-009 추가 16).
 - 회로도 그리기(ADR-009 추가 12~15): PWR_FLAG를 레일 전원 심볼과 같은 연결점에, IC 디커플링 콘덴서를 전원 핀 옆에 선으로, 48자를 넘는 주석은 여러 줄로, 위·아래를 향한 커넥터는 1번 핀이 왼쪽에 오게 반전.
 - 검토·검사 결과에 바로 조치: AI 검토 의견마다 「이 의견 반영하기」, 의견 모두 반영·검사 문제 고치기 수정안(AI). 떠 있는 입력 핀은 「바로 고치기」로 AI 없이 풀다운·풀업·직접 연결을 고르면 후속 제안을 만든다(`circuit_core/quick_fixes.py`, `GET/POST …/quick-fixes`, 제안의 `parent`·`diff_from_parent`). KiCad ERC 경고는 쉬운 설명을 붙인다.
+- 데이터시트 찾기(ADR-005 추가 결정): 받을 곳 후보 = Mouser·DigiKey 검색(키는 OS 보안 저장소), KiCad 심볼 링크, 제조사 주소 규칙(KiCad 라이브러리 링크 형태에서 도출). 부품마다 골라 받고, 실패하면 다음 후보, 규칙 주소는 받은 PDF에 품번·제품군이 있어야 저장. 「제안」 탭에서도 승인 전에 받기 → AI 요약 → 대조 다시 하기(`GET …/datasheets?proposal_id=`, `POST …/datasheets/search`, `POST …/proposals/{id}/recheck-datasheets`, `/api/datasheet-search/keys`).
 - AI 공급자 ChatGPT(내 계정 로그인, ADR-004 추가 결정): OpenAI Sign in with ChatGPT(PKCE, 앱 등록, ID 토큰 검증)로 로그인하고 Responses API(`store: false`, 스트리밍)를 쓴다. 토큰은 사용자 폴더 `chatgpt.json`(0600)에만. `GET/POST /api/ai/chatgpt/login`, `POST /api/ai/chatgpt/logout`.
 
 ### v1.8 (2026-11-05)

@@ -63,8 +63,15 @@ def test_report_lists_parts_and_links(tmp_path):
     assert u1["identity"] == "mpn" and u1["relevant"] and u1["can_fetch"]
     assert u1["symbol_datasheet_url"] == TI_URL and u1["datasheet"] is None and u1["checks"] is None
     assert not row(report, "C1")["relevant"] and row(report, "C1")["identity"] == "generic"
-    assert report["fetchable"] == [{"url": TI_URL, "references": ["U1"],
-                                    "symbol_ids": ["Interface_CAN_LIN:SN65HVD230"]}]
+    sources = [(f["source"], f["url"], f["references"]) for f in report["fetchable"]]
+    assert sources == [("kicad_symbol", TI_URL, ["U1"]),
+                       ("maker_site", "https://www.ti.com/lit/gpn/sn65hvd230", ["U1"])]
+    maker = report["fetchable"][1]
+    gpn = "https://www.ti.com/lit/gpn/"
+    assert maker["urls"] == [gpn + "sn65hvd230", gpn + "sn65hvd2", gpn + "sn65hvd230dr", gpn + "sn65hvd230d"]
+    assert maker["manufacturer"] == "Texas Instruments"
+    assert u1["candidates"] == [f["id"] for f in report["fetchable"]] and u1["searched"] is None
+    assert report["search"] == {"mouser": False, "digikey": False}
 
 
 def test_upload_summary_and_checks(tmp_path):
@@ -115,6 +122,7 @@ def test_fetch_only_confirmed_library_links(tmp_path):
     assert job["status"] == "succeeded" and calls == [TI_URL]
     result = job["result"]["results"][0]
     assert result["ok"] and result["references"] == ["U1"] and result["identity"] == "matched"
+    assert result["source"] == "kicad_symbol" and result["tried"] == []
     entry = client.get("/api/datasheets").json()["entries"][0]
     assert entry["source"] == "kicad_symbol" and entry["urls"] == [TI_URL]
     assert entry["part_numbers"] == ["SN65HVD230DR"] and entry["symbols"] == ["Interface_CAN_LIN:SN65HVD230"]
@@ -131,7 +139,10 @@ def test_fetch_failures_are_reported_per_link(tmp_path):
     _, board = can_project(client)
     job = wait(client, client.post(board + "/datasheets/fetch", json={"urls": [TI_URL]}).json())
     assert job["status"] == "succeeded" and job["result"]["failed"] == 1
-    assert job["result"]["results"][0]["error_code"] == "DATASHEET_NOT_PDF"
+    result = job["result"]["results"][0]
+    assert result["error_code"] == "DATASHEET_NOT_PDF"
+    # The symbol link failed, then the four TI addresses of the maker rule were tried (fallback).
+    assert [t["source"] for t in result["tried"]] == ["kicad_symbol"] + ["maker_site"] * 4
     assert client.get("/api/datasheets").json()["entries"] == []
 
 

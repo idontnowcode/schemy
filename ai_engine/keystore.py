@@ -18,7 +18,10 @@ import sys
 from pathlib import Path
 
 SERVICE = "ai-circuit-studio"
-ENV_VARS = {"gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"), "claude": ("ANTHROPIC_API_KEY",)}
+ENV_VARS = {"gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"), "claude": ("ANTHROPIC_API_KEY",),
+            # Datasheet search (backend.datasheet_search): distributor keys, stored the same way.
+            "mouser": ("MOUSER_API_KEY",), "digikey-id": ("DIGIKEY_CLIENT_ID",),
+            "digikey-secret": ("DIGIKEY_CLIENT_SECRET",)}
 _PROFILE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 
 

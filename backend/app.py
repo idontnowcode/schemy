@@ -423,7 +423,7 @@ def create_app(settings: Settings) -> FastAPI:
                                library=checker.library, kicad=settings.kicad_factory, search_symbols=search_symbols)
     app.state.agent_runner = agent_runner
     app.include_router(build_agent_router(agent_runner))
-    app.include_router(build_datasheet_router(store, jobs, datasheets, settings, checker.library))
+    app.include_router(build_datasheet_router(store, jobs, datasheets, settings, checker.library, proposals))
     app.include_router(build_proposal_router(proposal_service))
     app.include_router(build_design_router(store, jobs, proposal_service, inventory, datasheets, settings))
 

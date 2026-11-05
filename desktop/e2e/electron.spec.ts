@@ -45,6 +45,11 @@ test("desktop shell runs the app with token auth and an isolated renderer", asyn
     // openPath refuses anything outside the workspace.
     const outside = await win.evaluate(() => window.aics!.openPath("/etc").then(() => "opened", (e: Error) => e.message));
     expect(outside).toContain("outside the workspace");
+    // openExternal (datasheet pages in the system browser) refuses anything but plain https:// links.
+    for (const link of ["file:///etc/passwd", "http://www.ti.com/x.pdf", "https://user:pw@www.ti.com/"]) {
+      const refused = await win.evaluate((u) => window.aics!.openExternal!(u).then(() => "opened", (e: Error) => e.message), link);
+      expect(refused).toContain("only plain https://");
+    }
   } finally {
     await app.close();
   }

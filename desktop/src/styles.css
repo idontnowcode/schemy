@@ -999,3 +999,17 @@ label.block {
 .break {
   word-break: break-all;
 }
+
+.ds-finder {
+  border-left: 3px solid var(--accent, #4c8dff);
+  padding: 8px 12px;
+  margin: 10px 0;
+}
+
+.ds-finder select {
+  max-width: 100%;
+}
+
+.proposal-datasheets {
+  margin-top: 8px;
+}

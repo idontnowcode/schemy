@@ -8,11 +8,12 @@ so every project reuses the same file and the same summary.
       ds-<sha12>.pdf          the PDF as received (never modified)
       ds-<sha12>.summary.md   the summary Markdown as imported (Copilot, person or AI)
       ds-<sha12>.facts.json   what the app parsed from it (used by the checks)
+      candidates.json         links found for each part (distributor searches), see datasheet_sources
       ai_runs/                one record per AI call (no API keys)
 
-Downloads only ever use links that are already in the user's KiCad library (or a link the user
-gives); they go over HTTPS, are size-limited and must be a PDF. The file is checked for the part
-number before anything else uses it.
+Downloads only ever use links the app found itself (the KiCad symbol link, the maker's address
+pattern, a distributor search answer), after the user confirmed them; they go over HTTPS, are
+size-limited and must be a PDF. The file is checked for the part number before anything else uses it.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from circuit_core.datasheet_sources import DatasheetCandidate
 from circuit_core.datasheets import DatasheetFacts, identity_check, normalize_part, symbol_part_name
 from circuit_core.models import Component
 
@@ -50,6 +52,22 @@ class DatasheetError(Exception):
         self.code, self.message, self.hint, self.status = code, message, hint, status
 
 
+EntrySource = Literal["upload", "kicad_symbol", "maker_site", "mouser", "digikey"]
+
+
+class PartSearch(BaseModel):
+    """What the distributor searches answered for one part (keyed by the normalised part number)."""
+    term: str
+    searched_at: str
+    candidates: list[DatasheetCandidate] = Field(default_factory=list)
+    errors: list[dict] = Field(default_factory=list)
+
+
+class CandidateBook(BaseModel):
+    schema_version: int = 1
+    parts: dict[str, PartSearch] = Field(default_factory=dict)
+
+
 class SummaryInfo(BaseModel):
     origin: Literal["markdown", "ai"]
     source_name: str
@@ -67,7 +85,7 @@ class DatasheetEntry(BaseModel):
     bytes: int
     page_count: int | None = None
     title: str | None = None
-    source: Literal["upload", "kicad_symbol"]
+    source: EntrySource
     urls: list[str] = Field(default_factory=list)
     final_url: str | None = None
     added_at: str
@@ -153,18 +171,32 @@ class DatasheetLibrary:
 
     # --- adding ------------------------------------------------------------------------------
 
-    def add(self, data: bytes, *, original_name: str, source: Literal["upload", "kicad_symbol"],
+    def add(self, data: bytes, *, original_name: str, source: EntrySource,
             url: str | None = None, final_url: str | None = None, manufacturer: str | None = None,
             part_numbers: list[str] | tuple[str, ...] = (), symbols: list[str] | tuple[str, ...] = (),
-            ) -> tuple[DatasheetEntry, bool]:
+            expect: list[str] | tuple[str, ...] = ()) -> tuple[DatasheetEntry, bool]:
         """Store a PDF (deduplicated by content) and link it to part numbers / symbols.
-        Returns (entry, created)."""
+        With ``expect`` (a URL built from a part number), a readable PDF that names neither the part nor
+        ``expect`` is refused (DATASHEET_WRONG_PART) and nothing is stored. Returns (entry, created)."""
         if len(data) > MAX_DATASHEET_BYTES:
             raise DatasheetError("DATASHEET_TOO_LARGE", f"PDF가 너무 큽니다 (최대 {MAX_DATASHEET_BYTES // MB} MB).",
                                  status=413)
         if b"%PDF" not in data[:1024]:
             raise DatasheetError("NOT_A_PDF", f"'{original_name}'은(는) PDF 파일이 아닙니다.")
         text, pages, title = read_pdf_text(data)
+        family_name = None
+        if expect:
+            names = [*part_numbers, *(s.split(":", 1)[-1] for s in symbols)]
+            haystack = normalize_part(text)
+            if haystack and identity_check(text, names)["status"] == "not_found":
+                named = [normalize_part(e) for e in expect if normalize_part(e) and normalize_part(e) in haystack]
+                if not named:
+                    raise DatasheetError("DATASHEET_WRONG_PART", f"받은 PDF에 {', '.join(names or list(expect))} 이름이 "
+                                         "없어 다른 부품의 문서로 보고 저장하지 않았습니다.",
+                                         "다른 받을 곳을 고르거나 제조사 사이트에서 받은 PDF를 올리세요.")
+                # The document names the family the URL asked for (TPS7A02 for TPS7A0233): a family match.
+                if any(normalize_part(n).startswith(named[0]) for n in names):
+                    family_name = named[0]
         sha = sha256_bytes(data)
         with self._lock:
             index = self._load()
@@ -185,6 +217,8 @@ class DatasheetLibrary:
                 entry.manufacturer = manufacturer
             self._claim(index, entry, part_numbers, symbols)
             entry.identity = identity_check(text, [*entry.part_numbers, *(s.split(":", 1)[-1] for s in entry.symbols)])
+            if family_name and entry.identity.get("status") == "not_found":
+                entry.identity = {**entry.identity, "status": "family", "found": [family_name]}
             self._save(index)
             return entry, created
 
@@ -290,6 +324,26 @@ class DatasheetLibrary:
     def summary_markdown(self, entry: DatasheetEntry) -> str | None:
         path = self.dir / f"{entry.id}.summary.md"
         return path.read_text(encoding="utf-8") if path.is_file() else None
+
+    # --- found links ---------------------------------------------------------------------------
+
+    def _book(self) -> CandidateBook:
+        path = self.dir / "candidates.json"
+        if not path.is_file():
+            return CandidateBook()
+        try:
+            return CandidateBook.model_validate_json(path.read_text(encoding="utf-8"))
+        except ValueError:
+            return CandidateBook()
+
+    def searches(self) -> dict[str, PartSearch]:
+        return self._book().parts
+
+    def save_search(self, key: str, search: PartSearch) -> None:
+        with self._lock:
+            book = self._book()
+            book.parts[key] = search
+            atomic_write(self.dir / "candidates.json", book.model_dump_json(indent=2) + "\n")
 
     def save_ai_run(self, record: dict) -> Path:
         path = self.dir / "ai_runs" / f"{record['id']}.json"

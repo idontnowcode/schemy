@@ -32,18 +32,28 @@ test("upload a datasheet, import its summary and see the checks", async ({ page 
 
   // Datasheet tab: U1 is listed (passives are hidden), its KiCad symbol has a link.
   await page.getByRole("tab", { name: "데이터시트" }).click();
-  const u1 = page.getByRole("row").filter({ hasText: "SN65HVD230DR" });
+  const parts = page.getByRole("table", { name: "부품별 데이터시트" });
+  const u1 = parts.getByRole("row").filter({ hasText: "SN65HVD230DR" });
   await expect(u1).toContainText("제조사·품번 확정");
   await expect(u1).toContainText("링크 있음 (받기 전)");
-  await expect(page.getByRole("button", { name: "링크로 받기 (1)" })).toBeEnabled();
-  await expect(page.getByRole("row").filter({ hasText: "C1" })).toHaveCount(0);
+  await expect(parts.getByRole("row").filter({ hasText: "C1" })).toHaveCount(0);
+  // Where to get it: the KiCad symbol link first, then TI's own address pattern. No search keys: the search is off.
+  const finder = page.getByLabel("데이터시트 찾기");
+  const where = finder.getByLabel("받을 곳: U1");
+  await expect(where.locator("option")).toHaveText([
+    "KiCad 링크: www.ti.com · SN65HVD230",
+    "제조사 사이트: www.ti.com · SN65HVD230DR",
+    "받지 않음",
+  ]);
+  await expect(finder.getByRole("button", { name: "선택한 곳에서 받기 (1)" })).toBeEnabled();
+  await expect(finder.getByRole("button", { name: "유통사에서 찾기 (Mouser·DigiKey)" })).toBeDisabled();
 
   // Upload the (test) PDF for U1.
   let chooser = page.waitForEvent("filechooser");
   await u1.getByRole("button", { name: "PDF 올리기" }).click();
   await (await chooser).setFiles(path.join(fixtures, "sn65hvd230-test.pdf"));
   await expect(page.getByText(/U1: sn65hvd230-test.pdf을\(를\) 저장했습니다 \(품번 확인됨\)/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "링크로 받기 (0)" })).toBeDisabled();
+  await expect(page.getByLabel("데이터시트 찾기")).toHaveCount(0); // nothing left to get
 
   // Import the summary Markdown: the checks appear.
   chooser = page.waitForEvent("filechooser");

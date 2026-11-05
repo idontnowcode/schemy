@@ -8,4 +8,5 @@ contextBridge.exposeInMainWorld("aics", {
   token: config?.token ?? null,
   platform: config?.platform ?? "unknown",
   openPath: (target: string): Promise<string> => ipcRenderer.invoke("aics:open-path", target),
+  openExternal: (url: string): Promise<string> => ipcRenderer.invoke("aics:open-external", url),
 });

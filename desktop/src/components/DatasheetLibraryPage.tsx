@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, errorText, openDatasheet } from "../api";
-import { datasheetLabel, formatTime } from "../format";
+import { datasheetSourceLabel, datasheetLabel, formatTime } from "../format";
 import type { DatasheetEntry } from "../types";
 import { Chip } from "./Chip";
 
@@ -82,7 +82,7 @@ export function DatasheetLibraryPage({ onError }: { onError(message: string | nu
                     <td>
                       <b>{e.original_name}</b>
                       <div className="muted small">
-                        {e.title ?? ""} {e.page_count ? `· ${e.page_count}쪽` : ""} · {e.source === "kicad_symbol" ? "심볼 링크" : "직접 올림"}
+                        {e.title ?? ""} {e.page_count ? `· ${e.page_count}쪽` : ""} · {datasheetSourceLabel(e.source)}
                       </div>
                     </td>
                     <td>

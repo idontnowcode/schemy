@@ -1,38 +1,53 @@
 """/api/datasheets (workspace library) and the per-board datasheet report and download job.
 
-Nothing here changes a circuit. The report compares each component with its datasheet summary;
-downloads only use links found in the board's own KiCad symbols, after the user confirmed them.
+Nothing here changes a circuit. The report compares each component with its datasheet summary — for
+the saved circuit or for a proposal before it is approved. Downloads only use links the app found
+for the board's parts (KiCad symbol link, the maker's address pattern, a distributor search answer),
+after the user confirmed them.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
 from pathlib import PurePosixPath
 from urllib.parse import unquote, urlparse
 
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
+from ai_engine import KeyStoreError
+from ai_engine.keystore import ENV_VARS
 from ai_engine.tasks import datasheet_prompt, pdf_prompt
 from circuit_core.datasheet_checks import check_component
 from circuit_core.datasheet_md import import_datasheet_markdown
+from circuit_core.datasheet_sources import (
+    DatasheetCandidate,
+    maker_candidate,
+    part_key,
+    search_term,
+    symbol_candidate,
+    url_part_name,
+)
 from circuit_core.datasheets import identity
 from circuit_core.models import Component
 from circuit_core.parts import CATEGORY_LABELS, category_of
 from kicad_adapter import SymbolLibrary, SymbolLibraryError
 
 from .config import Settings
-from .datasheets import MAX_DATASHEET_BYTES, DatasheetEntry, DatasheetError, DatasheetLibrary
+from .datasheet_search import KEY_NAMES, key_status
+from .datasheets import MAX_DATASHEET_BYTES, DatasheetEntry, DatasheetError, DatasheetLibrary, PartSearch
 from .errors import ApiError
 from .jobs import JobRunner
+from .proposals import ProposalStore
 from .schemas import (
     DatasheetFetchRequest,
     DatasheetLink,
     DatasheetReviewed,
+    DatasheetSearchRequest,
     DatasheetUpload,
+    DistributorKeyBody,
     MarkdownImportRequest,
 )
-from .store import ProjectStore
+from .store import ProjectStore, now_iso
 from .uploads import decode_upload
 
 BOARD = "/api/projects/{project_id}/boards/{board_id}"
@@ -80,7 +95,7 @@ class SymbolInfo:
 
 
 def build_datasheet_router(store: ProjectStore, jobs: JobRunner, library: DatasheetLibrary, settings: Settings,
-                           symbol_library) -> APIRouter:
+                           symbol_library, proposals: ProposalStore | None = None) -> APIRouter:
     router = APIRouter()
 
     def guarded(fn, *args, **kwargs):
@@ -151,14 +166,39 @@ def build_datasheet_router(store: ProjectStore, jobs: JobRunner, library: Datash
 
     # --- per board -----------------------------------------------------------------------------
 
-    def board_report(project_id: str, board_id: str) -> dict:
+    def board_circuit(project_id: str, board_id: str, proposal_id: str | None):
+        """The saved circuit, or a proposal's candidate circuit (checked before it is approved)."""
         store.get_board(project_id, board_id)
-        circuit, revision = store.get_circuit(project_id, board_id)
+        if proposal_id:
+            if proposals is None:
+                raise ApiError(404, "NOT_FOUND", "제안을 찾을 수 없습니다.")
+            p = proposals.get(project_id, board_id, proposal_id)
+            return proposals.candidate(p), p.base_revision
+        return store.get_circuit(project_id, board_id)
+
+    def candidates_for(comp: Component, url: str | None, searches: dict) -> list[DatasheetCandidate]:
+        """Distributor answers (exact part number) first, then the KiCad link, then the maker's pattern."""
+        out: list[DatasheetCandidate] = []
+        key = part_key(comp)
+        found = searches.get(key) if key else None
+        if found:
+            out += sorted(found.candidates, key=lambda c: c.source != "digikey")
+        for extra in (symbol_candidate(comp, url), maker_candidate(comp, url)):
+            if extra and all(extra.urls[0] not in c.urls for c in out):
+                out.append(extra)
+        return out
+
+    def board_report(project_id: str, board_id: str, proposal_id: str | None = None) -> dict:
+        circuit, revision = board_circuit(project_id, board_id, proposal_id)
         info = SymbolInfo(symbol_library())
+        keys = key_status(settings.keystore)
+        base = {"revision": revision, "proposal_id": proposal_id, "library_available": info.lib is not None,
+                "search": {"mouser": keys["mouser"]["configured"], "digikey": keys["digikey"]["configured"]}}
         if circuit is None:
-            return {"revision": None, "components": [], "fetchable": [], "library_available": info.lib is not None}
+            return {**base, "components": [], "fetchable": []}
+        searches = library.searches()
         rows = []
-        fetch: dict[str, list[Component]] = defaultdict(list)
+        fetch: dict[str, dict] = {}
         for comp in circuit.components:
             url = info.url(comp.symbol_id)
             ident = identity(comp, url)
@@ -169,9 +209,17 @@ def build_datasheet_router(store: ProjectStore, jobs: JobRunner, library: Datash
             if facts is not None:
                 checks = check_component(circuit, comp, facts, info.pins(comp.symbol_id),
                                          [info.description(comp.symbol_id)])
-            can_fetch = ident != "generic" and url is not None and entry is None
+            cands = candidates_for(comp, url, searches) if ident != "generic" else []
+            can_fetch = bool(cands) and entry is None
             if can_fetch:
-                fetch[url].append(comp)
+                for c in cands:
+                    item = fetch.setdefault(c.id, {**c.model_dump(mode="json"), "url": c.urls[0], "references": [],
+                                                   "symbol_ids": []})
+                    item["references"].append(comp.reference)
+                    if comp.symbol_id not in item["symbol_ids"]:
+                        item["symbol_ids"].append(comp.symbol_id)
+            key = part_key(comp)
+            searched = searches.get(key) if key and ident != "generic" else None
             rows.append({
                 "id": comp.id, "reference": comp.reference, "value": comp.value, "symbol_id": comp.symbol_id,
                 "footprint_id": comp.footprint_id, "manufacturer": comp.manufacturer,
@@ -179,52 +227,163 @@ def build_datasheet_router(store: ProjectStore, jobs: JobRunner, library: Datash
                 "category": category, "category_label": CATEGORY_LABELS.get(category or "", None),
                 "identity": ident, "relevant": ident != "generic" or entry is not None or category in RELEVANT_CATEGORIES,
                 "symbol_datasheet_url": url, "can_fetch": can_fetch,
+                "candidates": [c.id for c in cands] if entry is None else [],
+                "searched": {"at": searched.searched_at, "term": searched.term, "errors": searched.errors,
+                             "found": len(searched.candidates)} if searched else None,
                 "datasheet": entry_dict(library, entry) if entry else None, "checks": checks,
                 "notes": [n.model_dump() for n in facts.notes] if facts else [],
                 "uncertain": facts.uncertain if facts else [],
             })
-        fetchable = [{"url": url, "references": [c.reference for c in comps],
-                      "symbol_ids": sorted({c.symbol_id for c in comps})} for url, comps in fetch.items()]
-        return {"revision": revision, "components": rows, "fetchable": fetchable,
-                "library_available": info.lib is not None}
+        return {**base, "components": rows, "fetchable": list(fetch.values())}
 
     @router.get(BOARD + "/datasheets")
-    def board_datasheets(project_id: str, board_id: str):
-        return board_report(project_id, board_id)
+    def board_datasheets(project_id: str, board_id: str, proposal_id: str | None = None):
+        return board_report(project_id, board_id, proposal_id)
 
-    @router.post(BOARD + "/datasheets/fetch", status_code=202)
-    def fetch(project_id: str, board_id: str, body: DatasheetFetchRequest):
-        report = board_report(project_id, board_id)
-        allowed = {f["url"]: f for f in report["fetchable"]}
-        unknown = [u for u in body.urls if u not in allowed]
-        if unknown:
-            raise ApiError(422, "URL_NOT_FROM_LIBRARY", "이 보드의 KiCad 심볼에 없는 링크는 받지 않습니다: "
-                           + ", ".join(u[:80] for u in unknown[:3]),
-                           recovery_hint="데이터시트 탭을 새로 고친 뒤 다시 시도하세요. 다른 파일은 'PDF 올리기'로 넣으세요.")
-        circuit, _ = store.get_circuit(project_id, board_id)
-        by_ref = {c.reference: c for c in circuit.components}
-        targets = [(u, [by_ref[r] for r in allowed[u]["references"] if r in by_ref]) for u in dict.fromkeys(body.urls)]
+    @router.post(BOARD + "/datasheets/search", status_code=202)
+    def search(project_id: str, board_id: str, body: DatasheetSearchRequest):
+        """Ask the configured distributors for the parts that still have no datasheet. Only part numbers are sent."""
+        clients = settings.datasheet_searchers(settings.keystore)
+        if not clients:
+            raise ApiError(409, "NO_SEARCH_KEYS", "Mouser나 DigiKey 키가 없어 유통사 검색을 할 수 없습니다.",
+                           recovery_hint="설정 › 데이터시트 검색에서 Mouser API 키나 DigiKey Client ID·Secret을 저장하세요. "
+                                         "키 없이도 KiCad 심볼 링크와 제조사 주소 규칙으로 받을 수 있습니다.")
+        circuit, _ = board_circuit(project_id, board_id, body.proposal_id)
+        if circuit is None:
+            raise ApiError(409, "NO_CIRCUIT", "저장된 회로가 없습니다.")
+        info = SymbolInfo(symbol_library())
+        wanted = set(body.references or [])
+        terms: dict[str, tuple[str, list[str]]] = {}
+        for comp in circuit.components:
+            url = info.url(comp.symbol_id)
+            if identity(comp, url) == "generic" or (wanted and comp.reference not in wanted):
+                continue
+            if not wanted and library.find(comp, url) is not None:
+                continue
+            key, term = part_key(comp), search_term(comp)
+            if key and term:
+                terms.setdefault(key, (term, []))[1].append(comp.reference)
+        if not terms:
+            raise ApiError(409, "NOTHING_TO_SEARCH", "찾을 부품이 없습니다. 데이터시트가 없는 IC·제조사 품번이 있는 부품만 찾습니다.")
 
         def run(job_id: str) -> dict:
             results = []
-            for url, comps in targets:
-                refs = [c.reference for c in comps]
+            for key, (term, refs) in terms.items():
+                found, errors = [], []
+                for client in clients:
+                    try:
+                        found += client.search(term)
+                    except DatasheetError as exc:
+                        errors.append({"source": client.name, "error_code": exc.code, "message": exc.message,
+                                       "hint": exc.hint})
+                library.save_search(key, PartSearch(term=term, searched_at=now_iso(), candidates=found, errors=errors))
+                results.append({"term": term, "references": refs, "found": len(found), "errors": errors})
+            return {"results": results, "searched": len(results), "sources": [c.name for c in clients]}
+
+        return jobs.submit(project_id, "datasheet_search", run, board_id=board_id)
+
+    @router.post(BOARD + "/datasheets/fetch", status_code=202)
+    def fetch(project_id: str, board_id: str, body: DatasheetFetchRequest):
+        """Download the candidates the user confirmed. A candidate tries its URLs in order; with ``fallback`` a part
+        whose chosen candidate failed tries its other candidates. Only links this app found for the board are used."""
+        report = board_report(project_id, board_id, body.proposal_id)
+        allowed = {f["id"]: f for f in report["fetchable"]}
+        by_url = {f["url"]: f for f in report["fetchable"]}
+        chosen: list[dict] = []
+        unknown = []
+        for cid in body.candidates:
+            (chosen.append(allowed[cid]) if cid in allowed else unknown.append(cid))
+        for url in body.urls:
+            (chosen.append(by_url[url]) if url in by_url else unknown.append(url))
+        if unknown:
+            raise ApiError(422, "URL_NOT_FROM_LIBRARY", "이 보드에서 찾은 링크가 아니어서 받지 않습니다: "
+                           + ", ".join(u[:80] for u in unknown[:3]),
+                           recovery_hint="데이터시트 탭을 새로 고친 뒤 다시 시도하세요. 다른 파일은 'PDF 올리기'로 넣으세요.")
+        if not chosen:
+            raise ApiError(422, "NOTHING_CHOSEN", "받을 링크를 고르세요.")
+        circuit, _ = board_circuit(project_id, board_id, body.proposal_id)
+        by_ref = {c.reference: c for c in circuit.components}
+        rows = {r["reference"]: r for r in report["components"]}
+        chosen = list({c["id"]: c for c in chosen}.values())
+
+        def attempt(cand: dict, comps: list[Component]) -> tuple[dict | None, list[dict]]:
+            tried = []
+            for url in cand["urls"]:
                 try:
                     data, final_url = settings.datasheet_fetcher(url)
                     entry, created = library.add(
-                        data, original_name=_url_filename(final_url or url), source="kicad_symbol", url=url,
+                        data, original_name=_url_filename(final_url or url), source=cand["source"], url=url,
                         final_url=final_url,
-                        manufacturer=next((c.manufacturer for c in comps if c.manufacturer), None),
+                        manufacturer=next((c.manufacturer for c in comps if c.manufacturer), None)
+                        or cand.get("manufacturer"),
                         part_numbers=[c.manufacturer_part_number for c in comps if c.manufacturer_part_number],
-                        symbols=sorted({c.symbol_id for c in comps}))
-                    results.append({"url": url, "references": refs, "ok": True, "entry_id": entry.id,
-                                    "created": created, "identity": entry.identity.get("status")})
+                        symbols=sorted({c.symbol_id for c in comps}),
+                        expect=[url_part_name(url)] if cand["source"] == "maker_site" else ())
+                    return {"entry_id": entry.id, "created": created, "identity": entry.identity.get("status"),
+                            "url": url}, tried
                 except DatasheetError as exc:
-                    results.append({"url": url, "references": refs, "ok": False, "error_code": exc.code,
-                                    "message": exc.message, "hint": exc.hint})
+                    tried.append({"url": url, "error_code": exc.code, "message": exc.message, "hint": exc.hint})
+            return None, tried
+
+        def run(job_id: str) -> dict:
+            results, done_refs = [], set()
+            for cand in chosen:
+                refs = [r for r in cand["references"] if r not in done_refs]
+                if not refs:
+                    continue
+                comps = [by_ref[r] for r in refs if r in by_ref]
+                order = [cand]
+                if body.fallback:
+                    others = [allowed[i] for r in refs for i in rows[r]["candidates"] if i in allowed]
+                    order += [o for o in dict((o["id"], o) for o in others).values() if o["id"] != cand["id"]]
+                tried_all: list[dict] = []
+                got = None
+                for c in order:
+                    got, tried = attempt(c, comps)
+                    tried_all += [{**t, "source": c["source"], "label": c["label"]} for t in tried]
+                    if got:
+                        got.update(source=c["source"], label=c["label"])
+                        break
+                last = tried_all[-1] if tried_all else {}
+                results.append({"url": (got or {}).get("url") or cand["url"], "references": refs, "ok": got is not None,
+                                **(got or {"error_code": last.get("error_code"), "message": last.get("message"),
+                                           "hint": last.get("hint"), "product_url": cand.get("product_url")}),
+                                "tried": tried_all})
+                if got:
+                    done_refs.update(refs)
             return {"results": results, "downloaded": sum(r["ok"] for r in results),
                     "failed": sum(not r["ok"] for r in results)}
 
         return jobs.submit(project_id, "datasheet_fetch", run, board_id=board_id)
+
+    # --- distributor keys ----------------------------------------------------------------------
+
+    @router.get("/api/datasheet-search/keys")
+    def search_keys():
+        return key_status(settings.keystore)
+
+    @router.put("/api/datasheet-search/keys/{name}")
+    def put_search_key(name: str, body: DistributorKeyBody):
+        if name not in KEY_NAMES:
+            raise ApiError(404, "NOT_FOUND", f"'{name}'은(는) 지원하지 않는 검색입니다. mouser 또는 digikey입니다.")
+        values = [body.api_key] if name == "mouser" else [body.client_id, body.client_secret]
+        if not all(v and v.strip() for v in values):
+            raise ApiError(422, "KEY_REQUIRED", "Mouser는 API 키, DigiKey는 Client ID와 Client Secret이 모두 필요합니다.")
+        try:
+            for key_name, value in zip(KEY_NAMES[name], values, strict=True):
+                settings.keystore.set(key_name, value.strip())
+        except KeyStoreError as exc:
+            env = " / ".join(v for k in KEY_NAMES[name] for v in ENV_VARS[k])
+            raise ApiError(409, "KEYRING_UNAVAILABLE", str(exc),
+                           recovery_hint=f"환경 변수 {env}로 지정하고 앱을 다시 시작하세요.") from exc
+        return key_status(settings.keystore)
+
+    @router.delete("/api/datasheet-search/keys/{name}")
+    def delete_search_key(name: str):
+        if name not in KEY_NAMES:
+            raise ApiError(404, "NOT_FOUND", f"'{name}'은(는) 지원하지 않는 검색입니다.")
+        for key_name in KEY_NAMES[name]:
+            settings.keystore.delete(key_name)
+        return key_status(settings.keystore)
 
     return router

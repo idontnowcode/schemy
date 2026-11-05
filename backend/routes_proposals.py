@@ -16,7 +16,7 @@ from .datasheets import DatasheetLibrary
 from .errors import ApiError
 from .exports import _run_checks, run_export
 from .jobs import JobRunner
-from .proposals import ProposalStore, check_proposal, proposal_dict
+from .proposals import ProposalStore, check_proposal, datasheet_evidence, proposal_dict
 from .schemas import ProposalApprove, ProposalCreate, ProposalReject, QuickFixApply
 from .store import ProjectStore
 
@@ -71,6 +71,17 @@ def build_proposal_router(service: ProposalService) -> APIRouter:
     @router.get(BOARD + "/proposals")
     def list_proposals(project_id: str, board_id: str):
         return [proposal_dict(p) for p in proposals.list(project_id, board_id)]
+
+    @router.post(BOARD + "/proposals/{pid}/recheck-datasheets")
+    def recheck_datasheets(project_id: str, board_id: str, pid: str):
+        """Compare the proposal's circuit with the datasheet summaries again (after new datasheets or summaries).
+        Only the datasheet part of the evidence changes; KiCad checks are not re-run."""
+        p = proposals.get(project_id, board_id, pid)
+        if p.evidence is None:
+            raise ApiError(409, "NOT_CHECKED", "아직 검사 중인 제안입니다. 검사가 끝난 뒤 다시 시도하세요.")
+        rows = datasheet_evidence(proposals.candidate(p), service.datasheets, settings.symbol_dirs)
+        p = proposals.update(p, evidence=p.evidence.model_copy(update={"datasheets": rows}))
+        return proposal_dict(p)
 
     @router.post(BOARD + "/proposals", status_code=201)
     def create(project_id: str, board_id: str, body: ProposalCreate):

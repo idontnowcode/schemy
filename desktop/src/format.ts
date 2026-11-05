@@ -390,3 +390,16 @@ export const FINDING_SEVERITY: Record<string, { text: string; tone: "ok" | "warn
   info: { text: "참고", tone: "info" },
   ok: { text: "통과", tone: "ok" },
 };
+
+const DATASHEET_SOURCE: Record<string, string> = {
+  upload: "직접 올림",
+  kicad_symbol: "심볼 링크",
+  maker_site: "제조사 사이트",
+  mouser: "Mouser",
+  digikey: "DigiKey",
+};
+
+/** Where a stored datasheet came from. */
+export function datasheetSourceLabel(source: string): string {
+  return DATASHEET_SOURCE[source] ?? source;
+}

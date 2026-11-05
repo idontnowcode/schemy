@@ -36,11 +36,38 @@
 8. **결과의 지위.** 대조 결과는 "요약이 맞다면" 성립하는 자동 검사 근거다. 회로를 바꾸지 않고, 엔지니어링 검토 상태도 바꾸지 않는다. 요약에는 "원문 확인함" 표시가 따로 있다. 회로를 고치는 제안은 Phase 2a의 승인 경로로만 한다.
 9. **회로 작성에 쓰는 방법.** 응용 회로 메모와 외부 부품 목록을 facts로 보관한다. Phase 2b의 설계안은 이를 쪽 번호와 함께 인용하고, 제안 후 같은 대조를 다시 통과해야 한다.
 
+## 추가 결정 (2026-11): 데이터시트 찾기 — 제조사 주소 규칙, Mouser·DigiKey 검색, 제안 단계 연결
+
+사용자 요청: "데이터시트를 찾아서 읽을 수 있게 기능 개발은 안돼?" 제안한 1(AI 설계 뒤 받기·요약·대조 연결), 2(제조사 주소 규칙), 3(Mouser·DigiKey API 검색)을 사용자가 승인했다. AI 웹 검색(4)은 이번에도 넣지 않는다(위 "검토한 다른 안").
+
+1. **받을 곳(후보)은 세 종류이고, 모두 앱이 스스로 찾은 것이다.** 결정 2의 "심볼 링크만"을 넓힌다. 후보마다 시도할 주소 목록이 있고, 사용자가 부품마다 고른 뒤 확인해야 받는다. 서버는 그 보드(또는 제안)의 부품에 대해 앱이 찾은 후보만 받는다(`URL_NOT_FROM_LIBRARY`).
+   - **유통사 검색**(`mouser`, `digikey`): 사용자 키로 품번을 검색해 받은 `DataSheetUrl`/`DatasheetUrl`. 품번이 같거나(정확) 더 긴 주문 품번인 결과만 쓰고, 주소는 공개 이름의 http(s)만 받는다(IP·localhost·계정 정보가 든 주소는 버림). 결과는 `datasheets/candidates.json`에 품번별로 남겨 모든 보드가 함께 쓴다.
+   - **KiCad 심볼 링크**(`kicad_symbol`): 기존과 같다.
+   - **제조사 주소 규칙**(`maker_site`): 제조사(부품의 `manufacturer` 또는 심볼 링크의 호스트)가 TI·ST·onsemi·Diodes·Nexperia이면 품번으로 주소를 만든다. 품번 전체에서 제품군 핵심까지 줄여 가며 최대 4개(TI는 제품군 이름을 먼저, 그리고 끝 두 자리 전압 코드를 뗀 이름도: TPS7A0233 → TPS7A02).
+2. **주소 규칙의 근거는 KiCad 라이브러리 자체다.** KiCad 10.0.8 심볼 링크 19,970개에서 제조사마다 가장 많은 주소 형태를 골랐다(TI `lit/ds/symlink/<품번>.pdf` 2,739개·`lit/gpn/<품번>` 308개, ST `resource/en/datasheet/<품번>.pdf` 3,114개, Diodes `assets/Datasheets/<품번>.pdf` 283개, Nexperia `documents/data-sheet/<품번>.pdf` 368개, onsemi `pdf/datasheet/<품번>-d.pdf` 80개). 심볼 이름에 규칙을 적용해 심볼 자신의 링크가 나오는 비율은 TI 55%, ST 64%, Diodes 53%, Nexperia 34%, onsemi 27%였다. ADI(23%, 파일 이름이 품번이 아닌 경우가 많음)와 Microchip(문서 번호 주소)은 넣지 않았다.
+3. **규칙으로 만든 주소는 받은 뒤 한 번 더 확인한다.** 읽을 수 있는 PDF인데 부품 품번도, 주소가 가리킨 제품군 이름도 없으면 저장하지 않고(`DATASHEET_WRONG_PART`) 다음 주소로 넘어간다. 제품군 이름만 있으면 "제품군 확인됨"으로 저장한다(예: TPS7A0233 → tps7a02.pdf).
+4. **실패하면 다음 후보.** 고른 후보가 모두 실패하면 같은 부품의 다른 후보를 정해진 순서(DigiKey → Mouser → 심볼 링크 → 제조사 규칙)로 시도한다. 확인 창에 시도할 수 있는 호스트를 모두 보여 준다. 끝내 실패하면 제품 페이지나 마지막 주소를 **브라우저에서 열기**(데스크톱 앱은 `https://`만 시스템 브라우저로 연다)와 "PDF 올리기"를 안내한다. 사이트의 봇 차단을 우회하지 않는다(브라우저인 척하는 User-Agent를 쓰지 않음).
+5. **유통사 키.** OS 보안 저장소에 `mouser`, `digikey-id`, `digikey-secret` 이름으로 저장하거나 환경 변수 `MOUSER_API_KEY`, `DIGIKEY_CLIENT_ID`, `DIGIKEY_CLIENT_SECRET`을 쓴다. API는 키 값을 돌려주지 않는다. 검색할 때 보내는 것은 품번뿐이고, 보내기 전에 품번 목록을 보여 주고 확인을 받는다.
+   - Mouser: `POST https://api.mouser.com/api/v1/search/partnumber?apiKey=…`, 본문 `{"SearchByPartRequest": {"mouserPartNumber": 품번, "partSearchOptions": "None"}}`, 응답 `SearchResults.Parts[]`의 `ManufacturerPartNumber`·`DataSheetUrl`·`ProductDetailUrl`·`LifecycleStatus`. 공식 Swagger(`api.mouser.com/api/docs/v1`)로 확인했다. 명세에 오류 코드가 없어 잘못된 키는 오류 문구로 구분한다.
+   - DigiKey: `POST https://api.digikey.com/v1/oauth2/token`(client_credentials, 토큰 10분, 재사용) → `POST https://api.digikey.com/products/v4/search/keyword`(헤더 `X-DIGIKEY-Client-Id`, `Authorization: Bearer`; 본문 `{"Keywords": 품번, "Limit": 10}`), 응답 `ExactMatches`·`Products`의 `ManufacturerProductNumber`·`DatasheetUrl`·`ProductUrl`·`ProductStatus.Status`. 개발자 포털의 공식 명세와 OAuth 문서로 확인했다.
+6. **제안 단계에 연결한다(1번).** 「제안」 탭의 검사 결과에 같은 "데이터시트 찾기"가 나온다. 제안의 후보 회로로 부품을 고르고(`GET …/datasheets?proposal_id=`), 받은 뒤 요약이 없으면 **AI로 요약**(보낼 파일·받는 곳 확인)을 하고, **데이터시트 대조 다시 하기**(`POST …/proposals/{id}/recheck-datasheets`)로 증거의 데이터시트 부분만 다시 계산한다. KiCad 검사는 다시 돌리지 않는다. 승인 전에 AI 설계가 데이터시트와 맞는지 볼 수 있다.
+
+검증:
+- `tests/test_datasheet_search.py`: 품번 줄이기·제조사 이름 인식·주소 규칙·전압 코드, 외부 주소 제한, 가짜 Mouser·DigiKey 서버(요청 본문·헤더, 정확 품번 고르기, 잘못된 키, 토큰 재사용, 위험한 주소 버림), 검색 job → 후보 순서 → 고른 후보 실패 뒤 다음 후보로 받기, 모르는 후보 거부, 제안 기준 보고서와 다시 대조, 키 저장·삭제(값은 응답에 없음), 규칙 주소의 다른 문서 거부.
+- `tests/test_backend_datasheets.py`(갱신): 후보 목록, 실패 시 제조사 규칙까지 차례로 시도.
+- `desktop/e2e/datasheets.spec.ts`, `fixes.spec.ts`: 받을 곳 선택 상자(심볼 링크·TI 규칙), 키가 없으면 유통사 검색 꺼짐, 제안 화면의 데이터시트 찾기. `electron.spec.ts`: 브라우저 열기가 `https://` 외 주소를 거부.
+- **실제 사이트**: 앱의 다운로드 코드로 TI 규칙을 확인했다(2026-11-05). DRV8871DDAR → `lit/gpn/drv8871`(제품군 확인됨), SN65HVD230DR → 품번 확인됨, TPS7A0233PDBVR → `tps7a02`, TLV70033DDCR → `tlv700`(제품군 확인됨). ST 사이트는 이 환경에서 정직한 User-Agent의 자동 요청에 응답하지 않았다(빈 응답). onsemi·Diodes·Nexperia는 이 환경에서 접속할 수 없어 받아 보지 않았다. Mouser·DigiKey는 키가 없어 실제 호출하지 않았다.
+
+출처:
+- Mouser API Swagger: https://api.mouser.com/api/docs/v1 (UI: https://api.mouser.com/api/docs/ui/index)
+- DigiKey Product Information v4 KeywordSearch: https://developer.digikey.com/products/product-information-v4/productsearch/keywordsearch
+- DigiKey OAuth: https://developer.digikey.com/documentation
+
 ## 검토한 다른 안
 
 | 안 | 판단 |
 |---|---|
-| DigiKey·Mouser API로 품번 검색 | 정확한 품번별 링크와 단종 정보를 얻지만 가입·키가 필요하다. 사용자가 이번 범위에서 제외했다. |
+| DigiKey·Mouser API로 품번 검색 | 처음에는 가입·키가 필요해 제외했다. 2026-11 사용자 승인으로 선택 기능으로 추가했다(위 추가 결정). |
 | AI가 웹에서 데이터시트를 찾기 | 다른 문서를 찾을 위험이 크고 확인 비용이 든다. 제외. |
 | PDF 표를 코드로 직접 파싱 | 데이터시트마다 표 형식이 달라 신뢰할 수 없다. 요약 MD + 코드 판정으로 대신한다. |
 | AI가 대조까지 판단 | 판단 근거를 재현할 수 없다. AI는 요약만 만들고 판정은 코드가 한다. |
@@ -54,7 +81,8 @@
 
 ## 남은 위험
 
-- **실제 제조사 사이트에서 받아 보지 않았다.** 이 환경에서는 차단되어 있다. 일부 사이트는 자동 다운로드를 막거나(봇 차단), 링크가 제품 페이지로 바뀌었을 수 있다. 이때는 실패 원인과 "PDF 올리기"를 안내한다.
+- **실제 사이트에서는 TI만 받아 보았다**(추가 결정의 검증 참고). 일부 사이트는 자동 다운로드를 막거나(ST는 이 환경에서 응답 없음), 링크가 제품 페이지로 바뀌었을 수 있다. 이때는 실패 원인, 브라우저에서 열기, "PDF 올리기"를 안내한다.
+- **Mouser·DigiKey는 실제로 호출하지 않았다.** 명세대로 만들고 가짜 서버로 시험했다. 유통사의 데이터시트 링크가 자동 다운로드를 막는 경우도 있을 수 있다(확인하지 못함).
 - **요약의 정확도.** 코파일럿·AI 요약은 틀릴 수 있다. 쪽 번호와 "원문 확인함" 표시로 사람이 대조하게 한다.
 - **전압 판단의 한계.** Net 이름에 전압이 없으면 판단하지 않는다. 전압 강하, 전원 순서, 신호 핀의 입력 전압 한계는 보지 않는다.
 - **패키지 자동 선택의 한계.** 핀 수와 풋프린트 이름이 같은 패키지가 여럿이면 고르지 않고 묻는다(현재는 풋프린트를 지정하는 방법만 있다).

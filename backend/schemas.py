@@ -207,8 +207,24 @@ class DatasheetLink(_Model):
 
 
 class DatasheetFetchRequest(_Model):
-    urls: list[str] = Field(min_length=1, max_length=200, description="Links the user confirmed. Only links that "
-                            "the board's KiCad symbols name are fetched.")
+    candidates: list[str] = Field(default_factory=list, max_length=200,
+                                  description="Candidate ids the user confirmed (from the board report).")
+    urls: list[str] = Field(default_factory=list, max_length=200,
+                            description="Or first URLs of candidates. Only links the app found for the board are used.")
+    proposal_id: str | None = Field(default=None, max_length=20)
+    fallback: bool = Field(default=True, description="If a part's chosen candidate fails, try its other candidates.")
+
+
+class DatasheetSearchRequest(_Model):
+    proposal_id: str | None = Field(default=None, max_length=20)
+    references: list[str] = Field(default_factory=list, max_length=200,
+                                  description="Only these parts (default: the specific parts with no datasheet).")
+
+
+class DistributorKeyBody(_Model):
+    api_key: str | None = Field(default=None, max_length=200)
+    client_id: str | None = Field(default=None, max_length=200)
+    client_secret: str | None = Field(default=None, max_length=200)
 
 
 class DatasheetReviewed(_Model):

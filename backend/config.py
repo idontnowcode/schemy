@@ -11,6 +11,7 @@ from ai_engine import ChatGptLogin, KeyStore, LlmProvider, make_provider
 from kicad_adapter import KiCadCli
 from kicad_adapter.symbols import default_symbol_dirs
 
+from .datasheet_search import searchers
 from .datasheets import Fetcher, fetch_pdf
 
 APP_VERSION = "0.1.0"
@@ -46,4 +47,6 @@ class Settings:
     ai_provider_factory: Callable[[str, str, str, float], LlmProvider] = make_provider
     """(provider, api_key, model, timeout_s) -> provider; tests inject a fake."""
     datasheet_fetcher: Fetcher = fetch_pdf
-    """url -> (pdf bytes, final url); tests inject a fake. Only links from the KiCad library are fetched."""
+    """url -> (pdf bytes, final url); tests inject a fake. Only links the app found for a board are fetched."""
+    datasheet_searchers: Callable[[KeyStore], list] = searchers
+    """keystore -> distributor search clients (Mouser, DigiKey) that have keys; tests point them at a fake server."""

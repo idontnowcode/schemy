@@ -36,6 +36,9 @@ test("floating inputs get a one-click fix as a follow-up proposal", async ({ pag
   await expect(panel).toBeVisible({ timeout: 120_000 });
   await expect(panel.getByLabel("조치: U1.2")).toHaveValue("0"); // the suggested pull-down
   await expect(panel.getByRole("option", { name: "10kΩ로 GND에 풀다운 (추천)" }).first()).toBeAttached();
+  // Before approval the proposal's parts can get their datasheets too (TI's DRV8871: symbol link and TI's pattern).
+  const finder = page.getByLabel("데이터시트 찾기");
+  await expect(finder.getByLabel("받을 곳: U1").locator("option", { hasText: "제조사 사이트: www.ti.com · DRV8871DDAR" })).toBeAttached();
   page.once("dialog", (d) => d.accept());
   await panel.getByRole("button", { name: "선택한 조치로 수정 제안 만들기 (2개)" }).click();
 

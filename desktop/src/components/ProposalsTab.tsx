@@ -18,6 +18,7 @@ import {
 } from "../format";
 import type { AiStatus, BoardReview, CircuitIR, ErcViolation, Job, Proposal, ProposalDiff, QuickFix, RevisionInputs } from "../types";
 import { Chip } from "./Chip";
+import { ProposalDatasheets } from "./DatasheetFinder";
 import { IssueList } from "./IssueList";
 import { TemplateEvidence } from "./TemplatesTab";
 
@@ -516,6 +517,10 @@ function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRe
                   </tbody>
                 </table>
               </>
+            )}
+            {(open || p.status === "approved") && (
+              <ProposalDatasheets projectId={projectId} boardId={boardId} proposalId={p.id} checkedAt={ev.checked_at} busy={busy}
+                aiReady={aiReady} onRechecked={() => onFixed(p.id)} />
             )}
             <Preview p={p} projectId={projectId} boardId={boardId} />
           </>

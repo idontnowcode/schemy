@@ -2,18 +2,19 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 import { api, errorText, fileToBase64, openDatasheet, waitForJob } from "../api";
 import {
+  datasheetSourceLabel,
   AI_SETUP_HINT,
   datasheetLabel,
   externalLabel,
   identityLabel,
   pinMapLabel,
-  providerLabel,
   rangeText,
   ratingsLabel,
   ROW_STATUS,
 } from "../format";
 import type { AiStatus, DatasheetComponentRow, DatasheetReport, DatasheetSummaryResult } from "../types";
 import { Chip } from "./Chip";
+import { confirmSummary, DatasheetFinder } from "./DatasheetFinder";
 
 interface Props {
   projectId: string;
@@ -74,37 +75,6 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
     }
   };
 
-  const fetchAll = () =>
-    run("데이터시트를 받는 중…", async () => {
-      const list = report.fetchable;
-      const ok = window.confirm(
-        `데이터시트 받기\n\nKiCad 심볼에 들어 있는 제조사 링크 ${list.length}개에서 PDF를 받습니다 (HTTPS).\n` +
-          list.map((f) => `· ${f.references.join(", ")}: ${f.url}`).join("\n") +
-          "\n\n보내는 정보는 없습니다. 링크 주소로 파일을 요청만 합니다. 계속할까요?",
-      );
-      if (!ok) return;
-      const job = await waitForJob((await api.fetchDatasheets(projectId, boardId, list.map((f) => f.url))).id);
-      if (job.status === "failed") {
-        setMessage(job.error ? `[${job.error.error_code}] ${job.error.message}` : "실패했습니다.");
-        return;
-      }
-      const results = job.result.results as {
-        references: string[];
-        ok: boolean;
-        message?: string;
-        hint?: string;
-        identity?: string;
-      }[];
-      const failed = results.filter((r) => !r.ok);
-      setMessage(
-        `${job.result.downloaded}개를 받았습니다.` +
-          (failed.length
-            ? ` 실패 ${failed.length}개: ` + failed.map((r) => `${r.references.join(",")} — ${r.message} ${r.hint ?? ""}`).join(" / ")
-            : ""),
-      );
-      await load();
-    });
-
   const choosePdf = (row: DatasheetComponentRow) => {
     target.current = row;
     pdfInput.current?.click();
@@ -150,12 +120,7 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
   const summarize = (row: DatasheetComponentRow) =>
     run("AI가 데이터시트를 요약하는 중… (1~2분 걸릴 수 있습니다)", async () => {
       const ds = row.datasheet!;
-      const ok = window.confirm(
-        `AI로 데이터시트 요약\n\n전송할 데이터: ${ds.original_name} (${(ds.bytes / 1024 / 1024).toFixed(1)} MB` +
-          `${ds.page_count ? `, ${ds.page_count}쪽` : ""})\n받는 곳: ${providerLabel(ai?.settings.provider)} (모델 ${ai?.settings.model})\n\n` +
-          "데이터시트는 공개 문서지만, 어떤 부품을 쓰는지는 전달됩니다. 요약은 원문과 대조한 뒤 '원문 확인함'을 눌러 주세요. 계속할까요?",
-      );
-      if (!ok) return;
+      if (!confirmSummary(ds, ai)) return;
       const job = await waitForJob((await api.summarizeDatasheet(projectId, boardId, ds.id)).id, undefined, 1500);
       if (job.status === "failed") {
         setMessage(job.error ? `[${job.error.error_code}] ${job.error.message}` : "실패했습니다.");
@@ -189,9 +154,6 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
           데이터시트 <b>요약 MD</b>가 필요합니다. 코파일럿에 프롬프트와 PDF를 주고 만든 요약을 가져오거나, AI 기능을 켜고 「AI로 요약」을 쓰세요.
         </p>
         <div className="toolbar">
-          <button onClick={fetchAll} disabled={report.fetchable.length === 0 || busy !== null}>
-            링크로 받기 ({report.fetchable.length})
-          </button>
           <button className="ghost" onClick={copyPrompt} disabled={busy !== null}>
             코파일럿 프롬프트 복사
           </button>
@@ -215,6 +177,7 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
             {message}
           </p>
         )}
+        <DatasheetFinder projectId={projectId} boardId={boardId} report={report} disabled={busy !== null} onChanged={load} />
         <input ref={pdfInput} type="file" accept=".pdf,application/pdf" hidden onChange={onPdf} aria-label="데이터시트 PDF 파일" />
         <input ref={mdInput} type="file" accept=".md,.markdown,.txt,text/markdown" hidden onChange={onMd} aria-label="요약 MD 파일" />
       </div>
@@ -227,7 +190,7 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
             데이터시트를 찾을 부품이 없습니다. IC처럼 제조사가 정해진 부품이 없거나 제조사·품번이 비어 있습니다. 「모든 부품 보기」로 전체를 볼 수 있습니다.
           </p>
         ) : (
-          <table className="table">
+          <table className="table" aria-label="부품별 데이터시트">
             <thead>
               <tr>
                 <th>부품</th>
@@ -269,7 +232,7 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
   );
 }
 
-/** Why "링크로 받기" has nothing to fetch, in words the user can act on. */
+/** Why there is nothing to download, in words the user can act on. */
 export function fetchHint(report: DatasheetReport): string | null {
   if (report.fetchable.length > 0) return null;
   if (!report.library_available) {
@@ -279,11 +242,15 @@ export function fetchHint(report: DatasheetReport): string | null {
   if (sure.length === 0) {
     return "받을 부품이 없습니다. 제조사·품번이 있거나 부품 전용 KiCad 심볼(예: MCU, CAN 트랜시버, 레귤레이터)을 쓰는 부품이 없습니다. 저항·콘덴서·커넥터 같은 일반 부품은 자동으로 받지 않습니다.";
   }
-  const noLink = sure.filter((c) => !c.datasheet && !c.symbol_datasheet_url).map((c) => c.reference);
+  const noLink = sure.filter((c) => !c.datasheet && (c.candidates ?? []).length === 0).map((c) => c.reference);
   if (noLink.length > 0) {
-    return `${noLink.join(", ")}: KiCad 심볼에 데이터시트 링크가 없습니다. 제조사 사이트에서 받은 PDF를 「PDF 올리기」로 넣으세요.`;
+    return (
+      `${noLink.join(", ")}: 받을 곳을 찾지 못했습니다(KiCad 심볼 링크 없음, 주소 규칙을 아는 제조사 아님). ` +
+      (report.search?.mouser || report.search?.digikey ? "「유통사에서 찾기」를 누르거나 " : "설정 › 데이터시트 검색에 Mouser·DigiKey 키를 넣거나 ") +
+      "제조사 사이트에서 받은 PDF를 「PDF 올리기」로 넣으세요."
+    );
   }
-  return "링크가 있는 부품은 모두 데이터시트를 이미 받았습니다.";
+  return "받을 곳이 있는 부품은 모두 데이터시트를 이미 받았습니다.";
 }
 
 interface RowProps {
@@ -319,7 +286,7 @@ function ComponentRow({ row, open, busy, aiReady, onToggle, onPdf, onMd, onSumma
           <>
             <Chip text={datasheetLabel(ds.identity.status).text} tone={datasheetLabel(ds.identity.status).tone} />
             <div className="muted small">
-              {ds.source === "kicad_symbol" ? "심볼 링크" : "직접 올림"}
+              {datasheetSourceLabel(ds.source)}
               {ds.page_count ? ` · ${ds.page_count}쪽` : ""}
             </div>
           </>

@@ -103,6 +103,15 @@ function registerIpc(): void {
     if (resolved !== root && !resolved.startsWith(root + path.sep)) throw new Error("path is outside the workspace");
     return shell.openPath(resolved);
   });
+  // A datasheet page the app could not download: only https:// pages, opened in the user's browser.
+  ipcMain.handle("aics:open-external", async (event, target: unknown) => {
+    if (!fromOurPage(event.senderFrame?.url)) throw new Error("not allowed");
+    if (typeof target !== "string") throw new Error("invalid url");
+    const url = new URL(target);
+    if (url.protocol !== "https:" || url.username || url.password) throw new Error("only plain https:// links");
+    await shell.openExternal(url.toString());
+    return "";
+  });
 }
 
 function setContentSecurityPolicy(): void {

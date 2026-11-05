@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorText } from "../api";
 import { providerLabel } from "../format";
 import type { AiProvider, AiStatus, ChatGptLoginStatus, ClaudeLoginStatus, SystemInfo } from "../types";
+import { DatasheetSearchSettings } from "./DatasheetSearchSettings";
 
 export function SettingsPage({ system, onError }: { system: SystemInfo | null; onError(message: string | null): void }) {
   const [status, setStatus] = useState<AiStatus | null>(null);
@@ -374,6 +375,8 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
           </p>
         )}
       </div>
+
+      <DatasheetSearchSettings />
 
       {system && (
         <div className="card">

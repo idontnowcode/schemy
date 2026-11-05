@@ -413,6 +413,55 @@ export interface AiStatus {
 
 export type IdentityStatus = "matched" | "family" | "not_found" | "no_text";
 
+export type DatasheetSource = "upload" | "kicad_symbol" | "maker_site" | "mouser" | "digikey";
+
+/** One place to get a part's datasheet; its URLs are tried in order. */
+export interface DatasheetCandidate {
+  id: string;
+  source: Exclude<DatasheetSource, "upload">;
+  label: string;
+  urls: string[];
+  manufacturer: string | null;
+  part_number: string | null;
+  description: string | null;
+  product_url: string | null;
+  status: string | null;
+}
+
+export interface DatasheetFetchable extends DatasheetCandidate {
+  url: string;
+  references: string[];
+  symbol_ids: string[];
+}
+
+export interface DatasheetSearchError {
+  source: string;
+  error_code: string;
+  message: string;
+  hint: string | null;
+}
+
+export interface DatasheetFetchResult {
+  url: string;
+  references: string[];
+  ok: boolean;
+  entry_id?: string;
+  identity?: IdentityStatus;
+  source?: string;
+  label?: string;
+  error_code?: string;
+  message?: string;
+  hint?: string;
+  product_url?: string | null;
+  tried: { url: string; source: string; label: string; error_code: string; message: string }[];
+}
+
+export interface DatasheetSearchKeys {
+  mouser: { configured: boolean; source: string | null };
+  digikey: { configured: boolean; source: string | null };
+  keyring_available: boolean;
+}
+
 export interface DatasheetEntry {
   id: string;
   file: string;
@@ -421,7 +470,7 @@ export interface DatasheetEntry {
   bytes: number;
   page_count: number | null;
   title: string | null;
-  source: "upload" | "kicad_symbol";
+  source: DatasheetSource;
   urls: string[];
   final_url: string | null;
   added_at: string;
@@ -503,6 +552,9 @@ export interface DatasheetComponentRow {
   relevant: boolean;
   symbol_datasheet_url: string | null;
   can_fetch: boolean;
+  /** Candidate ids (see DatasheetReport.fetchable), best first; empty once a datasheet is stored. */
+  candidates: string[];
+  searched: { at: string; term: string; found: number; errors: DatasheetSearchError[] } | null;
   datasheet: DatasheetEntry | null;
   checks: DatasheetChecks | null;
   notes: { text: string; page: number | null }[];
@@ -511,9 +563,12 @@ export interface DatasheetComponentRow {
 
 export interface DatasheetReport {
   revision: number | null;
+  proposal_id: string | null;
   components: DatasheetComponentRow[];
-  fetchable: { url: string; references: string[]; symbol_ids: string[] }[];
+  fetchable: DatasheetFetchable[];
   library_available: boolean;
+  /** Distributor searches with keys. */
+  search: { mouser: boolean; digikey: boolean };
 }
 
 export interface DatasheetSummaryResult {

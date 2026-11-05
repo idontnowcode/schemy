@@ -19,6 +19,7 @@ import type {
   ClaudeLoginStatus,
   DatasheetEntry,
   DatasheetReport,
+  DatasheetSearchKeys,
   DatasheetSummaryResult,
   DesignPreview,
   EngineeringReview,
@@ -154,8 +155,18 @@ export const api = {
     ),
   suggest: (p: string, b: string) => request<Job>("POST", `${board(p, b)}/inventory-suggest`),
 
-  boardDatasheets: (p: string, b: string) => request<DatasheetReport>("GET", `${board(p, b)}/datasheets`),
-  fetchDatasheets: (p: string, b: string, urls: string[]) => request<Job>("POST", `${board(p, b)}/datasheets/fetch`, { urls }),
+  boardDatasheets: (p: string, b: string, proposalId?: string | null) =>
+    request<DatasheetReport>("GET", `${board(p, b)}/datasheets${proposalId ? `?proposal_id=${enc(proposalId)}` : ""}`),
+  fetchDatasheets: (p: string, b: string, candidates: string[], proposalId?: string | null) =>
+    request<Job>("POST", `${board(p, b)}/datasheets/fetch`, { candidates, proposal_id: proposalId ?? null, fallback: true }),
+  searchDatasheets: (p: string, b: string, proposalId?: string | null) =>
+    request<Job>("POST", `${board(p, b)}/datasheets/search`, { proposal_id: proposalId ?? null }),
+  recheckProposalDatasheets: (p: string, b: string, id: string) =>
+    request<Proposal>("POST", `${board(p, b)}/proposals/${enc(id)}/recheck-datasheets`),
+  datasheetSearchKeys: () => request<DatasheetSearchKeys>("GET", "/datasheet-search/keys"),
+  putDatasheetSearchKey: (name: "mouser" | "digikey", body: { api_key?: string; client_id?: string; client_secret?: string }) =>
+    request<DatasheetSearchKeys>("PUT", `/datasheet-search/keys/${name}`, body),
+  deleteDatasheetSearchKey: (name: "mouser" | "digikey") => request<DatasheetSearchKeys>("DELETE", `/datasheet-search/keys/${name}`),
   summarizeDatasheet: (p: string, b: string, id: string) =>
     request<Job>("POST", `${board(p, b)}/datasheets/${enc(id)}/summarize`),
   datasheets: () => request<{ entries: DatasheetEntry[]; dir: string }>("GET", "/datasheets"),
@@ -286,6 +297,14 @@ export function errorText(e: unknown): string {
 export function openDatasheet(entry: DatasheetEntry): void {
   if (desktop) void desktop.openPath(entry.path);
   else window.open(`/api/datasheets/${enc(entry.id)}/file`, "_blank", "noopener");
+}
+
+/** Open a web page (a datasheet link that could not be downloaded) in the system browser. */
+export function openLink(url: string): void {
+  if (!/^https?:\/\//i.test(url)) return;
+  const secure = url.replace(/^http:\/\//i, "https://");
+  if (desktop?.openExternal) void desktop.openExternal(secure);
+  else window.open(secure, "_blank", "noopener,noreferrer");
 }
 
 /** Fetch a file generated for a proposal's check (e.g. its SVG preview) with the API token. */

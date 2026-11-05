@@ -6,18 +6,24 @@ import type { DatasheetComponentRow, DatasheetReport } from "./types";
 const row = (over: Partial<DatasheetComponentRow>): DatasheetComponentRow => ({
   id: "u1", reference: "U1", value: "X", symbol_id: "Lib:X", footprint_id: null, manufacturer: null,
   manufacturer_part_number: null, category: "ic", category_label: "IC", identity: "mpn", relevant: true,
-  symbol_datasheet_url: null, can_fetch: false, datasheet: null, checks: null, notes: [], uncertain: [], ...over,
+  symbol_datasheet_url: null, can_fetch: false, candidates: [], searched: null, datasheet: null, checks: null, notes: [],
+  uncertain: [], ...over,
 });
 const report = (components: DatasheetComponentRow[], over: Partial<DatasheetReport> = {}): DatasheetReport => ({
-  revision: 1, components, fetchable: [], library_available: true, ...over,
+  revision: 1, proposal_id: null, components, fetchable: [], library_available: true,
+  search: { mouser: false, digikey: false }, ...over,
 });
 
 describe("fetchHint", () => {
   it("explains why nothing can be fetched", () => {
-    expect(fetchHint(report([row({})], { fetchable: [{ url: "u", references: ["U1"], symbol_ids: [] }] }))).toBeNull();
+    const cand = { id: "ki-1", source: "kicad_symbol" as const, label: "KiCad 심볼 링크", urls: ["u"], manufacturer: null,
+      part_number: null, description: null, product_url: null, status: null };
+    expect(fetchHint(report([row({})], { fetchable: [{ ...cand, url: "u", references: ["U1"], symbol_ids: [] }] }))).toBeNull();
     expect(fetchHint(report([row({})], { library_available: false }))).toContain("심볼 라이브러리를 찾지 못해");
     expect(fetchHint(report([row({ identity: "generic" })]))).toContain("받을 부품이 없습니다");
-    expect(fetchHint(report([row({})]))).toContain("U1: KiCad 심볼에 데이터시트 링크가 없습니다");
+    expect(fetchHint(report([row({})]))).toContain("U1: 받을 곳을 찾지 못했습니다");
+    expect(fetchHint(report([row({})]))).toContain("Mouser·DigiKey 키를 넣거나");
+    expect(fetchHint(report([row({})], { search: { mouser: true, digikey: false } }))).toContain("「유통사에서 찾기」");
     expect(fetchHint(report([row({ symbol_datasheet_url: "u", datasheet: {} as never })]))).toContain("이미 받았습니다");
   });
 });
