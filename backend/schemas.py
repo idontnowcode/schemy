@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from circuit_core.guides import GuideDraft
+
 PROJECT_FILE_VERSION = 2
 """2: boards live in boards/<id>/ (version 1 kept one circuit at the project root)."""
 BOARD_FILE_VERSION = 1
@@ -280,3 +282,30 @@ class AiSettingsUpdate(_Model):
 
 class ApiKeyBody(_Model):
     api_key: str = Field(min_length=10, max_length=500)
+
+
+# --- design guide ----------------------------------------------------------------------------------
+
+class GuideCreate(_Model):
+    draft: GuideDraft
+    origin: Literal["engineer", "review", "ai_review", "feedback", "check"] = "engineer"
+    by: str = Field(default="", max_length=100)
+    adopt: bool = Field(default=False, description="Adopt at once (only for text a person wrote).")
+    ai_text: bool = Field(default=False, description="The text was drafted by the AI: saved as a candidate.")
+
+
+class GuideUpdate(_Model):
+    draft: GuideDraft
+    by: str = Field(default="", max_length=100)
+
+
+class GuideDecision(_Model):
+    status: Literal["candidate", "adopted", "retired"]
+    by: str = Field(min_length=1, max_length=100)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class GuideDraftRequest(_Model):
+    feedback: str = Field(min_length=3, max_length=4000, description="What the person said should be done next time.")
+    proposal_id: str | None = Field(default=None, max_length=20)
+    include_circuit: bool = Field(default=True, description="Send a summary of the circuit as context.")

@@ -910,3 +910,77 @@ export interface AgentRun {
   history: { at: string; from: string; to: string; reason: string }[];
   log?: AgentLogEntry[];
 }
+
+// --- design guide ------------------------------------------------------------------------------
+
+export type GuideStatus = "candidate" | "adopted" | "retired";
+export type GuideStrength = "must" | "should" | "consider";
+export type GuideOrigin = "seed" | "engineer" | "review" | "ai_review" | "feedback" | "check";
+
+export interface GuideSource {
+  kind: "datasheet" | "app_note" | "standard" | "practice" | "app_rule" | "review" | "feedback" | "ai";
+  text: string;
+  url?: string | null;
+  ref?: Record<string, string | number>;
+}
+
+export interface GuideDraft {
+  title: string;
+  rule: string;
+  why: string;
+  strength: GuideStrength;
+  topics: string[];
+  scope: { parts: string[]; keywords: string[] };
+  check: string | null;
+  sources: GuideSource[];
+}
+
+export interface GuideEntry extends GuideDraft {
+  id: string;
+  status: GuideStatus;
+  origin: GuideOrigin;
+  version: number;
+  created_at: string;
+  created_by: string;
+  updated_at: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  note: string | null;
+  stats?: { cited?: number; flagged?: number; issue?: number };
+}
+
+export interface GuideListing {
+  entries: GuideEntry[];
+  topics: Record<string, string>;
+  checks: Record<string, string>;
+  strengths: Record<GuideStrength, string>;
+}
+
+export interface GuideEvent {
+  at: string;
+  event: string;
+  id: string | null;
+  by: string;
+  [key: string]: unknown;
+}
+
+export interface GuideChecklistItem {
+  id: string;
+  title: string;
+  rule: string;
+  strength: GuideStrength;
+  topics: string[];
+  check: string | null;
+  status: "fail" | "warn" | "ok" | "manual";
+  notes: string[];
+  origin: GuideOrigin;
+  ai_applied: boolean;
+}
+
+export interface GuideChecklist {
+  revision: number | null;
+  proposal_id?: string | null;
+  items: GuideChecklistItem[];
+  candidates: number;
+  ai_applied: string[];
+}

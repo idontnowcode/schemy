@@ -1013,3 +1013,67 @@ label.block {
 .proposal-datasheets {
   margin-top: 8px;
 }
+
+.guide-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.guide-card {
+  border-bottom: 1px solid var(--border, #2a2f36);
+  padding: 10px 0;
+}
+
+.guide-card.guide-retired {
+  opacity: 0.6;
+}
+
+.guide-card p {
+  margin: 4px 0;
+}
+
+.guide-editor {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.guide-editor label {
+  display: grid;
+  gap: 2px;
+}
+
+.guide-editor .toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.guide-editor textarea,
+.guide-feedback textarea {
+  width: 100%;
+}
+
+.guide-editor fieldset.topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  border: 1px solid var(--border, #2a2f36);
+  padding: 6px 8px;
+}
+
+.guide-editor fieldset.topics label {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.guide-checklist {
+  border-left: 3px solid var(--accent, #4c8dff);
+  padding: 8px 12px;
+  margin: 10px 0;
+}
+
+.guide-feedback {
+  margin-top: 8px;
+}

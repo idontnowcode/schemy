@@ -15,6 +15,8 @@ from ai_engine import AiError
 from ai_engine.design import DesignInput, circuit_text, design_circuit, review_circuit, structure_requirements
 from circuit_core import CircuitIR, validate_circuit
 from circuit_core.diff import diff_circuits
+from circuit_core.guides import prompt_text as guide_prompt_text
+from circuit_core.guides import relevant
 from circuit_core.patch import ReplaceCircuit
 from kicad_adapter import SymbolLibrary, SymbolLibraryError
 
@@ -24,6 +26,7 @@ from .datasheets import DatasheetLibrary
 from .design_resolver import PartResolver, facts_notes, symbol_index
 from .errors import ApiError
 from .exports import read_manifest
+from .guides import GuideLibrary
 from .inventory_store import InventoryStore
 from .jobs import JobRunner
 from .proposals import Proposal, datasheet_evidence
@@ -128,7 +131,7 @@ def _pins_of(lib: SymbolLibrary):
 
 
 def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalService, inventory: InventoryStore,
-                        datasheets: DatasheetLibrary, settings: Settings) -> APIRouter:
+                        datasheets: DatasheetLibrary, settings: Settings, guides: GuideLibrary | None = None) -> APIRouter:
     router = APIRouter()
     access = AiAccess(store, settings)
     proposals = service.proposals
@@ -160,12 +163,27 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
     def save_run(project_id, board_id, record):
         store.save_ai_run(project_id, board_id, record)
 
-    def run_review(cfg, provider, project_id: str, circuit: CircuitIR, evidence: str) -> tuple[dict, object]:
+    def applicable_guides(project_id: str, circuit: CircuitIR | None, extra: str = "") -> list:
+        """Adopted design-guide entries for this circuit and requirements (empty without a guide library)."""
+        if guides is None:
+            return []
+        spec = store.get_requirements_spec(project_id)
+        text = " ".join([store.get_requirements(project_id), extra, json.dumps(spec, ensure_ascii=False) if spec else ""])
+        return relevant(guides.entries(), circuit=circuit, text=text)
+
+    def run_review(cfg, provider, project_id: str, circuit: CircuitIR, evidence: str,
+                   context: dict | None = None) -> tuple[dict, object]:
+        entries = applicable_guides(project_id, circuit)
         review, call = review_circuit(provider, requirements=store.get_requirements(project_id),
                                       spec=store.get_requirements_spec(project_id), circuit=circuit,
                                       evidence=evidence, datasheet_notes=datasheet_text(circuit),
+                                      guides=guide_prompt_text(entries), guide_ids={e.id for e in entries},
                                       max_output_tokens=min(cfg.max_output_tokens, 16384))
         review["created_at"] = now_iso()
+        review["guides_checked"] = [e.id for e in entries]
+        flagged = [f["guide"] for f in review["findings"] if f.get("guide")]
+        if guides is not None and flagged:
+            guides.record("flagged", flagged, by="AI 검토", **(context or {"project_id": project_id}))
         return review, call
 
     # --- requirements sheet -------------------------------------------------------------------
@@ -233,8 +251,10 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
         def run(job_id: str) -> dict:
             index = symbol_index(settings.symbol_dirs, settings.workspace / "cache" / "symbol_index.json")
             resolver = PartResolver(lib, index, inventory.get() if use_inventory else None, datasheets)
+            entries = applicable_guides(project_id, base, instructions or "")
             inp = DesignInput(requirements=text, spec=spec, board_name=board.name, instructions=instructions,
-                              previous=circuit_text(base) if base else None, findings=findings, inventory=rows)
+                              previous=circuit_text(base) if base else None, findings=findings, inventory=rows,
+                              guides=guide_prompt_text(entries))
             record = run_record(job_id, source, cfg, {"requirements_chars": len(text), "spec": spec is not None,
                                                       "inventory_rows": len(rows), "revising": parent,
                                                       "findings": len(findings or [])})
@@ -271,13 +291,22 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                                  "source": f.get("source", "ai")} for f in findings or []],
                   "instructions": instructions,
                   "diff_from_parent": diff_circuits(base, result.circuit) if base is not None else None}
+            offered = [e.id for e in entries]
+            said = [str(x).strip() for x in [*(plan.get("guides_applied") or []),
+                                              *(result.connections.get("guides_applied") or [])]]
+            ai["guides"] = {"offered": offered, "applied": [g for g in dict.fromkeys(said) if g in offered]}
             title = str(plan.get("title") or "AI 설계안")[:150]
             p = proposals.create(project_id, board_id, title=title, ops=[ReplaceCircuit(circuit=result.circuit)],
                                  source=source, rationale=ai["summary"][:20_000], ai=ai)
+            if guides is not None and ai["guides"]["applied"]:
+                guides.record("cited", ai["guides"]["applied"], by="AI 설계", project_id=project_id, board_id=board_id,
+                              proposal_id=p.id)
             p = service.check_now(p)
             if review:
                 try:
-                    findings_out, call = run_review(cfg, provider, project_id, result.circuit, proposal_evidence_text(p))
+                    findings_out, call = run_review(cfg, provider, project_id, result.circuit, proposal_evidence_text(p),
+                                                    {"project_id": project_id, "board_id": board_id,
+                                                     "proposal_id": p.id})
                     record.setdefault("usage", []).append(call.usage)
                     p = proposals.update(p, ai={**(p.ai or {}), "review": findings_out})
                 except AiError as exc:
@@ -381,7 +410,9 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             record = run_record(job_id, "ai_review", cfg, {"proposal": body.proposal_id, "revision": revision,
                                                            "components": len(circuit.components)})
             try:
-                result, call = run_review(cfg, provider, project_id, circuit, evidence)
+                result, call = run_review(cfg, provider, project_id, circuit, evidence,
+                                          {"project_id": project_id, "board_id": board_id,
+                                           **({"proposal_id": body.proposal_id} if body.proposal_id else {})})
             except AiError as exc:
                 record.update(status="failed", error={"code": exc.code, "message": exc.message})
                 save_run(project_id, board_id, record)

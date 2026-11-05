@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, errorText } from "./api";
 import { DatasheetLibraryPage } from "./components/DatasheetLibraryPage";
+import { GuidesPage } from "./components/Guides";
 import { InventoryPage } from "./components/InventoryPage";
 import { isTab, ProjectView, type TabId } from "./components/ProjectView";
 import { SettingsPage } from "./components/SettingsPage";
@@ -133,6 +134,8 @@ export function App() {
           <InventoryPage onError={setError} />
         ) : view === "datasheets" ? (
           <DatasheetLibraryPage onError={setError} />
+        ) : view === "guides" ? (
+          <GuidesPage onError={setError} />
         ) : view === "settings" ? (
           <SettingsPage system={system} onError={setError} />
         ) : current && currentBoard ? (

@@ -4,6 +4,7 @@ import { api, errorText } from "../api";
 import { formatTime, originLabel, reviewLabel } from "../format";
 import type { BoardReviewStatus, ChecklistSuggestion, CircuitIR, EngineeringReview, ReviewCheckItem } from "../types";
 import { Chip } from "./Chip";
+import { GuideChecklistPanel } from "./Guides";
 import { TechnicalReviewCard } from "./TechnicalReviewCard";
 
 interface Props {
@@ -42,6 +43,11 @@ export function ReviewTab({ projectId, boardId, circuit, revision, onChanged, on
   const [message, setMessage] = useState<string | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [aiReady, setAiReady] = useState(false);
+
+  useEffect(() => {
+    api.aiStatus().then((a) => setAiReady(Boolean(a.settings.enabled && a.key.configured))).catch(() => setAiReady(false));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -118,6 +124,9 @@ export function ReviewTab({ projectId, boardId, circuit, revision, onChanged, on
     <div className="requirements-layout">
       <div className="panel">
         <TechnicalReviewCard projectId={projectId} boardId={boardId} revision={revision} onOpenProposal={onOpenProposal} />
+        <div className="card">
+          <GuideChecklistPanel projectId={projectId} boardId={boardId} refreshKey={revision} aiReady={aiReady} />
+        </div>
         <div className="toolbar">
           <Chip label="엔지니어링 검토" text={board.text} tone={board.tone} />
           <span className="muted small">revision {revision}</span>

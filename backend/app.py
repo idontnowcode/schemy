@@ -24,6 +24,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from circuit_core import CircuitIR, Severity, validate_circuit
 from circuit_core.export import BOM_COLUMNS, bom_rows, circuit_markdown
+from circuit_core.guides import prompt_text as guide_prompt_text
+from circuit_core.guides import relevant
 from kicad_adapter import SymbolLibrary, SymbolLibraryError, check_against_library
 
 from .agent.routes import build_agent_router
@@ -34,6 +36,7 @@ from .datasheets import DatasheetLibrary
 from .design_resolver import symbol_index
 from .errors import ApiError, issue_dict, not_found
 from .exports import external_edit_error, output_path, outputs_status, run_export
+from .guides import GuideLibrary
 from .inventory_store import InventoryStore
 from .jobs import JobRunner
 from .proposals import ProposalStore
@@ -42,6 +45,7 @@ from .reviews import ReviewStore
 from .routes_ai import build_ai_router
 from .routes_datasheets import build_datasheet_router
 from .routes_design import build_design_router
+from .routes_guides import build_guide_router
 from .routes_inventory import build_inventory_router
 from .routes_layout import build_layout_router
 from .routes_proposals import ProposalService, build_proposal_router
@@ -100,6 +104,7 @@ def create_app(settings: Settings) -> FastAPI:
     jobs = JobRunner(store)
     inventory = InventoryStore(settings.workspace)
     datasheets = DatasheetLibrary(settings.workspace)
+    guides = GuideLibrary(settings.workspace)
     proposals = ProposalStore(store)
     checker = CircuitChecker(settings)
 
@@ -404,7 +409,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(build_layout_router(store, proposal_service, settings))
     reviews = ReviewStore(store)
     app.state.reviews = reviews
-    app.include_router(build_review_router(store, reviews))
+    app.include_router(build_review_router(store, reviews, guides))
 
     access = AiAccess(store, settings)
 
@@ -419,13 +424,18 @@ def create_app(settings: Settings) -> FastAPI:
         return [{"symbol_id": s.lib_id, "description": s.description, "pins": s.pins, "units": s.units}
                 for _, s in index.search([query], limit=10)]
 
+    def agent_guides(circuit, request: str) -> str:
+        return guide_prompt_text(relevant(guides.entries(), circuit=circuit, text=request))
+
     agent_runner = AgentRunner(store, jobs, proposals, proposal_service, provider_for=agent_provider,
-                               library=checker.library, kicad=settings.kicad_factory, search_symbols=search_symbols)
+                               library=checker.library, kicad=settings.kicad_factory, search_symbols=search_symbols,
+                               guides=agent_guides)
     app.state.agent_runner = agent_runner
     app.include_router(build_agent_router(agent_runner))
     app.include_router(build_datasheet_router(store, jobs, datasheets, settings, checker.library, proposals))
     app.include_router(build_proposal_router(proposal_service))
-    app.include_router(build_design_router(store, jobs, proposal_service, inventory, datasheets, settings))
+    app.include_router(build_design_router(store, jobs, proposal_service, inventory, datasheets, settings, guides))
+    app.include_router(build_guide_router(store, jobs, proposals, guides, settings))
 
     # --- desktop UI ---------------------------------------------------------------------
 

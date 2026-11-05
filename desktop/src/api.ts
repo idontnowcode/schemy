@@ -21,6 +21,13 @@ import type {
   DatasheetReport,
   DatasheetSearchKeys,
   DatasheetSummaryResult,
+  GuideChecklist,
+  GuideDraft,
+  GuideEntry,
+  GuideEvent,
+  GuideListing,
+  GuideOrigin,
+  GuideStatus,
   DesignPreview,
   EngineeringReview,
   Example,
@@ -163,6 +170,24 @@ export const api = {
     request<Job>("POST", `${board(p, b)}/datasheets/search`, { proposal_id: proposalId ?? null }),
   recheckProposalDatasheets: (p: string, b: string, id: string) =>
     request<Proposal>("POST", `${board(p, b)}/proposals/${enc(id)}/recheck-datasheets`),
+  guides: () => request<GuideListing>("GET", "/guides"),
+  createGuide: (body: { draft: GuideDraft; origin: GuideOrigin; by: string; adopt: boolean; ai_text?: boolean }) =>
+    request<GuideEntry>("POST", "/guides", body),
+  updateGuide: (id: string, draft: GuideDraft, by: string) => request<GuideEntry>("PUT", `/guides/${enc(id)}`, { draft, by }),
+  decideGuide: (id: string, status: GuideStatus, by: string, note?: string) =>
+    request<GuideEntry>("POST", `/guides/${enc(id)}/decision`, { status, by, note: note ?? null }),
+  deleteGuide: (id: string) => request<null>("DELETE", `/guides/${enc(id)}`),
+  guideHistory: (id: string) => request<{ events: GuideEvent[] }>("GET", `/guides/${enc(id)}/history`),
+  guidesHistory: (limit = 50) => request<{ events: GuideEvent[] }>("GET", `/guides-history?limit=${limit}`),
+  guidesMarkdown: async (): Promise<string> => {
+    const res = await fetch("/api/guides-export.md", { headers: authHeaders() });
+    if (!res.ok) throw new ApiError(res.status, toErrorBody(await res.text(), res.status));
+    return res.text();
+  },
+  boardGuides: (p: string, b: string, proposalId?: string | null) =>
+    request<GuideChecklist>("GET", `${board(p, b)}/guides${proposalId ? `?proposal_id=${enc(proposalId)}` : ""}`),
+  draftGuide: (p: string, b: string, feedback: string, proposalId?: string | null) =>
+    request<Job>("POST", `${board(p, b)}/guides/draft`, { feedback, proposal_id: proposalId ?? null, include_circuit: true }),
   datasheetSearchKeys: () => request<DatasheetSearchKeys>("GET", "/datasheet-search/keys"),
   putDatasheetSearchKey: (name: "mouser" | "digikey", body: { api_key?: string; client_id?: string; client_secret?: string }) =>
     request<DatasheetSearchKeys>("PUT", `/datasheet-search/keys/${name}`, body),

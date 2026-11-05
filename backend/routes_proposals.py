@@ -33,6 +33,22 @@ def parse_ops(raw: list) -> list:
                        f"{err['msg']}") from exc
 
 
+def pin_types_for(circuit: CircuitIR, symbol_dirs) -> dict[tuple[str, str], str]:
+    """Electrical type of every pin, from the KiCad library (empty when the library is not there)."""
+    lib = SymbolLibrary(symbol_dirs) if symbol_dirs else None
+    out: dict[tuple[str, str], str] = {}
+    for comp in circuit.components:
+        try:
+            sym = lib.get(comp.symbol_id) if lib else None
+        except SymbolLibraryError:
+            sym = None
+        for p in comp.pins:
+            lp = sym.pin(p.number) if sym else None
+            if lp is not None:
+                out[(comp.id, p.number)] = lp.electrical_type
+    return out
+
+
 class ProposalService:
     """Creating a proposal always starts its isolated check; the AI routes use this too."""
 
@@ -92,18 +108,7 @@ def build_proposal_router(service: ProposalService) -> APIRouter:
     # --- fixes that need no AI ----------------------------------------------------------------
 
     def pin_types(circuit: CircuitIR) -> dict[tuple[str, str], str]:
-        lib = SymbolLibrary(settings.symbol_dirs) if settings.symbol_dirs else None
-        out: dict[tuple[str, str], str] = {}
-        for comp in circuit.components:
-            try:
-                sym = lib.get(comp.symbol_id) if lib else None
-            except SymbolLibraryError:
-                sym = None
-            for p in comp.pins:
-                lp = sym.pin(p.number) if sym else None
-                if lp is not None:
-                    out[(comp.id, p.number)] = lp.electrical_type
-        return out
+        return pin_types_for(circuit, settings.symbol_dirs)
 
     def fix_target(project_id: str, board_id: str, proposal_id: str | None):
         if proposal_id is None:

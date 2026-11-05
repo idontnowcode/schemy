@@ -27,6 +27,8 @@ from pydantic import ValidationError
 
 from circuit_core import CircuitIR, validate_circuit
 from circuit_core.export import natural_key
+from circuit_core.guides import CHECKS as _GUIDE_CHECKS
+from circuit_core.guides import TOPICS as _GUIDE_TOPICS
 from circuit_core.models import Component, Note
 from circuit_core.templates import TEMPLATES, PinsOf, TemplateError, catalog_text, instantiate, template_sources
 
@@ -35,6 +37,8 @@ from .providers import AiError, LlmProvider, LlmResult
 CATEGORIES = ["resistor", "capacitor", "capacitor_polarized", "inductor", "led", "diode", "fuse", "connector", "ic",
               "transistor", "crystal", "switch", "other"]
 MAX_PARTS = 60
+GUIDE_TOPICS = list(_GUIDE_TOPICS)
+GUIDE_CHECKS = list(_GUIDE_CHECKS)
 
 _STR = {"type": "string"}
 _KO = {"type": "string", "description": "한국어로"}
@@ -91,6 +95,7 @@ PLAN_SCHEMA = {
                                                       "required": ["name", "value"]}},
                 "why": _KO,
             }, "required": ["id", "params"]}},
+        "guides_applied": {"type": "array", "items": _STR, "description": "따른 설계 지침 id (예: G-PWR-02)"},
     },
     "required": ["title", "summary", "assumptions", "questions", "parts"],
 }
@@ -118,6 +123,7 @@ CONNECT_SCHEMA = {
             "voltage": {"type": "number", "description": "volts; 0 when the net name already says it"},
             "load_ma": {"type": "number", "description": "mA the loads draw from this net; 0 when unknown"},
         }, "required": ["net", "voltage", "load_ma"]}},
+        "guides_applied": {"type": "array", "items": _STR, "description": "연결에서 따른 설계 지침 id"},
     },
     "required": ["nets", "no_connect"],
 }
@@ -129,9 +135,25 @@ REVIEW_SCHEMA = {
         "findings": {"type": "array", "items": {"type": "object", "properties": {
             "severity": {"type": "string", "enum": ["error", "warning", "info"]},
             "title": _KO, "detail": _KO, "references": _STRS, "suggestion": _KO,
+            "guide": {"type": "string", "description": "지키지 않은 설계 지침 id (해당할 때만, 예: G-MCU-02)"},
         }, "required": ["severity", "title", "detail"]}},
     },
     "required": ["summary", "findings"],
+}
+
+GUIDE_DRAFT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string", "description": "지침 제목, 한국어로, 40자 이내의 명령문 (예: 모터 전원에 벌크 콘덴서)"},
+        "rule": {"type": "string", "description": "무엇을 해야 하는지, 한국어로, 구체적인 값·식 포함"},
+        "why": {"type": "string", "description": "이유, 한국어로"},
+        "strength": {"type": "string", "enum": ["must", "should", "consider"]},
+        "topics": {"type": "array", "items": {"type": "string", "enum": GUIDE_TOPICS}},
+        "parts": {"type": "array", "items": _STR, "description": "특정 부품에만 해당하면 품번·심볼의 일부 (예: DRV88)"},
+        "keywords": {"type": "array", "items": _STR, "description": "요구사항에 나오면 이 지침을 적용할 단어"},
+        "check": {"type": "string", "enum": ["", *GUIDE_CHECKS], "description": "같은 내용을 보는 앱 자동 검사, 없으면 빈 문자열"},
+    },
+    "required": ["title", "rule", "why", "strength", "topics"],
 }
 
 
@@ -146,6 +168,8 @@ class DesignInput:
     findings: list[dict] | None = None
     """Review findings the new design must address."""
     inventory: list[dict] = field(default_factory=list)
+    guides: str = ""
+    """The adopted design-guide entries that apply (circuit_core.guides.prompt_text)."""
 
 
 @dataclass
@@ -234,6 +258,14 @@ def _requirements_block(inp: DesignInput) -> str:
     return "\n".join(parts)
 
 
+def _guides_block(text: str, step: str) -> str:
+    if not text.strip():
+        return ""
+    return (f"\n[설계 지침 — 이 조직이 채택한 규칙입니다. 「필수」는 반드시, 「권장」은 이유가 없으면 따르고, 「검토」는 판단하세요.\n"
+            f" {step}에서 따른 지침의 id를 guides_applied에 적고, 따르지 못한 「필수」·「권장」 지침은 이유를 assumptions(또는 notes)에 적으세요.]\n"
+            + text + "\n")
+
+
 def plan_prompt(inp: DesignInput) -> str:
     inv = ""
     if inp.inventory:
@@ -259,7 +291,7 @@ def plan_prompt(inp: DesignInput) -> str:
 - 템플릿의 부품은 parts에 다시 넣지 마세요. 템플릿에 없는 부품(커넥터, LED 등)만 parts에 넣으세요.
 - 맞는 템플릿이 없으면 templates를 비워 두세요.
 {catalog_text()}
-
+{_guides_block(inp.guides, "부품 선정")}
 {_requirements_block(inp)}{inv}
 
 정해진 JSON 형식으로만 답하세요."""
@@ -331,7 +363,7 @@ def connect_prompt(inp: DesignInput, plan: dict, parts: list[ResolvedPart],
 {_template_text(blocks or [])}
 [부품과 핀 표 — (번호=이름(전기적 종류))]
 {chr(10).join(_pin_table(p) for p in parts)}
-
+{_guides_block(inp.guides, "연결")}
 {_requirements_block(inp)}
 
 정해진 JSON 형식으로만 답하세요."""
@@ -655,7 +687,8 @@ def circuit_text(circuit: CircuitIR) -> str:
 
 
 def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | None, circuit: CircuitIR,
-                   evidence: str, datasheet_notes: str = "", max_output_tokens: int = 16384) -> tuple[dict, LlmResult]:
+                   evidence: str, datasheet_notes: str = "", guides: str = "", guide_ids: set[str] | None = None,
+                   max_output_tokens: int = 16384) -> tuple[dict, LlmResult]:
     prompt = f"""당신은 꼼꼼한 회로 설계 검토자입니다. 아래 회로가 요구사항을 만족하는지, 전기적으로 문제가 없는지 검토하세요.
 회로를 고치지 말고, 지적 사항(findings)만 적으세요.
 
@@ -679,6 +712,7 @@ def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | Non
 
 [데이터시트 요약]
 {datasheet_notes or '(없음)'}
+{('[설계 지침 — 이 조직이 채택한 규칙. 지키지 않은 것을 찾으면 그 finding의 guide에 지침 id를 적으세요]' + chr(10) + guides) if guides.strip() else ''}
 
 정해진 JSON 형식으로만 답하세요."""
     result = provider.generate(prompt=prompt, json_schema=REVIEW_SCHEMA, max_output_tokens=max_output_tokens)
@@ -692,7 +726,9 @@ def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | Non
         findings.append({"severity": severity, "title": str(f["title"]).strip()[:200],
                          "detail": str(f.get("detail", "")).strip()[:2000],
                          "references": [r for r in _strs(f.get("references")) if r.upper() in refs],
-                         "suggestion": (str(f.get("suggestion")).strip()[:1000] or None) if f.get("suggestion") else None})
+                         "suggestion": (str(f.get("suggestion")).strip()[:1000] or None) if f.get("suggestion") else None,
+                         "guide": (str(f.get("guide")).strip() if guide_ids and str(f.get("guide") or "").strip() in guide_ids
+                                   else None)})
     order = {"error": 0, "warning": 1, "info": 2}
     findings.sort(key=lambda f: order[f["severity"]])
     return {"summary": str(data.get("summary", "")).strip()[:2000], "findings": findings, "model": result.model}, result
@@ -723,3 +759,41 @@ def structure_requirements(provider: LlmProvider, text: str, *, max_output_token
         "open_questions": _strs(data.get("open_questions")),
     }
     return spec, result
+
+
+def draft_guide(provider: LlmProvider, *, feedback: str, context: str = "", existing: str = "",
+                max_output_tokens: int = 4096) -> tuple[dict, LlmResult]:
+    """Rephrase a person's feedback as one design-guide entry (a draft; a person edits and adopts it)."""
+    prompt = f"""당신은 회로 설계 팀의 설계 가이드를 정리하는 엔지니어입니다. 아래 피드백을, 다음에 같은 종류의 회로를 그릴 때
+적용할 설계 지침 하나로 정리하세요.
+
+[규칙]
+- 피드백에 있는 내용만 쓰세요. 없는 수치·데이터시트 쪽 번호·부품을 지어내지 마세요. 값이 필요하지만 피드백에 없으면 rule에 "데이터시트 값"처럼 쓰세요.
+- rule은 다음 설계에서 그대로 따를 수 있는 명령문으로 쓰세요. why에는 이유를 적으세요(피드백에 없으면 일반적인 이유를 짧게).
+- strength: 지키지 않으면 결함이면 must, 보통 따르면 should, 상황에 따라 판단하면 consider.
+- 특정 부품에만 해당하면 parts에 품번·심볼의 일부를, 특정 요구사항에서만 해당하면 keywords에 단어를 적으세요.
+- 이미 있는 지침과 같은 내용이면 title을 그 지침과 같게 하고 rule에 무엇이 다른지 적으세요.
+{LANGUAGE_RULE}
+
+[피드백]
+{feedback.strip()}
+
+[관련 회로 (참고)]
+{context or '(없음)'}
+
+[이미 있는 지침 (제목만)]
+{existing or '(없음)'}
+
+정해진 JSON 형식으로만 답하세요."""
+    result = provider.generate(prompt=prompt, json_schema=GUIDE_DRAFT_SCHEMA, max_output_tokens=max_output_tokens)
+    data = _json(result, "지침 초안")
+    topics = [t for t in _strs(data.get("topics")) if t in _GUIDE_TOPICS][:6] or ["general"]
+    check = str(data.get("check") or "").strip()
+    draft = {"title": str(data.get("title", "")).strip()[:120] or "제목 없음",
+             "rule": str(data.get("rule", "")).strip()[:2000] or feedback.strip()[:2000],
+             "why": str(data.get("why", "")).strip()[:2000],
+             "strength": data.get("strength") if data.get("strength") in ("must", "should", "consider") else "should",
+             "topics": topics,
+             "scope": {"parts": _strs(data.get("parts"))[:10], "keywords": _strs(data.get("keywords"))[:10]},
+             "check": check if check in _GUIDE_CHECKS else None}
+    return draft, result

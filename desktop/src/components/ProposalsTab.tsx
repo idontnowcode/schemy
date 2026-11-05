@@ -19,6 +19,7 @@ import {
 import type { AiStatus, BoardReview, CircuitIR, ErcViolation, Job, Proposal, ProposalDiff, QuickFix, RevisionInputs } from "../types";
 import { Chip } from "./Chip";
 import { ProposalDatasheets } from "./DatasheetFinder";
+import { emptyDraft, GuideChecklistPanel, savedName, saveFindingAsGuide } from "./Guides";
 import { IssueList } from "./IssueList";
 import { TemplateEvidence } from "./TemplatesTab";
 
@@ -127,10 +128,24 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
       }
     });
 
-  const reject = (p: Proposal, note: string) =>
+  const reject = (p: Proposal, note: string, toGuide = false) =>
     run("거부하는 중…", async () => {
       await api.rejectProposal(projectId, boardId, p.id, note.trim() || undefined);
-      setMessage("거부했습니다. 회로는 바뀌지 않았습니다.");
+      let saved = "";
+      if (toGuide && note.trim()) {
+        const e = await api.createGuide({
+          draft: emptyDraft({
+            title: note.trim().split(/[.\n]/)[0].slice(0, 60),
+            rule: note.trim(),
+            sources: [{ kind: "feedback", text: `제안 #${Number(p.id)} 「${p.title}」 거부 이유`, ref: { project_id: projectId, board_id: boardId, proposal_id: p.id } }],
+          }),
+          origin: "feedback",
+          by: savedName() || "사용자",
+          adopt: false,
+        });
+        saved = ` 거부 이유를 설계 지침 후보 ${e.id}로 남겼습니다(설계 가이드에서 다듬고 채택하세요).`;
+      }
+      setMessage("거부했습니다. 회로는 바뀌지 않았습니다." + saved);
       await load();
     });
 
@@ -220,7 +235,8 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
           )}
           {boardReview.summary && <p className="small">{boardReview.summary}</p>}
           <FindingList findings={boardReview.findings}
-            onUse={aiReady && busy === null ? (i) => openRevise("board", { findings: [i] }) : undefined} />
+            onUse={aiReady && busy === null ? (i) => openRevise("board", { findings: [i] }) : undefined}
+            guideRef={{ project_id: projectId, board_id: boardId }} guideLabel={`AI 검토 의견 (보드 revision ${boardReview.revision ?? ""})`} />
           {boardReview.revision !== undefined && boardReview.revision !== revision && (
             <p className="muted small">이 검토는 revision {boardReview.revision} 기준입니다. 회로가 바뀌었으면 다시 검토하세요.</p>
           )}
@@ -258,7 +274,7 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
               boardId={boardId}
               busy={busy !== null}
               onApprove={() => approve(detail)}
-              onReject={(note) => reject(detail, note)}
+              onReject={(note, toGuide) => reject(detail, note, toGuide)}
               onRecheck={() => recheck(detail)}
               aiReady={aiReady}
               onAiReview={() => reviewProposal(detail)}
@@ -358,7 +374,7 @@ interface DetailProps {
   boardId: string;
   busy: boolean;
   onApprove(): void;
-  onReject(note: string): void;
+  onReject(note: string, toGuide: boolean): void;
   onRecheck(): void;
   aiReady: boolean;
   onAiReview(): void;
@@ -379,6 +395,7 @@ function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRe
   onRevise, onFixed, revisionPanel }: DetailProps) {
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState("");
+  const [noteToGuide, setNoteToGuide] = useState(false);
   const st = proposalStatusLabel(p.status);
   const ev = p.evidence;
   const check = ev?.automated_check ? automatedLabel(ev.automated_check.status) : null;
@@ -413,8 +430,11 @@ function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRe
           {p.status === "checking" && <span className="small">KiCad로 검사하는 중…</span>}
         </div>
         {rejecting && (
-          <form className="toolbar" onSubmit={(e) => { e.preventDefault(); setRejecting(false); onReject(note); }}>
+          <form className="toolbar" onSubmit={(e) => { e.preventDefault(); setRejecting(false); onReject(note, noteToGuide); }}>
             <input aria-label="거부 이유" placeholder="거부 이유 (선택)" value={note} onChange={(e) => setNote(e.target.value)} style={{ minWidth: 260 }} />
+            <label className="small" title="다음 설계에서도 같은 실수를 하지 않도록 설계 가이드에 후보로 남깁니다">
+              <input type="checkbox" checked={noteToGuide} disabled={!note.trim()} onChange={(e) => setNoteToGuide(e.target.checked)} /> 설계 지침 후보로도 남기기
+            </label>
             <button type="submit" className="ghost">거부 확정</button>
             <button type="button" className="ghost" onClick={() => setRejecting(false)}>취소</button>
           </form>
@@ -522,6 +542,9 @@ function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRe
               <ProposalDatasheets projectId={projectId} boardId={boardId} proposalId={p.id} checkedAt={ev.checked_at} busy={busy}
                 aiReady={aiReady} onRechecked={() => onFixed(p.id)} />
             )}
+            {p.status !== "stale" && (
+              <GuideChecklistPanel projectId={projectId} boardId={boardId} proposalId={p.id} refreshKey={ev.checked_at} aiReady={aiReady} />
+            )}
             <Preview p={p} projectId={projectId} boardId={boardId} />
           </>
         )}
@@ -611,7 +634,8 @@ function AiInfo({ p, aiReady, busy, onRevise }: { p: Proposal; aiReady: boolean;
           <h4>AI 검토 {ai.review.findings.length > 0 ? `(${ai.review.findings.length}건)` : ""}</h4>
           {ai.review.summary && <p className="small">{ai.review.summary}</p>}
           <FindingList findings={ai.review.findings}
-            onUse={canRevise && aiReady && !busy ? (i) => onRevise({ findings: [i] }) : undefined} />
+            onUse={canRevise && aiReady && !busy ? (i) => onRevise({ findings: [i] }) : undefined}
+            guideRef={{ project_id: p.project_id, board_id: p.board_id, proposal_id: p.id }} guideLabel={`AI 검토 의견 (제안 #${Number(p.id)})`} />
           {ai.review.findings.length > 0 && canRevise && (
             <div className="toolbar">
               <button className="small-btn" disabled={busy || !aiReady} onClick={() => onRevise({ findings: "all", checks: true })}
@@ -630,10 +654,14 @@ function AiInfo({ p, aiReady, busy, onRevise }: { p: Proposal; aiReady: boolean;
   );
 }
 
-export function FindingList({ findings, onUse }: {
-  findings: { severity: string; title: string; detail: string; references: string[]; suggestion: string | null }[];
+export function FindingList({ findings, onUse, guideRef, guideLabel }: {
+  findings: { severity: string; title: string; detail: string; references: string[]; suggestion: string | null; guide?: string | null }[];
   onUse?(index: number): void;
+  /** Where the findings came from, to keep with a finding saved as a design-guide candidate. */
+  guideRef?: Record<string, string>;
+  guideLabel?: string;
 }) {
+  const [saved, setSaved] = useState<Record<number, string>>({});
   if (findings.length === 0) return <p className="small ok-text">지적 사항이 없습니다.</p>;
   return (
     <ul className="issues">
@@ -642,10 +670,29 @@ export function FindingList({ findings, onUse }: {
           <b>{f.title}</b> {f.references.length > 0 && <span className="muted">({f.references.join(", ")})</span>}
           <div>{f.detail}</div>
           {f.suggestion && <div className="issue-hint">→ {f.suggestion}</div>}
+          {f.guide && <div className="small muted">설계 지침 {f.guide}을(를) 지키지 않았다는 의견입니다.</div>}
           {onUse && (
             <button className="ghost small-btn" onClick={() => onUse(i)} aria-label={`의견 반영: ${f.title}`}>
               이 의견 반영하기
             </button>
+          )}
+          {guideRef && (
+            saved[i] ? (
+              <span className="small ok-text"> 지침 후보 {saved[i]}로 저장함</span>
+            ) : (
+              <button className="ghost small-btn" aria-label={`지침 후보로: ${f.title}`}
+                title="다음 설계에도 반영하도록 설계 가이드에 후보로 남깁니다 (설계 가이드 화면에서 채택)"
+                onClick={async () => {
+                  try {
+                    const e = await saveFindingAsGuide(f, guideRef, guideLabel ?? "AI 검토 의견");
+                    setSaved({ ...saved, [i]: e.id });
+                  } catch (err) {
+                    window.alert(errorText(err));
+                  }
+                }}>
+                지침 후보로
+              </button>
+            )
           )}
         </li>
       ))}
@@ -924,6 +971,7 @@ function RevisionPanel({ projectId, boardId, proposalId, provider, model, preset
   const [chosen, setChosen] = useState<Set<number>>(new Set());
   const [includeChecks, setIncludeChecks] = useState(true);
   const [instructions, setInstructions] = useState("");
+  const [instructionsToGuide, setInstructionsToGuide] = useState(false);
   const [review, setReview] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -977,6 +1025,19 @@ function RevisionPanel({ projectId, boardId, proposalId, provider, model, preset
         setError(job.error ? `[${job.error.error_code}] ${job.error.message}${job.error.recovery_hint ? ` — ${job.error.recovery_hint}` : ""}` : "실패했습니다.");
         return;
       }
+      if (instructionsToGuide && instructions.trim()) {
+        await api.createGuide({
+          draft: emptyDraft({
+            title: instructions.trim().split(/[.\n]/)[0].slice(0, 60),
+            rule: instructions.trim(),
+            sources: [{ kind: "feedback", text: `수정 요청${proposalId ? ` (제안 #${Number(proposalId)})` : ""}`,
+              ref: { project_id: projectId, board_id: boardId, ...(proposalId ? { proposal_id: proposalId } : {}) } }],
+          }),
+          origin: "feedback",
+          by: savedName() || "사용자",
+          adopt: false,
+        });
+      }
       await onCreated(job.result.proposal_id);
     } catch (e) {
       setError(errorText(e));
@@ -1025,6 +1086,10 @@ function RevisionPanel({ projectId, boardId, proposalId, provider, model, preset
         직접 요청
         <textarea className="small-textarea" aria-label="수정 요청 내용" value={instructions} onChange={(e) => setInstructions(e.target.value)}
           placeholder="예: LM2596의 ON/OFF 핀은 GND에 연결, 출력 콘덴서는 220uF 전해로" />
+      </label>
+      <label className="small" title="같은 종류의 회로를 다시 그릴 때도 적용되도록 설계 가이드에 후보로 남깁니다">
+        <input type="checkbox" checked={instructionsToGuide} disabled={!instructions.trim()} onChange={(e) => setInstructionsToGuide(e.target.checked)} />{" "}
+        이 요청을 다음 설계에도 반영 (설계 지침 후보로 저장)
       </label>
       <label className="small">
         <input type="checkbox" checked={review} onChange={(e) => setReview(e.target.checked)} /> 수정안도 AI 검토

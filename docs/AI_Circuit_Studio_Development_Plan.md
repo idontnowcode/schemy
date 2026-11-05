@@ -452,6 +452,7 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 | KiCad 생성 어댑터 최종 채택 | **결정: 직접 생성기** (ADR-001) |
 | 템플릿의 검증/승인 책임과 출처 관리 정책 | **결정: 템플릿은 저장소 코드(검토·버전), 근거는 제조사 데이터시트 응용 회로의 절, 쪽 번호는 검토자가 기록, 템플릿 부품은 needs_review로 시작, verified는 엔지니어 검토 기록만** (ADR-007) |
 | 선택 근거와 기술 검토 | **결정: 근거는 IR `decisions`(누가 정했는지 5종), 기술 검토는 AI가 아닌 코드 계산, 근거 리포트는 Markdown(앱·`outputs/rationale.md`·`aics report`)** (ADR-011) |
+| 설계 지침의 축적과 사용 | **결정: 워크스페이스 공통 설계 가이드. 앱 기본 지침 + 사람·검토·피드백으로 추가, AI가 쓴 문장은 후보로만, 채택된 지침만 AI 프롬프트와 체크리스트에 사용, 모든 변경·사용을 이력으로** (ADR-013) |
 | Agent 도구 호출 방식과 상한 | **결정: 단계마다 JSON 행동 하나(공급자 중립), 기본 상한 LLM 12회·토큰 300,000·900초·도구 30회·재시도 2회** (ADR-008) |
 
 ## 19. 변경 이력
@@ -467,6 +468,7 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - 회로도 그리기(ADR-009 추가 12~15): PWR_FLAG를 레일 전원 심볼과 같은 연결점에, IC 디커플링 콘덴서를 전원 핀 옆에 선으로, 48자를 넘는 주석은 여러 줄로, 위·아래를 향한 커넥터는 1번 핀이 왼쪽에 오게 반전.
 - 검토·검사 결과에 바로 조치: AI 검토 의견마다 「이 의견 반영하기」, 의견 모두 반영·검사 문제 고치기 수정안(AI). 떠 있는 입력 핀은 「바로 고치기」로 AI 없이 풀다운·풀업·직접 연결을 고르면 후속 제안을 만든다(`circuit_core/quick_fixes.py`, `GET/POST …/quick-fixes`, 제안의 `parent`·`diff_from_parent`). KiCad ERC 경고는 쉬운 설명을 붙인다.
 - 데이터시트 찾기(ADR-005 추가 결정): 받을 곳 후보 = Mouser·DigiKey 검색(키는 OS 보안 저장소), KiCad 심볼 링크, 제조사 주소 규칙(KiCad 라이브러리 링크 형태에서 도출). 부품마다 골라 받고, 실패하면 다음 후보, 규칙 주소는 받은 PDF에 품번·제품군이 있어야 저장. 「제안」 탭에서도 승인 전에 받기 → AI 요약 → 대조 다시 하기(`GET …/datasheets?proposal_id=`, `POST …/datasheets/search`, `POST …/proposals/{id}/recheck-datasheets`, `/api/datasheet-search/keys`).
+- 설계 가이드(ADR-013): `circuit_core/guides.py`(지침 모델, 기본 지침 30개, 해당 지침 고르기, 체크리스트, Markdown), `backend/guides.py`(워크스페이스 저장·이력), `/api/guides*`, `GET/POST …/guides(?proposal_id=)`, `POST …/guides/draft`(AI 초안). AI 설계·수정·검토·Agent 프롬프트에 채택 지침, `guides_applied`·검토 의견의 `guide`, 엔지니어 검토 체크리스트 항목 `guide:<id>`. 화면: 사이드바 「설계 가이드」, 제안·「검토」 탭의 「설계 지침 확인」과 피드백, AI 의견의 「지침 후보로」, 거부 이유·수정 요청 저장.
 - AI 공급자 ChatGPT(내 계정 로그인, ADR-004 추가 결정): OpenAI Sign in with ChatGPT(PKCE, 앱 등록, ID 토큰 검증)로 로그인하고 Responses API(`store: false`, 스트리밍)를 쓴다. 토큰은 사용자 폴더 `chatgpt.json`(0600)에만. `GET/POST /api/ai/chatgpt/login`, `POST /api/ai/chatgpt/logout`.
 
 ### v1.8 (2026-11-05)

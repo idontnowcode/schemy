@@ -163,8 +163,11 @@ def _circuit_listing(c: CircuitIR | None) -> str:
 class AgentRunner:
     def __init__(self, store: ProjectStore, jobs, proposals, service, *, provider_for: Callable[[], tuple[LlmProvider, object]],
                  library: Callable[[], SymbolLibrary | None], kicad: Callable[[], KiCadCli | None],
-                 search_symbols: Callable[[str], list[dict]] | None = None, timeout_scale: float = 1.0):
+                 search_symbols: Callable[[str], list[dict]] | None = None, timeout_scale: float = 1.0,
+                 guides: Callable[[CircuitIR | None, str], str] | None = None):
         self.store, self.jobs, self.proposals, self.service = store, jobs, proposals, service
+        self.guides = guides
+        """(circuit, request text) -> the adopted design-guide entries that apply, as prompt text."""
         self.provider_for = provider_for
         self.library, self.kicad, self.search_symbols = library, kicad, search_symbols
         self.timeout_scale = timeout_scale
@@ -347,11 +350,18 @@ class AgentRunner:
 
 [현재 회로 — revision {run.base_revision}]
 {_circuit_listing(circuit)}
-
+{self._guide_block(circuit, run.request)}
 [요청]
 {run.request}
 
 정해진 JSON 형식으로만 답하세요."""
+
+    def _guide_block(self, circuit: CircuitIR | None, request: str) -> str:
+        text = self.guides(circuit, request) if self.guides else ""
+        if not text.strip():
+            return ""
+        return ("\n[설계 지침 — 이 조직이 채택한 규칙. 변경이 「필수」·「권장」 지침을 어기게 되면 risks에 지침 id와 함께 적으세요]\n"
+                + text + "\n")
 
     def _plan(self, run_id: str, project_id: str, board_id: str, provider: LlmProvider) -> dict:
         run = self._load(project_id, board_id, run_id)
