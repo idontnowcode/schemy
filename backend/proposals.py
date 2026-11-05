@@ -72,6 +72,8 @@ class Proposal(BaseModel):
     ai: dict | None = Field(default=None, description="AI metadata: model, assumptions, questions, citations, review.")
     template: dict | None = Field(default=None, description="Template placed: ref, title, params, basis, checklist.")
     agent: dict | None = Field(default=None, description="Agent run that submitted the proposal: run id, scope.")
+    parent: str | None = Field(default=None, description="The open proposal this one fixes (a follow-up).")
+    diff_from_parent: dict | None = None
 
 
 class ProposalStore:
@@ -96,7 +98,7 @@ class ProposalStore:
 
     def create(self, project_id: str, board_id: str, *, title: str, ops: list, source: ProposalSource,
                rationale: str | None = None, ai: dict | None = None, template: dict | None = None,
-               agent: dict | None = None, base_revision: int | None = -1) -> Proposal:
+               agent: dict | None = None, base_revision: int | None = -1, parent: str | None = None) -> Proposal:
         """``base_revision`` (when given) must still be the board's revision, so a proposal built from an older
         read (an agent run) is refused instead of overwriting newer work."""
         self.store.get_board(project_id, board_id)
@@ -120,7 +122,9 @@ class ProposalStore:
             p = Proposal(id=pid, project_id=project_id, board_id=board_id, title=title.strip() or "변경 제안",
                          rationale=rationale, source=source, base_revision=revision, ops=ops, status="checking",
                          created_at=ts, updated_at=ts, diff=diff_circuits(current, candidate), ai=ai,
-                         template=template, agent=agent)
+                         template=template, agent=agent, parent=parent)
+            if parent is not None:
+                p.diff_from_parent = diff_circuits(self.candidate(self.get(project_id, board_id, parent)), candidate)
             atomic_write(self._path(project_id, board_id, pid) / "candidate.circuit.json", canonical_json(candidate))
             return self._save(p)
 

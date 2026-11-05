@@ -28,6 +28,8 @@ import type {
   InventoryMatch,
   Job,
   MarkdownImportResult,
+  QuickFix,
+  QuickFixOption,
   OutputsStatus,
   ProjectSummary,
   Proposal,
@@ -204,6 +206,12 @@ export const api = {
     include_checks: boolean;
     review: boolean;
   }) => request<Job>("POST", `${board(p, b)}/ai/revise`, body),
+
+  quickFixes: (p: string, b: string, proposalId?: string | null) =>
+    request<{ fixes: QuickFix[]; nets: string[] }>("GET", `${board(p, b)}/quick-fixes${proposalId ? `?proposal_id=${enc(proposalId)}` : ""}`),
+  applyQuickFixes: (p: string, b: string, proposalId: string | null,
+    choices: { fix_id: string; kind: QuickFixOption["kind"]; net: string | null; value: string | null }[]) =>
+    request<{ proposal: Proposal; job: Job }>("POST", `${board(p, b)}/quick-fixes`, { proposal_id: proposalId, choices }),
 
   aiStatus: () => request<AiStatus>("GET", "/ai/settings"),
   saveAiSettings: (s: Partial<{ enabled: boolean; model: string; provider: AiProvider }>) =>

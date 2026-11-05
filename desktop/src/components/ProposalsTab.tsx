@@ -7,6 +7,7 @@ import {
   cropSvg,
   DECISION_BY,
   diffFieldLabel,
+  ERC_EXPLAIN,
   diffSummaryText,
   formatTime,
   originLabel,
@@ -15,7 +16,7 @@ import {
   providerLabel,
   ROW_STATUS,
 } from "../format";
-import type { AiStatus, BoardReview, CircuitIR, Job, Proposal, ProposalDiff, RevisionInputs } from "../types";
+import type { AiStatus, BoardReview, CircuitIR, ErcViolation, Job, Proposal, ProposalDiff, QuickFix, RevisionInputs } from "../types";
 import { Chip } from "./Chip";
 import { IssueList } from "./IssueList";
 import { TemplateEvidence } from "./TemplatesTab";
@@ -143,8 +144,14 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
       await load();
     });
 
-  // Which revision request form is open: a proposal id, "board" (the saved circuit) or none.
+  // Which revision request form is open: a proposal id, "board" (the saved circuit) or none, and what it starts with.
   const [revising, setRevising] = useState<string | null>(null);
+  const [revisePreset, setRevisePreset] = useState<RevisePreset | null>(null);
+  const openRevise = (target: string, preset: RevisePreset | null) => {
+    setRevisePreset(preset);
+    setRevising(target);
+    window.setTimeout(() => document.getElementById(`revise-${target}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+  };
   const onRevised = async (id: string) => {
     setRevising(null);
     setMessage(`수정안을 제안 #${Number(id)}(으)로 만들었습니다.`);
@@ -198,17 +205,21 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
         <div className="card">
           <div className="toolbar">
             <h3>현재 회로 AI 검토 {boardReview.revision ? <span className="muted small">revision {boardReview.revision}</span> : null}</h3>
-            <button className="ghost small-btn" onClick={() => setRevising(revising === "board" ? null : "board")}
+            <button className="ghost small-btn" onClick={() => (revising === "board" ? setRevising(null) : openRevise("board", null))}
               disabled={!aiReady || busy !== null}>
               검토 반영 수정안 만들기
             </button>
           </div>
           {revising === "board" && (
-            <RevisionPanel projectId={projectId} boardId={boardId} proposalId={null} provider={ai?.settings.provider ?? "gemini"} model={ai?.settings.model ?? ""}
-              onCancel={() => setRevising(null)} onCreated={onRevised} />
+            <div id="revise-board">
+              <RevisionPanel key={JSON.stringify(revisePreset)} projectId={projectId} boardId={boardId} proposalId={null}
+                provider={ai?.settings.provider ?? "gemini"} model={ai?.settings.model ?? ""} preset={revisePreset}
+                onCancel={() => setRevising(null)} onCreated={onRevised} />
+            </div>
           )}
           {boardReview.summary && <p className="small">{boardReview.summary}</p>}
-          <FindingList findings={boardReview.findings} />
+          <FindingList findings={boardReview.findings}
+            onUse={aiReady && busy === null ? (i) => openRevise("board", { findings: [i] }) : undefined} />
           {boardReview.revision !== undefined && boardReview.revision !== revision && (
             <p className="muted small">이 검토는 revision {boardReview.revision} 기준입니다. 회로가 바뀌었으면 다시 검토하세요.</p>
           )}
@@ -251,9 +262,16 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
               aiReady={aiReady}
               onAiReview={() => reviewProposal(detail)}
               revising={revising === detail.id}
-              onToggleRevise={() => setRevising(revising === detail.id ? null : detail.id)}
+              onToggleRevise={() => (revising === detail.id ? setRevising(null) : openRevise(detail.id, null))}
+              onRevise={(preset) => openRevise(detail.id, preset)}
+              onFixed={async (id) => {
+                await load();
+                setSelected(id);
+                await onChanged();
+              }}
               revisionPanel={
-                <RevisionPanel projectId={projectId} boardId={boardId} proposalId={detail.id} provider={ai?.settings.provider ?? "gemini"} model={ai?.settings.model ?? ""}
+                <RevisionPanel key={JSON.stringify(revisePreset)} projectId={projectId} boardId={boardId} proposalId={detail.id}
+                  provider={ai?.settings.provider ?? "gemini"} model={ai?.settings.model ?? ""} preset={revisePreset}
                   onCancel={() => setRevising(null)} onCreated={onRevised} />
               }
             />
@@ -345,10 +363,19 @@ interface DetailProps {
   onAiReview(): void;
   revising: boolean;
   onToggleRevise(): void;
+  onRevise(preset: RevisePreset): void;
+  onFixed(proposalId: string): Promise<void>;
   revisionPanel: React.ReactNode;
 }
 
-function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRecheck, aiReady, onAiReview, revising, onToggleRevise, revisionPanel }: DetailProps) {
+/** What the AI revision form starts with: chosen review findings (indexes, or all) and the check problems. */
+export interface RevisePreset {
+  findings?: number[] | "all";
+  checks?: boolean;
+}
+
+function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRecheck, aiReady, onAiReview, revising, onToggleRevise,
+  onRevise, onFixed, revisionPanel }: DetailProps) {
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState("");
   const st = proposalStatusLabel(p.status);
@@ -404,7 +431,7 @@ function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRe
             </button>
           </div>
         )}
-        {revising && revisionPanel}
+        {revising && <div id={`revise-${p.id}`}>{revisionPanel}</div>}
       </div>
 
       {p.template && (
@@ -419,7 +446,15 @@ function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRe
           <TemplateEvidence template={p.template} />
         </>
       )}
-      {p.ai && <AiInfo p={p} />}
+      {p.ai && <AiInfo p={p} aiReady={aiReady} busy={busy} onRevise={onRevise} />}
+      {!p.ai && p.parent && p.diff_from_parent && (
+        <div className="card">
+          <details open>
+            <summary className="small">제안 #{Number(p.parent)} 대비 바뀐 점: {diffSummaryText(p.diff_from_parent.summary)}</summary>
+            <DiffView d={p.diff_from_parent} />
+          </details>
+        </div>
+      )}
 
       <div className="card">
         <h3>바뀌는 내용 <span className="muted small">{diffSummaryText(d.summary)}</span></h3>
@@ -449,14 +484,20 @@ function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRe
             <IssueList issues={[...ev.ir_issues, ...(ev.generation_error?.issues ?? [])]} />
             {ev.generation_error && !ev.generation_error.issues && <p className="small bad-text">{ev.generation_error.message}</p>}
             {ev.automated_check?.violations && ev.automated_check.violations.length > 0 && (
-              <ul className="issues">
-                {ev.automated_check.violations.map((v, i) => (
-                  <li key={i} className={`issue issue-${v.severity === "error" ? "error" : "warning"}`}>
-                    <span className="issue-code">{String(v.type)}</span> {String(v.description)}{" "}
-                    <span className="muted">{(v.items as string[] | undefined)?.join(", ")}</span>
-                  </li>
-                ))}
-              </ul>
+              <ErcViolations violations={ev.automated_check.violations} />
+            )}
+            {open && (
+              <QuickFixPanel projectId={projectId} boardId={boardId} proposalId={p.id} checkedAt={ev.checked_at} busy={busy}
+                onFixed={onFixed} />
+            )}
+            {open && (ev.ir_issues.length > 0 || (ev.automated_check?.violations?.length ?? 0) > 0) && (
+              <div className="toolbar">
+                <button className="ghost small-btn" disabled={busy || !aiReady} onClick={() => onRevise({ checks: true })}
+                  title={aiReady ? "검사에서 나온 문제를 AI가 고친 새 제안을 만듭니다" : AI_SETUP_HINT}>
+                  AI로 검사 문제 고치기
+                </button>
+                {!aiReady && <span className="small muted">AI 기능을 켜면 검사 문제를 AI가 고친 수정안을 만들 수 있습니다(설정).</span>}
+              </div>
             )}
             {ev.datasheets.length > 0 && (
               <>
@@ -484,8 +525,10 @@ function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRe
   );
 }
 
-function AiInfo({ p }: { p: Proposal }) {
+function AiInfo({ p, aiReady, busy, onRevise }: { p: Proposal; aiReady: boolean; busy: boolean; onRevise(preset: RevisePreset): void }) {
   const ai = p.ai!;
+  const open = ["ready", "invalid", "check_failed"].includes(p.status);
+  const canRevise = open || p.status === "checking";
   return (
     <div className="card">
       <h3>{ai.parent ? `AI 수정안 메모 — 제안 #${Number(ai.parent)}의 수정안` : "AI 설계 메모"}</h3>
@@ -562,7 +605,19 @@ function AiInfo({ p }: { p: Proposal }) {
         <>
           <h4>AI 검토 {ai.review.findings.length > 0 ? `(${ai.review.findings.length}건)` : ""}</h4>
           {ai.review.summary && <p className="small">{ai.review.summary}</p>}
-          <FindingList findings={ai.review.findings} />
+          <FindingList findings={ai.review.findings}
+            onUse={canRevise && aiReady && !busy ? (i) => onRevise({ findings: [i] }) : undefined} />
+          {ai.review.findings.length > 0 && canRevise && (
+            <div className="toolbar">
+              <button className="small-btn" disabled={busy || !aiReady} onClick={() => onRevise({ findings: "all", checks: true })}
+                title={aiReady ? "모든 의견과 검사 문제를 반영한 새 제안을 AI가 만듭니다" : AI_SETUP_HINT}>
+                의견 모두 반영한 수정안 만들기 (AI)
+              </button>
+              <span className="small muted">
+                {aiReady ? "새 제안으로 만들어지고, 승인하기 전에는 회로가 바뀌지 않습니다." : "AI 기능이 꺼져 있습니다(설정). 아래 「바로 고치기」는 AI 없이 됩니다."}
+              </span>
+            </div>
+          )}
         </>
       )}
       <p className="muted small">AI 설계와 검토는 틀릴 수 있습니다. 위 검사 결과와 데이터시트 원문으로 확인한 뒤 승인하세요.</p>
@@ -570,7 +625,10 @@ function AiInfo({ p }: { p: Proposal }) {
   );
 }
 
-export function FindingList({ findings }: { findings: { severity: string; title: string; detail: string; references: string[]; suggestion: string | null }[] }) {
+export function FindingList({ findings, onUse }: {
+  findings: { severity: string; title: string; detail: string; references: string[]; suggestion: string | null }[];
+  onUse?(index: number): void;
+}) {
   if (findings.length === 0) return <p className="small ok-text">지적 사항이 없습니다.</p>;
   return (
     <ul className="issues">
@@ -579,9 +637,125 @@ export function FindingList({ findings }: { findings: { severity: string; title:
           <b>{f.title}</b> {f.references.length > 0 && <span className="muted">({f.references.join(", ")})</span>}
           <div>{f.detail}</div>
           {f.suggestion && <div className="issue-hint">→ {f.suggestion}</div>}
+          {onUse && (
+            <button className="ghost small-btn" onClick={() => onUse(i)} aria-label={`의견 반영: ${f.title}`}>
+              이 의견 반영하기
+            </button>
+          )}
         </li>
       ))}
     </ul>
+  );
+}
+
+/** KiCad ERC findings, with what each kind means; this computer's KiCad set-up warnings are folded away. */
+function ErcViolations({ violations }: { violations: ErcViolation[] }) {
+  const setup = violations.filter((v) => ERC_EXPLAIN[String(v.type)]?.kind === "setup");
+  const rest = violations.filter((v) => ERC_EXPLAIN[String(v.type)]?.kind !== "setup");
+  const explained = new Set<string>();
+  const item = (v: ErcViolation, i: number) => {
+    const type = String(v.type);
+    const first = !explained.has(type);
+    explained.add(type);
+    return (
+      <li key={i} className={`issue issue-${v.severity === "error" ? "error" : "warning"}`}>
+        <span className="issue-code">{type}</span> {String(v.description)}{" "}
+        <span className="muted">{(v.items as string[] | undefined)?.join(", ")}</span>
+        {first && ERC_EXPLAIN[type] && <div className="issue-hint">→ {ERC_EXPLAIN[type].text}</div>}
+      </li>
+    );
+  };
+  return (
+    <>
+      {rest.length > 0 && <ul className="issues">{rest.map(item)}</ul>}
+      {setup.length > 0 && (
+        <details>
+          <summary className="small muted">
+            이 컴퓨터의 KiCad 설정 경고 {setup.length}건 (회로와 무관: {[...new Set(setup.map((v) => String(v.type)))].join(", ")})
+          </summary>
+          <ul className="issues">{setup.map(item)}</ul>
+        </details>
+      )}
+    </>
+  );
+}
+
+/** Floating input pins and the usual fixes, applied without AI as a follow-up proposal. */
+function QuickFixPanel({ projectId, boardId, proposalId, checkedAt, busy, onFixed }: {
+  projectId: string;
+  boardId: string;
+  proposalId: string | null;
+  checkedAt: string;
+  busy: boolean;
+  onFixed(proposalId: string): Promise<void>;
+}) {
+  const [fixes, setFixes] = useState<QuickFix[] | null>(null);
+  const [nets, setNets] = useState<string[]>([]);
+  const [choice, setChoice] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.quickFixes(projectId, boardId, proposalId).then((r) => {
+      if (cancelled) return;
+      setFixes(r.fixes);
+      setNets(r.nets);
+      setChoice(Object.fromEntries(r.fixes.map((f) => [f.id, String(Math.max(0, f.options.findIndex((o) => o.recommended)))])));
+    }).catch((e) => !cancelled && setError(errorText(e)));
+    return () => { cancelled = true; };
+  }, [projectId, boardId, proposalId, checkedAt]);
+
+  if (!fixes || fixes.length === 0) return error ? <p className="small bad-text">{error}</p> : null;
+  const chosen = fixes.filter((f) => choice[f.id] !== "skip");
+  const apply = async () => {
+    setError(null);
+    const picks = chosen.map((f) => {
+      const c = choice[f.id];
+      if (c.startsWith("net:")) return { fix_id: f.id, kind: "direct" as const, net: c.slice(4), value: null };
+      const o = f.options[Number(c)];
+      return { fix_id: f.id, kind: o.kind, net: o.net, value: o.value };
+    });
+    if (!window.confirm(`떠 있는 입력 핀 ${picks.length}개를 고친 새 제안을 만듭니다(AI 사용 안 함).\n승인하기 전에는 회로가 바뀌지 않습니다. 계속할까요?`)) return;
+    setWorking(true);
+    try {
+      const r = await api.applyQuickFixes(projectId, boardId, proposalId, picks);
+      await onFixed(r.proposal.id);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setWorking(false);
+    }
+  };
+  return (
+    <div className="quick-fixes" aria-label="바로 고치기">
+      <h4>바로 고치기 (AI 없이)</h4>
+      <p className="small muted">아무것도 연결되지 않은 입력 핀입니다. 핀 이름으로 흔한 처리를 골라 두었으니 확인하고 바꾸세요. 데이터시트의 권장 처리와 맞는지 확인하세요.</p>
+      <table className="table compact">
+        <thead><tr><th>핀</th><th>문제</th><th>조치</th></tr></thead>
+        <tbody>
+          {fixes.map((f) => (
+            <tr key={f.id}>
+              <td>{f.reference}.{f.pin}{f.pin_name && f.pin_name !== "~" ? ` ${f.pin_name}` : ""}</td>
+              <td className="small">{f.problem}</td>
+              <td>
+                <select aria-label={`조치: ${f.reference}.${f.pin}`} value={choice[f.id]} onChange={(e) => setChoice({ ...choice, [f.id]: e.target.value })}>
+                  {f.options.map((o, i) => <option key={i} value={String(i)}>{o.label}{o.recommended ? " (추천)" : ""}</option>)}
+                  {nets.filter((n) => n !== f.net).map((n) => <option key={n} value={`net:${n}`}>{n}에 직접 연결</option>)}
+                  <option value="skip">고치지 않음</option>
+                </select>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="toolbar">
+        <button onClick={() => void apply()} disabled={busy || working || chosen.length === 0}>
+          선택한 조치로 수정 제안 만들기 ({chosen.length}개)
+        </button>
+      </div>
+      {error && <p className="small bad-text">{error}</p>}
+    </div>
   );
 }
 
@@ -731,12 +905,13 @@ export function DiffView({ d }: { d: ProposalDiff }) {
   );
 }
 
-function RevisionPanel({ projectId, boardId, proposalId, provider, model, onCancel, onCreated }: {
+function RevisionPanel({ projectId, boardId, proposalId, provider, model, preset, onCancel, onCreated }: {
   projectId: string;
   boardId: string;
   proposalId: string | null;
   provider: string;
   model: string;
+  preset?: RevisePreset | null;
   onCancel(): void;
   onCreated(id: string): Promise<void>;
 }) {
@@ -753,11 +928,16 @@ function RevisionPanel({ projectId, boardId, proposalId, provider, model, onCanc
       .revisePreview(projectId, boardId, proposalId)
       .then((r) => {
         setInputs(r);
-        setChosen(new Set(r.findings.filter((f) => f.severity !== "info").map((f) => f.index)));
-        setIncludeChecks(r.checks.length > 0);
+        if (preset) {
+          setChosen(new Set(preset.findings === "all" ? r.findings.map((f) => f.index) : (preset.findings ?? [])));
+          setIncludeChecks(Boolean(preset.checks) && r.checks.length > 0);
+        } else {
+          setChosen(new Set(r.findings.filter((f) => f.severity !== "info").map((f) => f.index)));
+          setIncludeChecks(r.checks.length > 0);
+        }
       })
       .catch((e) => setError(errorText(e)));
-  }, [projectId, boardId, proposalId]);
+  }, [projectId, boardId, proposalId, preset]);
 
   const toggle = (i: number) =>
     setChosen((cur) => {

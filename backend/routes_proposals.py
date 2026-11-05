@@ -6,7 +6,10 @@ from fastapi import APIRouter
 from fastapi.responses import FileResponse
 from pydantic import TypeAdapter, ValidationError
 
-from circuit_core.patch import PatchOp
+from circuit_core.models import CircuitIR
+from circuit_core.patch import PatchOp, apply_patch
+from circuit_core.quick_fixes import fix_ops, floating_pins
+from kicad_adapter import SymbolLibrary, SymbolLibraryError
 
 from .config import Settings
 from .datasheets import DatasheetLibrary
@@ -14,7 +17,7 @@ from .errors import ApiError
 from .exports import _run_checks, run_export
 from .jobs import JobRunner
 from .proposals import ProposalStore, check_proposal, proposal_dict
-from .schemas import ProposalApprove, ProposalCreate, ProposalReject
+from .schemas import ProposalApprove, ProposalCreate, ProposalReject, QuickFixApply
 from .store import ProjectStore
 
 BOARD = "/api/projects/{project_id}/boards/{board_id}"
@@ -73,6 +76,72 @@ def build_proposal_router(service: ProposalService) -> APIRouter:
     def create(project_id: str, board_id: str, body: ProposalCreate):
         p, job = create_and_check(project_id, board_id, title=body.title, ops=parse_ops(body.ops), source="user",
                                   rationale=body.rationale)
+        return {"proposal": proposal_dict(p), "job": job.model_dump()}
+
+    # --- fixes that need no AI ----------------------------------------------------------------
+
+    def pin_types(circuit: CircuitIR) -> dict[tuple[str, str], str]:
+        lib = SymbolLibrary(settings.symbol_dirs) if settings.symbol_dirs else None
+        out: dict[tuple[str, str], str] = {}
+        for comp in circuit.components:
+            try:
+                sym = lib.get(comp.symbol_id) if lib else None
+            except SymbolLibraryError:
+                sym = None
+            for p in comp.pins:
+                lp = sym.pin(p.number) if sym else None
+                if lp is not None:
+                    out[(comp.id, p.number)] = lp.electrical_type
+        return out
+
+    def fix_target(project_id: str, board_id: str, proposal_id: str | None):
+        if proposal_id is None:
+            circuit, _ = store.get_circuit(project_id, board_id)
+            if circuit is None:
+                raise ApiError(409, "NO_CIRCUIT", "This board has no circuit yet.")
+            return circuit, None
+        p = proposals.get(project_id, board_id, proposal_id)
+        return proposals.candidate(p), p
+
+    @router.get(BOARD + "/quick-fixes")
+    def quick_fixes(project_id: str, board_id: str, proposal_id: str | None = None):
+        circuit, _ = fix_target(project_id, board_id, proposal_id)
+        return {"fixes": [f.to_dict() for f in floating_pins(circuit, pin_types(circuit))],
+                "nets": sorted(n.name for n in circuit.nets)}
+
+    @router.post(BOARD + "/quick-fixes", status_code=201)
+    def apply_quick_fixes(project_id: str, board_id: str, body: QuickFixApply):
+        circuit, parent = fix_target(project_id, board_id, body.proposal_id)
+        if parent is not None and parent.status not in ("ready", "invalid", "check_failed"):
+            raise ApiError(409, "NOT_FIXABLE", f"A proposal that is {parent.status} cannot be fixed.",
+                           recovery_hint="Fix the saved circuit, or an open proposal.")
+        fixes = {f.id: f for f in floating_pins(circuit, pin_types(circuit))}
+        nets = {n.name for n in circuit.nets}
+        ops, texts, taken = [], [], set()
+        work = circuit
+        for choice in body.choices:
+            fix = fixes.get(choice.fix_id)
+            if fix is None:
+                raise ApiError(409, "FIX_NOT_FOUND", f"'{choice.fix_id}' is not a problem of this circuit any more.",
+                               recovery_hint="Refresh: the circuit changed.")
+            if choice.net is not None and choice.net not in nets and choice.net not in {o.net for o in fix.options}:
+                raise ApiError(422, "UNKNOWN_NET", f"Net '{choice.net}' is not in this circuit.")
+            try:
+                step, text = fix_ops(work, fix, choice.kind, choice.net, choice.value, taken)
+            except ValueError as exc:
+                raise ApiError(422, "INVALID_FIX", str(exc)) from exc
+            work = apply_patch(work, step)
+            ops += step
+            texts.append(text)
+        title = ", ".join(texts) if len(texts) <= 2 else f"{texts[0]} 외 {len(texts) - 1}건"
+        if parent is not None:
+            title = f"{title} (제안 #{int(parent.id)} 수정)"
+            p, job = create_and_check(project_id, board_id, title=title[:200], ops=[*parent.ops, *ops], source="user",
+                                      rationale="검사에서 떠 있는 입력 핀을 고친 수정안입니다: " + "; ".join(texts),
+                                      base_revision=parent.base_revision, parent=parent.id)
+        else:
+            p, job = create_and_check(project_id, board_id, title=title[:200], ops=ops, source="user",
+                                      rationale="검사에서 떠 있는 입력 핀을 고칩니다: " + "; ".join(texts))
         return {"proposal": proposal_dict(p), "job": job.model_dump()}
 
     @router.get(BOARD + "/proposals/{pid}")

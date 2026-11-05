@@ -598,6 +598,27 @@ export interface ProposalAi {
   remaining_problems?: string[];
 }
 
+export interface QuickFixOption {
+  kind: "resistor" | "direct" | "no_connect";
+  net: string | null;
+  value: string | null;
+  label: string;
+  recommended: boolean;
+}
+
+/** A floating input pin and the usual ways to fix it without AI. */
+export interface QuickFix {
+  id: string;
+  component_id: string;
+  reference: string;
+  pin: string;
+  pin_name: string | null;
+  electrical_type: string;
+  net: string | null;
+  problem: string;
+  options: QuickFixOption[];
+}
+
 export interface RevisionInputs {
   findings: (AiFinding & { index: number })[];
   checks: (AiFinding & { source: "check" })[];
@@ -638,6 +659,9 @@ export interface Proposal {
     }[];
   } | null;
   ai: ProposalAi | null;
+  /** The open proposal this one fixes (a follow-up made from its check results). */
+  parent?: string | null;
+  diff_from_parent?: ProposalDiff | null;
   template?: (CircuitTemplate & { params: Record<string, string> | CircuitTemplate["params"]; components: Record<string, string> }) | null;
   agent?: { run_id: string; scope: ScopeItem[] } | null;
   candidate?: CircuitIR;

@@ -221,6 +221,19 @@ class ProposalCreate(_Model):
     ops: list[dict] = Field(min_length=1, max_length=2000, description="circuit_core.patch operations")
 
 
+class QuickFixChoice(_Model):
+    fix_id: str = Field(min_length=1, max_length=200)
+    kind: Literal["resistor", "direct", "no_connect"]
+    net: str | None = Field(default=None, max_length=64)
+    value: str | None = Field(default=None, max_length=20)
+
+
+class QuickFixApply(_Model):
+    proposal_id: str | None = Field(default=None, description="Fix this open proposal (a follow-up proposal); "
+                                    "None fixes the saved circuit.")
+    choices: list[QuickFixChoice] = Field(min_length=1, max_length=50)
+
+
 class ProposalApprove(_Model):
     accept_failed_checks: bool = False
     generate: bool = Field(default=True, description="Regenerate the board outputs after saving.")

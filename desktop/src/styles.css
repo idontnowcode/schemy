@@ -985,3 +985,13 @@ label.block {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.quick-fixes {
+  border-left: 3px solid var(--accent, #4c8dff);
+  padding: 8px 12px;
+  margin: 10px 0;
+}
+
+.issue .small-btn {
+  margin-top: 6px;
+}

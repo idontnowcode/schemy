@@ -265,6 +265,19 @@ export function proposalStatusLabel(status: string): Label {
   }
 }
 
+/** What a KiCad ERC finding means and whether it is about the circuit, the drawing or this computer's KiCad set-up. */
+export const ERC_EXPLAIN: Record<string, { text: string; kind: "circuit" | "drawing" | "setup" }> = {
+  pin_not_driven: { kind: "circuit", text: "입력 핀에 신호를 주는 출력이 없습니다(떠 있는 입력). 아래 「바로 고치기」로 풀업·풀다운을 넣거나 AI로 고치세요." },
+  power_pin_not_driven: { kind: "circuit", text: "전원 입력 핀에 전원이 들어오지 않습니다. 전원 Net 연결을 확인하세요." },
+  pin_not_connected: { kind: "circuit", text: "어디에도 연결되지 않은 핀입니다. 일부러 비워 두는 핀이면 미연결(no-connect) 표시를 하세요." },
+  isolated_pin_label: { kind: "circuit", text: "라벨이 핀 하나에만 붙어 있습니다. 연결이 빠졌을 가능성이 큽니다." },
+  pin_to_pin: { kind: "circuit", text: "같은 Net에 함께 두면 안 되는 종류의 핀이 있습니다(예: 출력끼리, 양방향 핀과 PWR_FLAG). 출력끼리라면 고쳐야 하고, PWR_FLAG와의 경고는 대개 동작과 무관합니다." },
+  multiple_net_names: { kind: "drawing", text: "한 Net에 이름이 둘 붙었습니다." },
+  lib_symbol_issues: { kind: "setup", text: "이 컴퓨터 KiCad의 심볼 라이브러리 표에 해당 라이브러리가 없다는 경고입니다. 회로도 파일에는 심볼이 들어 있어 연결과는 관계없습니다. KiCad를 한 번 실행해 기본 라이브러리 표를 설정하면 사라집니다." },
+  lib_symbol_mismatch: { kind: "setup", text: "설치된 라이브러리의 심볼과 파일 안의 심볼이 조금 다릅니다(KiCad 버전 차이). 연결과는 관계없습니다." },
+  footprint_link_issues: { kind: "setup", text: "풋프린트 라이브러리 표에 없는 풋프린트입니다. PCB로 넘어갈 때 확인하세요." },
+};
+
 export function proposalSourceLabel(source: string): string {
   return (
     {
