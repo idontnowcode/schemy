@@ -37,6 +37,7 @@ from .exports import external_edit_error, output_path, outputs_status, run_expor
 from .inventory_store import InventoryStore
 from .jobs import JobRunner
 from .proposals import ProposalStore
+from .report import rationale_report, technical_review
 from .reviews import ReviewStore
 from .routes_ai import build_ai_router
 from .routes_datasheets import build_datasheet_router
@@ -55,7 +56,7 @@ from .schemas import (
     ProjectUpdate,
     Requirements,
 )
-from .store import ProjectStore
+from .store import ProjectStore, now_iso
 
 IrBody = Annotated[Any, Body(description="Circuit IR JSON (validated by the handler)")]
 log = logging.getLogger(__name__)
@@ -328,6 +329,17 @@ def create_app(settings: Settings) -> FastAPI:
     def markdown(project_id: str, board_id: str):
         circuit, revision = current_circuit(project_id, board_id)
         return {"revision": revision, "markdown": circuit_markdown(circuit, revision=revision)}
+
+    @api.get(BOARD + "/documents/rationale")
+    def rationale(project_id: str, board_id: str):
+        status = outputs_status(store, project_id, board_id)
+        manifest = status["manifest"]
+        check = manifest["automated_check"] if manifest and not status["stale"] else None
+        return rationale_report(store, project_id, board_id, automated_check=check, generated_at=now_iso())
+
+    @api.get(BOARD + "/technical-review")
+    def technical(project_id: str, board_id: str):
+        return technical_review(store, project_id, board_id)
 
     @api.get(BOARD + "/documents/bom")
     def bom(project_id: str, board_id: str):

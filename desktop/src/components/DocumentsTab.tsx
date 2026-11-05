@@ -13,8 +13,18 @@ interface Props {
 
 export function DocumentsTab({ projectId, boardId, revision }: Props) {
   const [html, setHtml] = useState<string>("");
+  const [reportHtml, setReportHtml] = useState<string>("");
+  const [view, setView] = useState<"design" | "rationale">("design");
   const [bom, setBom] = useState<BomTable | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!revision || view !== "rationale") return;
+    api
+      .rationale(projectId, boardId)
+      .then((r) => setReportHtml(DOMPurify.sanitize(marked.parse(r.markdown, { async: false }) as string)))
+      .catch((e) => setMessage(errorText(e)));
+  }, [projectId, boardId, revision, view]);
 
   useEffect(() => {
     if (!revision) {
@@ -58,12 +68,22 @@ export function DocumentsTab({ projectId, boardId, revision }: Props) {
         </div>
       )}
       <div className="panel">
-        <div className="toolbar">
-          <strong>설계 문서 미리보기</strong>
-          <span className="muted small">회로도 생성 시 outputs/circuit.md, circuit.json, bom.csv로도 저장됩니다.</span>
+        <div className="toolbar" role="tablist" aria-label="문서 종류">
+          <button role="tab" aria-selected={view === "design"} className={view === "design" ? "" : "ghost"} onClick={() => setView("design")}>
+            설계 문서
+          </button>
+          <button role="tab" aria-selected={view === "rationale"} className={view === "rationale" ? "" : "ghost"}
+            onClick={() => setView("rationale")}>
+            근거 리포트
+          </button>
+          <span className="muted small">
+            {view === "design"
+              ? "회로도 생성 시 outputs/circuit.md, circuit.json, bom.csv로도 저장됩니다."
+              : "설계 결정(요구 반영·요구 수정·AI 선정·템플릿·사람 결정)과 근거, 기술 검토, 변경 이력. 생성 시 outputs/rationale.md로도 저장됩니다."}
+          </span>
         </div>
         {message && <p className="muted">{message}</p>}
-        <article className="markdown" dangerouslySetInnerHTML={{ __html: html }} />
+        <article className="markdown" dangerouslySetInnerHTML={{ __html: view === "design" ? html : reportHtml }} />
       </div>
     </div>
   );

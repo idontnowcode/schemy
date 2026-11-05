@@ -113,6 +113,18 @@ def validate_circuit(circuit: CircuitIR) -> ValidationResult:
         if note.net and note.net not in net_names:
             r.add("NOTE_UNKNOWN_NET", E, f"Note '{note.id}' refers to unknown net '{note.net}'.")
 
+    for dup in _duplicates(d.id for d in circuit.decisions):
+        r.add("DUPLICATE_DECISION_ID", E, f"Decision id '{dup}' is used more than once.")
+    for d in circuit.decisions:
+        for comp_id in d.components:
+            if comp_id not in components:
+                r.add("DECISION_UNKNOWN_COMPONENT", E, f"Decision '{d.id}' refers to unknown component '{comp_id}'.",
+                      (comp_id,))
+        if d.by == "changed" and not d.request:
+            r.add("DECISION_REQUEST_MISSING", W,
+                  f"Decision '{d.id}' changes a request but does not say what was asked.",
+                  recovery_hint="Put the user's original request in 'request'.")
+
     # --- L1: topology ------------------------------------------------------
     pin_owner: dict[tuple[str, str], str] = {}
     for net in circuit.nets:

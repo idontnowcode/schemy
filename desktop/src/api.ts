@@ -36,6 +36,7 @@ import type {
   RevisionInputs,
   SaveCircuitResult,
   SystemInfo,
+  TechnicalReview,
   ValidationReport,
 } from "./types";
 
@@ -121,6 +122,9 @@ export const api = {
 
   markdown: (p: string, b: string) => request<{ revision: number; markdown: string }>("GET", `${board(p, b)}/documents/markdown`),
   bom: (p: string, b: string) => request<BomTable>("GET", `${board(p, b)}/documents/bom`),
+  rationale: (p: string, b: string) =>
+    request<{ revision: number; markdown: string; summary: Record<string, number> }>("GET", `${board(p, b)}/documents/rationale`),
+  technicalReview: (p: string, b: string) => request<TechnicalReview>("GET", `${board(p, b)}/technical-review`),
 
   exportBoard: (p: string, b: string, force = false) => request<Job>("POST", `${board(p, b)}/exports`, { force }),
   outputs: (p: string, b: string) => request<OutputsStatus>("GET", `${board(p, b)}/outputs`),

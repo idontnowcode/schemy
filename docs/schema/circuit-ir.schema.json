@@ -112,6 +112,110 @@
       "title": "Component",
       "type": "object"
     },
+    "Decision": {
+      "additionalProperties": false,
+      "description": "One design choice and why it was made, kept with the circuit so a reviewer can follow every choice: a part,\na value, an added protection, a topology. Decisions never change connectivity.",
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "topic": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Topic",
+          "type": "string"
+        },
+        "choice": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Choice",
+          "type": "string"
+        },
+        "by": {
+          "enum": [
+            "requirement",
+            "changed",
+            "ai",
+            "template",
+            "engineer"
+          ],
+          "title": "By",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "request": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The user's words this answers.",
+          "title": "Request"
+        },
+        "calc": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The calculation behind a value.",
+          "title": "Calc"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Datasheet (document, section, page), standard or reference used.",
+          "title": "Source"
+        },
+        "components": {
+          "default": [],
+          "items": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "type": "string"
+          },
+          "title": "Components",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "topic",
+        "choice",
+        "by",
+        "reason"
+      ],
+      "title": "Decision",
+      "type": "object"
+    },
     "Evidence": {
       "additionalProperties": false,
       "description": "Where a pin map or rating came from.",
@@ -401,7 +505,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "default": "0.6.0",
+      "default": "0.7.0",
       "title": "Schema Version",
       "type": "string"
     },
@@ -470,6 +574,15 @@
         "$ref": "#/$defs/Note"
       },
       "title": "Notes",
+      "type": "array"
+    },
+    "decisions": {
+      "default": [],
+      "description": "Design choices and their reasons (who decided, calculation, source), for review.",
+      "items": {
+        "$ref": "#/$defs/Decision"
+      },
+      "title": "Decisions",
       "type": "array"
     },
     "validation": {

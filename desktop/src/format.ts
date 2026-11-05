@@ -307,6 +307,7 @@ export function diffSummaryText(s: Record<string, number>): string {
     s.nets_removed && `Net −${s.nets_removed}`,
     s.moved && `배치 ${s.moved}`,
     s.notes_changed && `주석 ${s.notes_changed}`,
+    s.decisions_changed && `결정 ${s.decisions_changed}`,
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : "바뀐 것 없음";
 }
@@ -358,3 +359,19 @@ export function scopeText(s: { op: string; target: string; field?: string | null
     { set_property: "속성 변경", add_component: "부품 추가", remove_component: "부품 삭제", connect: "연결", disconnect: "연결 해제", rename_net: "Net 이름 변경", set_no_connect: "NC 설정", move: "위치 이동" }[s.op] ?? s.op;
   return `${op} — ${s.target}${s.field ? ` (${s.field})` : ""}`;
 }
+
+/** Who made a design decision (IR ``decisions[].by``). */
+export const DECISION_BY: Record<string, string> = {
+  requirement: "요구 반영",
+  changed: "요구 수정",
+  ai: "AI 선정",
+  template: "템플릿",
+  engineer: "사람 결정",
+};
+
+export const FINDING_SEVERITY: Record<string, { text: string; tone: "ok" | "warn" | "bad" | "info" | "muted" }> = {
+  fail: { text: "실패", tone: "bad" },
+  warn: { text: "주의", tone: "warn" },
+  info: { text: "참고", tone: "info" },
+  ok: { text: "통과", tone: "ok" },
+};

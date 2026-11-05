@@ -4,6 +4,7 @@ import { api, errorText } from "../api";
 import { formatTime, originLabel, reviewLabel } from "../format";
 import type { BoardReviewStatus, ChecklistSuggestion, CircuitIR, EngineeringReview, ReviewCheckItem } from "../types";
 import { Chip } from "./Chip";
+import { TechnicalReviewCard } from "./TechnicalReviewCard";
 
 interface Props {
   projectId: string;
@@ -115,6 +116,7 @@ export function ReviewTab({ projectId, boardId, circuit, revision, onChanged }: 
   return (
     <div className="requirements-layout">
       <div className="panel">
+        <TechnicalReviewCard projectId={projectId} boardId={boardId} revision={revision} />
         <div className="toolbar">
           <Chip label="엔지니어링 검토" text={board.text} tone={board.tone} />
           <span className="muted small">revision {revision}</span>

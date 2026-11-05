@@ -89,13 +89,26 @@ def diff_circuits(before: CircuitIR | None, after: CircuitIR) -> dict:
         notes.append({"id": k, "target": target(new_n or old_n),
                       "before": old_n.text if old_n else None, "after": new_n.text if new_n else None})
 
+    b_dec = {d.id: d for d in before.decisions} if before else {}
+    a_dec = {d.id: d for d in after.decisions}
+    decisions = []
+    for k in [*b_dec, *(k for k in a_dec if k not in b_dec)]:
+        old_d, new_d = b_dec.get(k), a_dec.get(k)
+        if old_d == new_d:
+            continue
+        d = new_d or old_d
+        decisions.append({"id": k, "topic": d.topic, "by": d.by,
+                          "before": old_d.choice if old_d else None, "after": new_d.choice if new_d else None,
+                          "reason": new_d.reason if new_d else None})
+
     changed.sort(key=lambda r: (natural_key(r["reference"]), r["field"]))
     added.sort(key=lambda r: natural_key(r["reference"]))
     removed.sort(key=lambda r: natural_key(r["reference"]))
     summary = {"components_added": len(added), "components_removed": len(removed),
                "properties_changed": len(changed), "connections_changed": len(connections),
                "nets_added": len(a_names - b_names), "nets_removed": len(b_names - a_names),
-               "moved": len(moved), "page_moves": len(page_moves), "notes_changed": len(notes)}
+               "moved": len(moved), "page_moves": len(page_moves), "notes_changed": len(notes),
+               "decisions_changed": len(decisions)}
     return {
         "summary": summary,
         "is_new_circuit": before is None,
@@ -108,6 +121,7 @@ def diff_circuits(before: CircuitIR | None, after: CircuitIR) -> dict:
         "moved": moved,
         "page_moves": page_moves,
         "notes": notes,
+        "decisions": decisions,
         "title_changed": None if before is None or before.title == after.title else
         {"before": before.title, "after": after.title},
     }

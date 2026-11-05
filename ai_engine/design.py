@@ -28,7 +28,7 @@ from pydantic import ValidationError
 from circuit_core import CircuitIR, validate_circuit
 from circuit_core.export import natural_key
 from circuit_core.models import Component, Note
-from circuit_core.templates import TEMPLATES, PinsOf, TemplateError, catalog_text, instantiate
+from circuit_core.templates import TEMPLATES, PinsOf, TemplateError, catalog_text, instantiate, template_sources
 
 from .providers import AiError, LlmProvider, LlmResult
 
@@ -78,6 +78,11 @@ PLAN_SCHEMA = {
             "pin_count": {"type": "integer", "description": "connectors only"},
             "search_terms": _STRS,
             "inventory_part_id": _STR,
+            "reason": {"type": "string", "description": "이 부품·값을 고른 이유, 한국어로"},
+            "basis": {"type": "string", "enum": ["requirement", "changed", "ai"],
+                      "description": "requirement: 요구사항에 있는 그대로 / changed: 요구사항과 다르게 정함 / ai: 요구사항에 없어 직접 정함"},
+            "request": {"type": "string", "description": "근거가 된 요구사항 문장 원문 (requirement·changed일 때)"},
+            "calc": {"type": "string", "description": "값의 계산식, 예: (5V - 2V) / 1k = 3mA"},
         }, "required": ["ref", "role", "category", "value"]}},
         "templates": {"type": "array", "description": "검토된 회로 템플릿을 쓸 블록", "items": {
             "type": "object", "properties": {
@@ -155,6 +160,11 @@ class ResolvedPart:
     datasheet_notes: str | None = None
     stacks: list[tuple[str, ...]] = field(default_factory=list)
     """Pin numbers stacked on one connection point in the symbol (extra GND/VCC pins): KiCad joins them."""
+    reason: str = ""
+    basis: str = "ai"
+    request: str = ""
+    calc: str = ""
+    """The plan's rationale for the part: why, who decided (requirement / changed / ai), the asked words, the math."""
 
 
 Resolver = Callable[[dict], tuple[ResolvedPart | None, str]]
@@ -235,6 +245,9 @@ def plan_prompt(inp: DesignInput) -> str:
 - 칩 저항·콘덴서·LED의 package는 0402/0603/0805/1206 중에서 쓰세요. 커넥터는 pin_count를 적으세요.
 - 데이터시트가 요구하는 주변 부품(디커플링 콘덴서, 풀업 저항 등)을 빠뜨리지 마세요.
 - 부품은 {MAX_PARTS}개 이하로 하세요.
+- 사람이 검토할 수 있게 부품마다 선택의 근거를 남기세요: reason(왜 이 부품·값인지), basis(requirement = 요구사항에 있는 그대로,
+  changed = 요구사항과 다르게 정함, ai = 요구사항에 없어 직접 정함), request(근거가 된 요구사항 문장 원문), calc(값의 계산식).
+  요구사항과 다르게 정했다면 basis를 changed로 하고, 무엇이 요구되었고 왜 바꿨는지 reason에 분명히 적으세요.
 
 [검토된 회로 템플릿 — 요구사항의 한 블록에 맞으면 직접 고르지 말고 우선 쓰세요]
 - 쓸 템플릿은 templates에 id와 params(name/value)를 적으세요. params는 그 블록이 연결될 Net 이름입니다(예: vin=+12V).
@@ -267,6 +280,10 @@ class TemplateBlock:
     nets: dict[str, list[tuple[str, str]]]
     ports: list[str]
     note: Note | None = None
+    why: str = ""
+    """Why the plan chose this template (the AI's words)."""
+    sources: str = ""
+    """The template's datasheet basis (document - section; ...)."""
 
 
 def _template_text(blocks: list[TemplateBlock]) -> str:
@@ -450,7 +467,8 @@ def build_circuit(parts: list[ResolvedPart], connections: dict, *, project_id: s
             net["nodes"] += [{"component_id": c, "pin": p} for c, p in pins]
     notes = _schematic_notes(connections, components, nets, blocks)
     data = {"project_id": project_id, "title": title[:200] or None, "components": components, "nets": nets,
-            "notes": notes, "validation": {"status": "unverified", "notes": f"AI 설계안 ({model}). 사람 검토 전."}}
+            "notes": notes, "decisions": _decisions(parts, blocks, values),
+            "validation": {"status": "unverified", "notes": f"AI 설계안 ({model}). 사람 검토 전."}}
     try:
         circuit = CircuitIR.model_validate(data)
     except ValidationError as exc:
@@ -461,6 +479,28 @@ def build_circuit(parts: list[ResolvedPart], connections: dict, *, project_id: s
         refs = ", ".join(c.reference for c in circuit.components if c.id in issue.affected_component_ids)
         problems.append(f"{issue.error_code}: {issue.message}" + (f" ({refs})" if refs else ""))
     return circuit, problems
+
+
+def _decisions(parts: list[ResolvedPart], blocks: list[TemplateBlock], values: dict[str, str]) -> list[dict]:
+    """A design decision per AI-chosen part (with the AI's reason, basis and calculation) and per template used. A
+    part without a reason says so, so the reviewer sees what was left unexplained."""
+    out: list[dict] = []
+    for p in parts:
+        value = values.get(p.ref) or p.value or "?"
+        choice = f"{value}" + (f" ({p.mpn})" if p.mpn and p.mpn != value else "")
+        out.append({"id": f"dec-{p.ref.lower()}", "topic": f"{p.ref} {p.role}"[:120] or p.ref, "choice": choice[:300],
+                    "by": p.basis if p.basis in ("requirement", "changed", "ai") else "ai",
+                    "reason": (p.reason or "AI가 이 선택의 이유를 남기지 않았습니다.")[:2000],
+                    "request": p.request[:1000] or None, "calc": p.calc[:1000] or None,
+                    "source": f"KiCad 심볼 {p.symbol_id} ({p.how})"[:500], "components": [p.ref.lower()]})
+    for b in blocks:
+        params = ", ".join(f"{k}={v}" for k, v in b.params.items())
+        out.append({"id": f"dec-tpl-{b.components[0].id}"[:64], "topic": f"템플릿: {b.title}"[:120],
+                    "choice": f"{b.ref} ({params})"[:300], "by": "template",
+                    "reason": (b.why or "AI 설계가 검토된 템플릿을 골랐습니다. 템플릿의 부품과 연결은 코드가 정합니다.")[:2000],
+                    "request": None, "calc": None, "source": b.sources[:500] or None,
+                    "components": [c.id for c in b.components]})
+    return out
 
 
 def _schematic_notes(connections: dict, components: list[dict], nets: list[dict],
@@ -516,7 +556,8 @@ def place_templates(plan: dict, pins_of: PinsOf | None, taken_refs: set[str]) ->
             problems.append(str(exc))
             continue
         blocks.append(TemplateBlock(t.ref, t.title, inst.params, inst.components, inst.nets,
-                                    [inst.params[p.name] for p in t.params if p.kind == "net"], inst.note))
+                                    [inst.params[p.name] for p in t.params if p.kind == "net"], inst.note,
+                                    why=str(raw.get("why") or "")[:1500], sources=template_sources(t)))
     return blocks, problems
 
 

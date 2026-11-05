@@ -5,6 +5,7 @@ import {
   AI_SETUP_HINT,
   automatedLabel,
   cropSvg,
+  DECISION_BY,
   diffFieldLabel,
   diffSummaryText,
   formatTime,
@@ -272,6 +273,7 @@ function ManualProposal({ projectId, boardId, circuit, onCreated }: {
   const [compId, setCompId] = useState(circuit.components[0]?.id ?? "");
   const [field, setField] = useState<(typeof FIELDS)[number][0]>("value");
   const [value, setValue] = useState("");
+  const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const comp = circuit.components.find((c) => c.id === compId);
   const current = comp ? ((comp as unknown as Record<string, string | null | undefined>)[field] ?? null) : null;
@@ -282,10 +284,21 @@ function ManualProposal({ projectId, boardId, circuit, onCreated }: {
     setError(null);
     try {
       const label = FIELDS.find((f) => f[0] === field)![1];
-      const r = await api.createProposal(projectId, boardId, `${comp.reference} ${label}: ${current ?? "없음"} → ${value.trim() || "없음"}`, [
-        { op: "set_property", component_id: comp.id, field, expect: current, value: value.trim() || null },
-      ]);
+      const ops: unknown[] = [{ op: "set_property", component_id: comp.id, field, expect: current, value: value.trim() || null }];
+      if (reason.trim()) {
+        // The person's reason goes into the circuit as a design decision, so the rationale report shows it later.
+        const id = `dec-${comp.id}-${field}`.slice(0, 64);
+        const existing = circuit.decisions?.find((d) => d.id === id);
+        ops.push({
+          op: "set_decision",
+          expect_choice: existing?.choice ?? null,
+          decision: { id, topic: `${comp.reference} ${label}`, choice: value.trim() || "없음", by: "engineer", reason: reason.trim(), components: [comp.id] },
+        });
+      }
+      const r = await api.createProposal(projectId, boardId, `${comp.reference} ${label}: ${current ?? "없음"} → ${value.trim() || "없음"}`, ops,
+        reason.trim() || undefined);
       setValue("");
+      setReason("");
       await onCreated(r.proposal.id);
     } catch (err) {
       setError(errorText(err));
@@ -311,6 +324,7 @@ function ManualProposal({ projectId, boardId, circuit, onCreated }: {
       </select>
       <span className="small muted">현재 {current ?? "없음"} →</span>
       <input aria-label="새 값" value={value} onChange={(e) => setValue(e.target.value)} placeholder="새 값" style={{ width: 160 }} />
+      <input aria-label="바꾸는 이유" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="이유 (근거 리포트에 기록)" style={{ width: 240 }} />
       <button type="submit" className="ghost" disabled={!comp || (field === "value" && !value.trim())}>
         제안 만들기
       </button>
@@ -665,6 +679,22 @@ export function DiffView({ d }: { d: ProposalDiff }) {
               {d.nets_added.length > 0 && <>Net 추가: {d.nets_added.join(", ")} </>}
               {d.nets_removed.length > 0 && <>· Net 삭제: {d.nets_removed.join(", ")}</>}
             </p>
+          )}
+          {d.decisions && d.decisions.length > 0 && (
+            <>
+              <h4>설계 결정과 근거</h4>
+              <table className="table compact">
+                <thead><tr><th>결정</th><th>누가</th><th>전</th><th>후</th><th>근거</th></tr></thead>
+                <tbody>
+                  {d.decisions.map((x) => (
+                    <tr key={x.id}>
+                      <td>{x.topic}</td><td>{DECISION_BY[x.by] ?? x.by}</td><td>{x.before ?? "—"}</td><td><b>{x.after ?? "—"}</b></td>
+                      <td className="small">{x.reason ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
           {d.notes && d.notes.length > 0 && (
             <>

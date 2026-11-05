@@ -36,7 +36,8 @@ def test_export_without_kicad_is_not_checked(tmp_path):
     assert check["status"] == "not_checked"
     assert "kicad-cli not found" in check["reason"]
     assert set(job["result"]["artifacts"]) == {
-        "led-demo-a.kicad_sch", "led-demo-a.kicad_pro", "circuit.json", "circuit.md", "bom.csv", "symbol_sources.json"}
+        "led-demo-a.kicad_sch", "led-demo-a.kicad_pro", "circuit.json", "circuit.md", "rationale.md", "bom.csv",
+        "symbol_sources.json"}
 
     status = client.get(f"/api/projects/{pid}/boards/a/outputs").json()
     assert status["stale"] is False and status["externally_modified"] == [] and status["missing"] == []

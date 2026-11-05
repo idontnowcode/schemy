@@ -81,3 +81,15 @@ def test_generate_command_rejects_invalid_ir(tmp_path, capsys):
     assert main(["generate", str(bad), "--out", str(tmp_path / "o"), "--symbol-dir", "."]) == 2
     assert "Circuit IR is invalid" in capsys.readouterr().err
     assert not Path(tmp_path / "o").exists()
+
+
+def test_report_command_writes_the_rationale_report(tmp_path):
+    from kicad_adapter.__main__ import main
+
+    out = tmp_path / "rationale.md"
+    req = tmp_path / "req.md"
+    req.write_text("24V를 5V로", encoding="utf-8")
+    args = ["report", "examples/lm7805-24v-to-5v/circuit.json", "--requirements", str(req), "--out", str(out)]
+    assert main(args) == 0
+    text = out.read_text(encoding="utf-8")
+    assert text.startswith("# 근거 리포트:") and "> 24V를 5V로" in text and "## 5. 기술 검토 (자동 계산)" in text

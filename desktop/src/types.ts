@@ -88,8 +88,40 @@ export interface CircuitIR {
   components: Component[];
   nets: Net[];
   sheets?: Sheet[];
-  layout?: Record<string, { x: number; y: number; rotation: number }>;
+  layout?: Record<string, { x: number; y: number; rotation: number; mirror?: boolean }>;
+  notes?: { id: string; text: string; components: string[]; net?: string | null }[];
+  decisions?: Decision[];
   validation?: { status: VerificationStatus; notes?: string | null };
+}
+
+export type DecisionBy = "requirement" | "changed" | "ai" | "template" | "engineer";
+
+export interface Decision {
+  id: string;
+  topic: string;
+  choice: string;
+  by: DecisionBy;
+  reason: string;
+  request?: string | null;
+  calc?: string | null;
+  source?: string | null;
+  components: string[];
+}
+
+export interface TechnicalFinding {
+  rule: string;
+  severity: "ok" | "info" | "warn" | "fail";
+  title: string;
+  detail: string;
+  calc: string | null;
+  components: string[];
+  references: string[];
+}
+
+export interface TechnicalReview {
+  revision: number | null;
+  summary: Record<"fail" | "warn" | "info" | "ok", number>;
+  findings: TechnicalFinding[];
 }
 
 export interface Issue {
@@ -523,6 +555,7 @@ export interface ProposalDiff {
   moved: string[];
   page_moves: { reference: string; before: string; after: string }[];
   notes?: { id: string; target: string; before: string | null; after: string | null }[];
+  decisions?: { id: string; topic: string; by: DecisionBy; before: string | null; after: string | null; reason: string | null }[];
 }
 
 export interface AiFinding {

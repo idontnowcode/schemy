@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from circuit_core.patch import AddComponent, Connect, PinRef, ReplaceCircuit, SetNote
+from circuit_core.patch import AddComponent, Connect, PinRef, ReplaceCircuit, SetDecision, SetNote
 from circuit_core.templates import TEMPLATES, TemplateError, as_circuit, instantiate
 
 from .errors import ApiError
@@ -39,6 +39,8 @@ def template_ops(store: ProjectStore, project_id: str, board_id: str, template_i
                 for name, nodes in inst.nets.items()]
         if inst.note is not None and not any(n.id == inst.note.id for n in current.notes):
             ops.append(SetNote(note=inst.note))
+        if not any(d.id == inst.decision.id for d in current.decisions):
+            ops.append(SetDecision(decision=inst.decision))
     record = {**t.to_dict(), "params": inst.params,
               "components": {c.id: c.reference for c in inst.components}}
     return ops, record

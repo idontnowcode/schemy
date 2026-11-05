@@ -120,7 +120,8 @@ class PartResolver:
                 ref=ref, role=str(part.get("role") or "")[:200], category=category, value=value, symbol_id=lib_id,
                 pins=[(p.number, p.name, p.electrical_type) for p in sym.pins], how=" · ".join([*how, reason]),
                 footprint_id=footprint, manufacturer=maker, mpn=mpn, datasheet_notes=notes,
-                stacks=sym.stacks()), ""
+                stacks=sym.stacks(), reason=str(part.get("reason") or ""), basis=str(part.get("basis") or "ai"),
+                request=str(part.get("request") or ""), calc=str(part.get("calc") or "")), ""
         if not candidates:
             return None, "KiCad 라이브러리에서 맞는 심볼을 찾지 못했습니다. 품번이나 KiCad 심볼 이름이 필요합니다."
         return None, "쓸 수 있는 KiCad 심볼이 없습니다: " + "; ".join(tried[:3])

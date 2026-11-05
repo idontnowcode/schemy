@@ -48,6 +48,13 @@ test("create → import example → save → generate → documents, then restor
   await page.getByRole("tab", { name: "문서 · BOM" }).click();
   await expect(page.getByRole("cell", { name: "Resistor_SMD:R_0603_1608Metric" }).first()).toBeVisible();
   await expect(page.locator("article.markdown")).toContainText("LED_A");
+  await page.getByRole("tab", { name: "근거 리포트" }).click();
+  await expect(page.locator("article.markdown")).toContainText("근거 리포트: ");
+  await expect(page.locator("article.markdown")).toContainText("기술 검토 (자동 계산)");
+  await page.getByRole("tab", { name: "설계 문서" }).click();
+  await page.getByRole("tab", { name: "검토" }).click();
+  await expect(page.getByRole("heading", { name: "기술 검토 (자동 계산)" })).toBeVisible();
+  await page.getByRole("tab", { name: "문서 · BOM" }).click();
 
   // Phase 1 gate: restart the backend and reload — project, revision and last tab come back.
   await backend.stop();

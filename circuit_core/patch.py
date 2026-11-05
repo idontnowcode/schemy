@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .models import CircuitIR, Component, NetName, Note, Placement, StableId
+from .models import CircuitIR, Component, Decision, NetName, Note, Placement, StableId
 
 PROPERTY_FIELDS = ("value", "footprint_id", "manufacturer", "manufacturer_part_number", "description")
 
@@ -94,6 +94,20 @@ class RemoveNote(_Op):
     expect_text: str
 
 
+class SetDecision(_Op):
+    """Record a design choice and its reason, or change the one with the same id. Text only: no connectivity."""
+
+    op: Literal["set_decision"] = "set_decision"
+    decision: Decision
+    expect_choice: str | None = Field(default=None, description="Current choice; None when the decision is new.")
+
+
+class RemoveDecision(_Op):
+    op: Literal["remove_decision"] = "remove_decision"
+    decision_id: StableId
+    expect_choice: str
+
+
 class ReplaceCircuit(_Op):
     """The whole circuit at once (a first design, an import). The precondition is the proposal's
     base revision, checked when the proposal is approved."""
@@ -103,7 +117,8 @@ class ReplaceCircuit(_Op):
 
 
 PatchOp = Annotated[SetProperty | AddComponent | RemoveComponent | Connect | Disconnect | RenameNet | SetNoConnect
-                    | Move | SetNote | RemoveNote | ReplaceCircuit, Field(discriminator="op")]
+                    | Move | SetNote | RemoveNote | SetDecision | RemoveDecision | ReplaceCircuit,
+                    Field(discriminator="op")]
 
 
 class PatchFailure(BaseModel):
@@ -200,6 +215,8 @@ def apply_patch(circuit: CircuitIR | None, ops: list) -> CircuitIR:
                 data["layout"].pop(op.component_id, None)
                 for s in data["sheets"]:
                     s["components"] = [x for x in s["components"] if x != op.component_id]
+                for dec in data.get("decisions", []):  # the decision stays on record, without the removed part
+                    dec["components"] = [x for x in dec["components"] if x != op.component_id]
                 for note in data.get("notes", []):
                     if op.component_id in note["components"]:
                         note["components"] = [x for x in note["components"] if x != op.component_id]
@@ -289,6 +306,26 @@ def apply_patch(circuit: CircuitIR | None, ops: list) -> CircuitIR:
                     notes[notes.index(current)] = new_note
             else:
                 notes.remove(current)
+
+        elif isinstance(op, (SetDecision, RemoveDecision)):
+            decisions = data.setdefault("decisions", [])
+            dec_id = op.decision.id if isinstance(op, SetDecision) else op.decision_id
+            current = next((d for d in decisions if d["id"] == dec_id), None)
+            have = current["choice"] if current else None
+            if have != op.expect_choice:
+                fail(i, op, "PRECONDITION_FAILED",
+                     f"Decision '{dec_id}' choice is {have!r}, expected {op.expect_choice!r}.")
+            elif isinstance(op, SetDecision):
+                new_dec = op.decision.model_dump(mode="json")
+                bad = [c for c in new_dec["components"] if c not in comps]
+                if bad:
+                    fail(i, op, "UNKNOWN_COMPONENT", f"Component '{bad[0]}' does not exist.")
+                elif current is None:
+                    decisions.append(new_dec)
+                else:
+                    decisions[decisions.index(current)] = new_dec
+            else:
+                decisions.remove(current)
 
     if failures:
         raise PatchError(failures)

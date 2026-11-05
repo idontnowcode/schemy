@@ -14,14 +14,14 @@ Design rules (plan section 6):
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-SCHEMA_VERSION = "0.6.0"
+SCHEMA_VERSION = "0.7.0"
 """0.2.0 added optional ``sheets`` (pages); 0.3.0 added optional ``Component.manufacturer`` and
 ``Pin.no_connect``; 0.4.0 added optional ``Component.origin``; 0.5.0 added optional ``notes``; 0.6.0 added
-optional ``Placement.mirror``. Older documents are still valid."""
+optional ``Placement.mirror``; 0.7.0 added optional ``decisions``. Older documents are still valid."""
 
 StableId = Annotated[
     str,
@@ -154,6 +154,33 @@ class Note(_Model):
     net: NetName | None = None
 
 
+DecisionBy = Literal["requirement", "changed", "ai", "template", "engineer"]
+"""Who made a design choice:
+
+- ``requirement``: the user asked for it and it was taken as asked;
+- ``changed``: the user asked for something else, and it was changed (``request`` says what was asked,
+  ``reason`` why it was changed);
+- ``ai``: chosen by an AI (or the design assistant) where the requirements said nothing;
+- ``template``: fixed by a reviewed template;
+- ``engineer``: decided by a person reviewing the design."""
+
+
+class Decision(_Model):
+    """One design choice and why it was made, kept with the circuit so a reviewer can follow every choice: a part,
+    a value, an added protection, a topology. Decisions never change connectivity."""
+
+    id: StableId
+    topic: Annotated[str, StringConstraints(min_length=1, max_length=120)]
+    choice: Annotated[str, StringConstraints(min_length=1, max_length=300)]
+    by: DecisionBy
+    reason: Annotated[str, StringConstraints(min_length=1, max_length=2000)]
+    request: str | None = Field(default=None, max_length=1000, description="The user's words this answers.")
+    calc: str | None = Field(default=None, max_length=1000, description="The calculation behind a value.")
+    source: str | None = Field(default=None, max_length=500,
+                               description="Datasheet (document, section, page), standard or reference used.")
+    components: tuple[StableId, ...] = ()
+
+
 class Validation(_Model):
     status: VerificationStatus = VerificationStatus.UNVERIFIED
     notes: str | None = None
@@ -175,6 +202,9 @@ class CircuitIR(_Model):
     )
     notes: tuple[Note, ...] = Field(
         default=(), description="Short English notes drawn on the schematic (block captions, net descriptions).",
+    )
+    decisions: tuple[Decision, ...] = Field(
+        default=(), description="Design choices and their reasons (who decided, calculation, source), for review.",
     )
     validation: Validation = Field(default_factory=Validation)
 

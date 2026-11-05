@@ -23,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
-from .models import CircuitIR, Component, Net, NetNode, Note, Pin
+from .models import CircuitIR, Component, Decision, Net, NetNode, Note, Pin
 
 PinsOf = Callable[[str], "list[tuple[str, str]] | None"]
 """symbol id -> [(pin number, pin name)] from the installed KiCad library, or None if it is not there."""
@@ -326,6 +326,17 @@ class Instance:
     """net name -> [(component id, pin)] after renaming; port nets keep their names and join the board's."""
 
     @property
+    def decision(self) -> Decision:
+        """Why the block is what it is: the reviewed template, with its datasheet basis."""
+        params = ", ".join(f"{k}={v}" for k, v in self.params.items())
+        return Decision(id=f"dec-tpl-{self.components[0].id}"[:64], topic=f"템플릿: {self.template.title}"[:120],
+                        choice=f"{self.template.ref} ({params})"[:300], by="template",
+                        reason=f"{self.template.summary} 부품 값과 연결은 검토된 템플릿이 정합니다. 체크리스트 "
+                               f"{len(self.template.checklist)}개는 엔지니어 검토에서 확인합니다."[:2000],
+                        source=template_sources(self.template)[:500] or None,
+                        components=tuple(c.id for c in self.components))
+
+    @property
     def note(self) -> Note | None:
         """The template's English caption, attached to its parts."""
         if not self.template.caption or not self.components:
@@ -419,7 +430,12 @@ def as_circuit(inst: Instance, project_id: str, title: str | None = None) -> Cir
         project_id=project_id, title=title or inst.template.title, components=tuple(inst.components),
         nets=tuple(Net(id=f"net-{i:03d}", name=name, nodes=tuple(NetNode(component_id=c, pin=p) for c, p in nodes))
                    for i, (name, nodes) in enumerate(inst.nets.items(), start=1)),
-        notes=(inst.note,) if inst.note else ())
+        notes=(inst.note,) if inst.note else (), decisions=(inst.decision,))
+
+
+def template_sources(t: Template) -> str:
+    """The template's datasheet basis in one line: 'document - section (supports); ...'."""
+    return "; ".join(f"{b.document} — {b.section} ({b.supports})" for b in t.basis)
 
 
 def catalog_text() -> str:

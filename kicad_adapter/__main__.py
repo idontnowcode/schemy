@@ -84,6 +84,24 @@ def _cmd_kicad_info(_: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    from circuit_core.rationale import rationale_markdown
+
+    try:
+        circuit = CircuitIR.model_validate_json(Path(args.circuit).read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as exc:
+        print(f"cannot read {args.circuit}: {exc}", file=sys.stderr)
+        return 2
+    requirements = Path(args.requirements).read_text(encoding="utf-8") if args.requirements else None
+    text = rationale_markdown(circuit, requirements=requirements) + "\n"
+    if args.out:
+        Path(args.out).write_text(text, encoding="utf-8", newline="\n")
+        print(f"wrote {args.out}")
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aics", description="AI Circuit Studio - Phase 0 PoC")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -96,6 +114,12 @@ def main(argv: list[str] | None = None) -> int:
     gen.add_argument("--project-name", default="schematic")
     gen.add_argument("--check", action="store_true", help="run ERC / netlist / SVG via kicad-cli")
     gen.set_defaults(func=_cmd_generate)
+
+    rep = sub.add_parser("report", help="Circuit IR JSON -> rationale report (Markdown)")
+    rep.add_argument("circuit", help="Circuit IR JSON file")
+    rep.add_argument("--requirements", help="requirements text to quote in the report")
+    rep.add_argument("--out", help="write here instead of stdout")
+    rep.set_defaults(func=_cmd_report)
 
     info = sub.add_parser("kicad-info", help="show which kicad-cli would be used")
     info.set_defaults(func=_cmd_kicad_info)

@@ -28,6 +28,7 @@ from kicad_adapter.schematic import GENERATOR, GENERATOR_VERSION
 
 from .config import APP_VERSION
 from .errors import ApiError, issue_dict
+from .report import rationale_report
 from .schemas import Artifact, AutomatedCheck, Manifest, PageOutput
 from .store import ProjectStore, atomic_write, kicad_project_name, now_iso, sha256_file
 
@@ -36,6 +37,7 @@ _UUID_NS = uuid.UUID("9b8d6c1e-2f4a-4e58-a1b7-3c5d7e9f0a12")
 _FIXED_TYPES = {
     "circuit.json": "json",
     "circuit.md": "markdown",
+    "rationale.md": "rationale",
     "bom.csv": "bom",
     "symbol_sources.json": "symbol_sources",
     "erc.json": "erc_report",
@@ -151,6 +153,8 @@ def run_export(store: ProjectStore, project_id: str, board_id: str, *, symbol_di
         check = _run_checks(circuit, generated, sch, kicad_factory)
         for leftover in staging.glob("*.kicad_prl"):
             leftover.unlink()
+        report = rationale_report(store, project_id, board_id, automated_check=check.model_dump(), decided_only=True)
+        atomic_write(staging / "rationale.md", report["markdown"] + "\n")
 
         pages = []
         for page in generated.pages:
