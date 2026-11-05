@@ -1,10 +1,18 @@
-# Builds the Windows installer (PyInstaller backend + electron-builder NSIS) on demand or for a version tag.
+# Builds the Windows installer (PyInstaller backend + electron-builder NSIS) on demand, for a version tag, and on
+# a push that changes the packaging (so a change to how the app is bundled is built on Windows once).
 name: Windows installer
 
 on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+    branches: ["**"]
+    paths:
+      - ".github/workflows/windows-installer.yml"
+      - "packaging/**"
+      - "desktop/package.json"
+      - "desktop/package-lock.json"
+      - "desktop/electron/**"
 
 permissions:
   contents: read
