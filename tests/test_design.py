@@ -276,3 +276,26 @@ def test_check_problems_become_revision_inputs():
     titles = [f["title"] for f in proposal_check_findings(p)]
     assert titles == ["회로 규칙: UNCONNECTED_PIN", "데이터시트 전압 점검 (U1)", "데이터시트 외부 부품 (U1)",
                       "AI 연결 검사에서 남은 문제"]
+
+
+def test_stacked_pins_join_the_net_of_the_visible_pin():
+    """An MCU's extra GND pins are stacked under the visible one: connecting pin 3 is enough."""
+    from ai_engine.design import ResolvedPart
+
+    mcu = ResolvedPart(ref="U1", role="mcu", category="ic", value="ATmega328P-A",
+                       symbol_id="MCU_Microchip_ATmega:ATmega328P-A",
+                       pins=[("3", "GND", "power_in"), ("5", "GND", "passive"), ("21", "GND", "passive"),
+                             ("4", "VCC", "power_in")], how="", stacks=[("3", "5", "21")])
+    conn = ResolvedPart(ref="J1", role="power", category="connector", value="PWR",
+                        symbol_id="Connector_Generic:Conn_01x02", pins=[("1", "Pin_1", "passive"), ("2", "Pin_2", "passive")],
+                        how="")
+    circuit, problems = build_circuit([mcu, conn], {"nets": [{"name": "GND", "pins": ["U1.3", "J1.2"]},
+                                                             {"name": "+5V", "pins": ["U1.4", "J1.1"]}]},
+                                      project_id="p", title="t", model="m")
+    assert problems == []
+    gnd = next(n for n in circuit.nets if n.name == "GND")
+    assert {(n.component_id, n.pin) for n in gnd.nodes} == {("u1", "3"), ("u1", "5"), ("u1", "21"), ("j1", "2")}
+    _, problems = build_circuit([mcu, conn], {"nets": [{"name": "GND", "pins": ["U1.3", "J1.2"]},
+                                                       {"name": "+5V", "pins": ["U1.4", "U1.21", "J1.1"]}]},
+                                project_id="p", title="t", model="m")
+    assert any("겹친 핀" in p for p in problems)

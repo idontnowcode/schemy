@@ -119,11 +119,12 @@ def test_two_pages_with_kicad(library, kicad_cli, workdir):
 
 
 def test_ic_circuits_pass_erc_with_no_connect_and_power_flags(library, kicad_cli, workdir):
-    """A transceiver with an unused pin and a regulator built from a derived symbol: clean ERC,
-    netlist = IR (PWR_FLAGs are not parts), lossless KiCad round trip."""
-    from .circuits import can_node, ldo_supply
+    """A transceiver with an unused pin, a regulator built from a derived symbol, and a dual op-amp
+    (multi-unit) next to an MCU with stacked GND/VCC pins: clean ERC, netlist = IR (PWR_FLAGs are not
+    parts), lossless KiCad round trip."""
+    from .circuits import can_node, ldo_supply, opamp_mcu
 
-    for circuit in (can_node(), ldo_supply()):
+    for circuit in (can_node(), ldo_supply(), opamp_mcu()):
         out = workdir / circuit.project_id
         generated = generate_schematic(circuit, library)
         sch = generated.write(out)

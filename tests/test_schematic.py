@@ -510,3 +510,44 @@ def test_termination_resistor_bridges_the_lines_and_the_connector_lines_up(libra
     assert r_top[1] < min(canh[1], canl[1]) and r_bottom[1] > max(canh[1], canl[1])
     labels = [unquote(lbl[1]) for lbl in children(sexpr.parse(g.text), "label")]
     assert labels.count("CANH") == 1 and labels.count("CANL") == 1
+
+
+# --- multi-unit symbols and stacked pins (Phase 3) -----------------------------------------------
+
+def test_multi_unit_symbol_is_drawn_unit_by_unit(library):
+    from .circuits import opamp_mcu
+
+    g = generate_schematic(opamp_mcu(), library)
+    doc = sexpr.parse(g.text)
+    units = sorted(int(child(s, "unit")[1]) for s in children(doc, "symbol")
+                   if any(unquote(p[1]) == "Reference" and unquote(p[2]) == "U1" for p in children(s, "property")))
+    assert units == [1, 2, 3]
+    # Every unit instance lists all eight pins, with uuids unique in the file.
+    lm358 = [s for s in children(doc, "symbol") if unquote(child(s, "lib_id")[1]) == "Amplifier_Operational:LM358"]
+    assert all(len(list(children(s, "pin"))) == 8 for s in lm358)
+    uuids = [unquote(child(p, "uuid")[1]) for s in lm358 for p in children(s, "pin")]
+    assert len(uuids) == len(set(uuids)) == 24
+    assert {a.pin for a in g.anchors if a.reference == "U1"} == {str(n) for n in range(1, 9)}
+
+
+def test_stacked_pins_are_drawn_once_and_must_share_a_net(library):
+    from .circuits import opamp_mcu
+
+    circuit = opamp_mcu()
+    g = generate_schematic(circuit, library)
+    at = {(a.reference, a.pin): (a.x, a.y) for a in g.anchors}
+    assert at[("U2", "3")] == at[("U2", "5")] == at[("U2", "21")] and at[("U2", "4")] == at[("U2", "6")]
+    drawn = drawn_nets(g)
+    assert set(nodes for nodes in drawn if len(nodes) > 1) == set(ir_nets(circuit))
+
+    data = circuit.model_dump(mode="json")
+    for net in data["nets"]:
+        net["nodes"] = [n for n in net["nodes"] if (n["component_id"], n["pin"]) != ("u2", "21")]
+    data["nets"].append({"id": "x", "name": "OTHER", "nodes": [{"component_id": "u2", "pin": "21"},
+                                                              {"component_id": "r2", "pin": "2"}]})
+    for net in data["nets"]:
+        if net["name"] == "GND":
+            net["nodes"] = [n for n in net["nodes"] if (n["component_id"], n["pin"]) != ("r2", "2")]
+    with pytest.raises(SchematicGenerationError) as err:
+        generate_schematic(CircuitIR.model_validate(data), library)
+    assert "STACKED_PINS_DIFFER" in str(err.value)

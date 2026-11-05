@@ -32,7 +32,10 @@ Dir = tuple[int, int]
 # Pin direction (towards the body, library frame) -> outward unit vector, sheet frame.
 OUTWARD: dict[int, Dir] = {0: (-1, 0), 90: (0, 1), 180: (1, 0), 270: (0, -1)}
 
-_RAIL_NAME = re.compile(r"^(V(CC|DD|EE|SS|IN|BAT|BUS|SYS|MOT|PP)\w*|AVDD|DVDD|VDDA|VDDIO|VPWR)$", re.I)
+# Supply names without a voltage in them: the bare name, optionally with a number (VCC, VDD_1, VBUS2), but not
+# signals that merely start that way (VIN_A, VBUS_DET, VCC_SENSE).
+_RAIL_NAME = re.compile(r"^(VCC|VDD|VEE|VSS|VIN|VBAT|VBATT|VBUS|VSYS|VMOT|VPP|AVDD|DVDD|AVCC|DVCC|VDDA|VDDIO|VPWR)"
+                        r"(_?\d+)?$", re.I)
 
 
 # --- geometry -------------------------------------------------------------------------------
@@ -149,10 +152,13 @@ def path_length(path: list[Point]) -> float:
 
 # --- symbols ---------------------------------------------------------------------------------
 
-def body_rect(sym: LibSymbol) -> Rect:
-    """Graphics and pins of a library symbol: sheet frame (y down), unrotated, relative to its origin."""
+def body_rect(sym: LibSymbol, unit: int = 1) -> Rect:
+    """Graphics and pins of one unit of a library symbol: sheet frame (y down), unrotated, relative to its origin."""
     pts: list[Point] = []
     for sub in sexpr.children(sym.node, "symbol"):
+        m = re.match(r"^.+_(\d+)_(\d+)$", sexpr.unquote(sub[1]))
+        if m and int(m.group(1)) not in (0, unit):
+            continue
         for g in sub[2:]:
             kind = sexpr.head(g)
             if kind == "rectangle":
@@ -170,6 +176,8 @@ def body_rect(sym: LibSymbol) -> Rect:
                     n = sexpr.child(g, key)
                     pts.append((float(n[1]), -float(n[2])))
     for p in sym.pins:
+        if p.unit not in (0, unit):
+            continue
         ox, oy = OUTWARD[p.angle]
         pts += [(p.x, -p.y), (p.x - ox * p.length, -p.y - oy * p.length)]
     return rect_of(pts) if pts else (0.0, 0.0, 0.0, 0.0)

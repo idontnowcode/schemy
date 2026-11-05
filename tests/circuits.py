@@ -135,3 +135,49 @@ def ldo_supply() -> CircuitIR:
         "nets": [{"id": f"net-{i}", "name": n, "nodes": [{"component_id": c, "pin": p} for c, p in nodes]}
                  for i, (n, nodes) in enumerate(nets.items())],
     })
+
+
+def opamp_mcu() -> CircuitIR:
+    """A dual op-amp (LM358: units A, B and a power unit) next to an ATmega328P whose extra GND/VCC pins are
+    stacked under the visible ones: multi-unit symbols and stacked pins in one circuit."""
+    from kicad_adapter import SymbolLibrary
+
+    from .conftest import SYMBOL_DIR
+
+    lib = SymbolLibrary([SYMBOL_DIR])
+
+    def comp(cid, ref, value, sym, nc=()):
+        return {"id": cid, "reference": ref, "value": value, "symbol_id": sym,
+                "pins": [{"number": p.number, "no_connect": p.number in nc} for p in lib.get(sym).pins]}
+
+    unused = [str(n) for n in (1, 2, 9, 10, 11, 12, 13, 14, 15, 16, 17, 22, 23, 24, 25, 26, 27, 28, 30, 31, 32)]
+    components = [
+        comp("j1", "J1", "PWR", "Connector_Generic:Conn_01x02"),
+        comp("u1", "U1", "LM358", "Amplifier_Operational:LM358"),
+        comp("r1", "R1", "10k", "Device:R"), comp("r2", "R2", "10k", "Device:R"),
+        comp("c1", "C1", "100nF", "Device:C"),
+        comp("j2", "J2", "SIG", "Connector_Generic:Conn_01x02"),
+        comp("u2", "U2", "ATmega328P-A", "MCU_Microchip_ATmega:ATmega328P-A", nc=unused),
+        comp("c2", "C2", "100nF", "Device:C"), comp("c3", "C3", "100nF", "Device:C"),
+        comp("y1", "Y1", "16MHz", "Device:Crystal"),
+        comp("c4", "C4", "22pF", "Device:C"), comp("c5", "C5", "22pF", "Device:C"),
+        comp("r3", "R3", "10k", "Device:R"),
+    ]
+    nets = {
+        "+5V": [("j1", "1"), ("u1", "8"), ("c1", "1"), ("u2", "4"), ("u2", "6"), ("u2", "18"), ("c2", "1"),
+                ("r3", "1")],
+        "GND": [("j1", "2"), ("u1", "4"), ("c1", "2"), ("r2", "2"), ("u1", "5"), ("u2", "3"), ("u2", "5"),
+                ("u2", "21"), ("c2", "2"), ("c3", "2"), ("c4", "2"), ("c5", "2"), ("j2", "2")],
+        "VIN_A": [("j2", "1"), ("u1", "3")],
+        "FB_A": [("u1", "2"), ("r1", "2"), ("r2", "1")],
+        "OUT_A": [("u1", "1"), ("r1", "1"), ("u2", "19")],
+        "BUF_B": [("u1", "6"), ("u1", "7")],
+        "AREF": [("u2", "20"), ("c3", "1")],
+        "XTAL1": [("u2", "7"), ("y1", "1"), ("c4", "1")],
+        "XTAL2": [("u2", "8"), ("y1", "2"), ("c5", "1")],
+        "RESET": [("u2", "29"), ("r3", "2")],
+    }
+    return CircuitIR.model_validate({
+        "project_id": "opamp-mcu", "title": "LM358 + ATmega328P", "components": components,
+        "nets": [{"id": f"n{i}", "name": k, "nodes": [{"component_id": c, "pin": p} for c, p in v]}
+                 for i, (k, v) in enumerate(nets.items())]})

@@ -43,6 +43,8 @@ class LibPin:
     length: float
     unit: int
     body_style: int
+    hidden: bool = False
+    """Hidden pins in KiCad 10 libraries are stacked under a visible pin (extra GND/VCC pins of an IC)."""
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,29 @@ class LibSymbol:
             if f.name == name:
                 return f
         return None
+
+    @property
+    def unit_count(self) -> int:
+        """Number of units (1 for an ordinary symbol; e.g. 3 for a dual op-amp with a power unit)."""
+        units = {p.unit for p in self.pins}
+        for sub in children(self.node, "symbol"):
+            m = _UNIT_RE.match(unquote(sub[1]))
+            if m:
+                units.add(int(m.group("unit")))
+        return max(units | {1})
+
+    def unit_of(self, number: str) -> int:
+        """The unit a pin is drawn on; pins common to all units (unit 0) are drawn on unit 1."""
+        pin = self.pin(number)
+        return pin.unit if pin is not None and pin.unit else 1
+
+    def stacks(self) -> list[tuple[str, ...]]:
+        """Pin numbers that share one connection point (KiCad joins them): extra GND/VCC pins hidden under a
+        visible one, for example."""
+        at: dict[tuple, list[str]] = {}
+        for p in self.pins:
+            at.setdefault((p.unit, p.x, p.y), []).append(p.number)
+        return [tuple(v) for v in at.values() if len(v) > 1]
 
     def embedded_node(self) -> list:
         """Copy of the definition named ``<nickname>:<symbol>`` for ``lib_symbols``."""
@@ -116,10 +141,9 @@ def _parse_symbol(lib_id: str, node: list, source: Path) -> LibSymbol:
                     length=float(length[1]) if length else 0.0,
                     unit=unit,
                     body_style=style,
+                    hidden=child(pin, "hide") is not None and child(pin, "hide")[1:] == ["yes"],
                 )
             )
-    if len(units) > 1:
-        raise SymbolLibraryError(f"{lib_id}: multi-unit symbols are not supported by the PoC generator")
 
     fields: list[LibField] = []
     for prop in children(node, "property"):

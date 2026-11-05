@@ -222,8 +222,20 @@ def _snap_up(v: float, step: float = 2 * GRID) -> float:
     return round(-(-v // step) * step, 4)
 
 
-def _pin_views(sym: LibSymbol, comp, net_of: dict, rotation: int, mirror: bool = False) -> list[PinView]:
-    """A part's pins at a rotation (after an optional ``mirror y``), relative to its origin (sheet frame)."""
+def _pin_views(sym: LibSymbol, comp, net_of: dict, rotation: int, mirror: bool = False,
+               unique: bool = False) -> list[PinView]:
+    """A part's pins at a rotation (after an optional ``mirror y``), relative to its origin (sheet frame).
+
+    With ``unique``, pins stacked on one connection point count once (the visible one), since KiCad joins
+    them and one wire, label or power symbol serves them all."""
+    if unique:
+        views = _pin_views(sym, comp, net_of, rotation, mirror)
+        hidden = {p.number for p in sym.pins if p.hidden}
+        kept: dict = {}
+        for v in sorted(views, key=lambda v: v.number in hidden):
+            kept.setdefault(v.end, v)
+        keep = {id(v) for v in kept.values()}
+        return [v for v in views if id(v) in keep]
     views = []
     for pin in comp.pins:
         lib_pin = sym.pin(pin.number)
@@ -245,8 +257,8 @@ def _part_extent(sym: LibSymbol, comp, net_of: dict, power: dict[str, LibSymbol]
                  quiet: dict[str, float] | None = None, mirror: bool = False) -> Extent:
     """Space a placed part needs: body, pins, power symbols, labels (or the wires of ``quiet`` pins), fields."""
     quiet = quiet or {}
-    body = rotate_rect(body_rect(sym), rotation, mirror)
-    views = _pin_views(sym, comp, net_of, rotation, mirror)
+    body = rotate_rect(body_rect(sym, getattr(comp, "unit", 1)), rotation, mirror)
+    views = _pin_views(sym, comp, net_of, rotation, mirror, unique=True)
     texts = _field_rects(sym, comp, rotation, mirror)
     rects = [body, *(r for port in plan_ports(body, views, power, texts) for r in port.rects), *texts]
     for v in views:
@@ -301,6 +313,7 @@ def check_against_library(circuit: CircuitIR, library: SymbolLibrary) -> tuple[d
     E, W = Severity.ERROR, Severity.WARNING
     issues: list[Issue] = []
     symbols: dict[str, LibSymbol] = {}
+    net_of_pin = {(n.component_id, n.pin): net.name for net in circuit.nets for n in net.nodes}
     for comp in circuit.components:
         try:
             sym = library.get(comp.symbol_id)
@@ -325,6 +338,15 @@ def check_against_library(circuit: CircuitIR, library: SymbolLibrary) -> tuple[d
                     f"{comp.reference}: pin {pin.number} is '{lib_pin.name}' in {comp.symbol_id}, "
                     f"but the IR expects '{pin.name}'.",
                     (comp.id,), "The pin map disagrees with the symbol; verify it before generating."))
+        for stack in sym.stacks():
+            nets = {net_of_pin.get((comp.id, number)) for number in stack if number in ir_numbers}
+            if len(nets) > 1:
+                issues.append(Issue(
+                    "STACKED_PINS_DIFFER", E,
+                    f"{comp.reference}: pins {', '.join(stack)} share one connection point in {comp.symbol_id}, so "
+                    f"KiCad joins them, but the IR puts them on different nets "
+                    f"({', '.join(sorted(n or '(none)' for n in nets))}).",
+                    (comp.id,), "Put stacked pins (extra GND/VCC pins of an IC) on the same net."))
         missing = sorted(lib_numbers - ir_numbers)
         if missing:
             issues.append(Issue(
@@ -373,6 +395,43 @@ class _VirtualSymbol:
     pins: tuple[Pin, ...] = (Pin(number="1"),)
     footprint_id: str | None = None
     manufacturer_part_number: str | None = None
+
+
+@dataclass
+class _Unit:
+    """One unit of a multi-unit symbol (an op-amp channel, its power unit), drawn as its own symbol instance
+    with the part's reference. Unit 1 keeps the component id; other units get ``<id>#u<n>``."""
+
+    id: str
+    comp_id: str
+    unit: int
+    reference: str
+    value: str
+    pins: tuple[Pin, ...]
+    footprint_id: str | None = None
+    manufacturer_part_number: str | None = None
+
+
+def _units(components, symbols: dict[str, LibSymbol], page_of: dict[str, str], net_of: dict) -> list:
+    out: list = []
+    for comp in components:
+        sym = symbols[comp.id]
+        count = sym.unit_count
+        if count <= 1:
+            out.append(comp)
+            continue
+        for unit in range(1, count + 1):
+            uid = comp.id if unit == 1 else f"{comp.id}#u{unit}"
+            pins = tuple(p for p in comp.pins if sym.unit_of(p.number) == unit)
+            if uid != comp.id:
+                symbols[uid] = sym
+                page_of[uid] = page_of[comp.id]
+                for p in pins:
+                    if (comp.id, p.number) in net_of:
+                        net_of[(uid, p.number)] = net_of.pop((comp.id, p.number))
+            out.append(_Unit(uid, comp.id, unit, comp.reference, comp.value, pins, comp.footprint_id,
+                             comp.manufacturer_part_number))
+    return out
 
 
 # Parts power can come in through: a connector or battery, or for a supply also a series part from
@@ -467,7 +526,8 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
     net_of = {(n.component_id, n.pin): net.name for net in circuit.nets for n in net.nodes}
     power = _power_nets(circuit, symbols, library)
     virtual = _power_flags(circuit, symbols, library, page_of, net_of, power, warnings)
-    all_comps = [*circuit.components, *virtual]
+    drawn = _units(circuit.components, symbols, page_of, net_of)
+    all_comps = [*drawn, *virtual]
     net_nodes: dict[str, list[tuple[str, str]]] = {}
     for (comp_id, pin_number), net in net_of.items():
         net_nodes.setdefault(net, []).append((comp_id, pin_number))
@@ -547,14 +607,17 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
             sym, pl = symbols[comp.id], placements[comp.id]
             mirror = comp.id in mirrored
             views = _pin_views(sym, comp, net_of, pl.rotation, mirror)
-            body = rotate_rect(body_rect(sym), pl.rotation, mirror)
+            body = rotate_rect(body_rect(sym, getattr(comp, "unit", 1)), pl.rotation, mirror)
             texts = _field_rects(sym, comp, pl.rotation, mirror)
             router.blocks.append(shift(body, pl.x, pl.y))
             boxes += [shift(r, pl.x, pl.y) for r in (body, *texts)]
+            drawn_pins = {v.number for v in _pin_views(sym, comp, net_of, pl.rotation, mirror, unique=True)}
             for v in views:
                 x, y = r4((pl.x + v.end[0], pl.y + v.end[1]))
                 if not isinstance(comp, _VirtualSymbol):
                     anchors.append(PinAnchor(comp.reference, v.number, x, y, v.net, sheet.id))
+                if v.number not in drawn_pins:
+                    continue  # stacked under the pin that is drawn: the same point, nothing more to draw
                 router.pin_points.append((x, y))
                 if v.net is None:
                     router.add_point((x, y), f"<unconnected {comp.reference}.{v.number}>")
@@ -566,7 +629,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                 if v.net not in power:
                     terminals.setdefault(v.net, []).append(((comp.id, v.number), (x, y), v.out))
                     router.reserved[(comp.id, v.number)] = (v.net, label_rect((x, y), v.out, v.net))
-            for port in plan_ports(body, views, power, texts):
+            for port in plan_ports(body, [v for v in views if v.number in drawn_pins], power, texts):
                 port = port.moved(pl.x, pl.y)
                 ports.append((comp.id, port))
                 router.blocks.append(port.rects[0])
@@ -739,19 +802,21 @@ def _placed_symbol(comp, sym: LibSymbol, p: Placement, ids: _Ids, project_name: 
         node = sexpr.child(sym.node, name)
         return [name, node[1] if node else default]
 
+    unit = getattr(comp, "unit", 1)
+    comp_id = getattr(comp, "comp_id", comp.id)
     node: list = [
         "symbol",
         ["lib_id", q(sym.lib_id)],
         ["at", num(p.x), num(p.y), num(p.rotation)],
         *([["mirror", "y"]] if mirror else []),
-        ["unit", "1"],
+        ["unit", str(unit)],
         ["body_style", "1"],
         flag("exclude_from_sim", "no"),
         flag("in_bom", "yes"),
         flag("on_board", "yes"),
         flag("in_pos_files", "yes"),
         ["dnp", "no"],
-        ["uuid", q(ids("symbol", comp.id))],
+        ["uuid", q(ids("symbol", comp_id) if unit == 1 else ids("symbol", comp_id, f"unit{unit}"))],
     ]
 
     overrides = {"Reference": comp.reference, "Value": comp.value}
@@ -771,18 +836,23 @@ def _placed_symbol(comp, sym: LibSymbol, p: Placement, ids: _Ids, project_name: 
         node.append(_field_node(name, overrides.get(name, f.value), x, y, angle, f.hidden, effects))
 
     # Extra hidden fields for traceability back to the IR (not on generator-added flags).
-    extra = {"AICS_ID": comp.id} if trace else {}
+    extra = {"AICS_ID": comp_id} if trace else {}
     if trace and comp.manufacturer_part_number:
         extra["MPN"] = comp.manufacturer_part_number
     for name, value in extra.items():
         node.append(_field_node(name, value, p.x, p.y, 0, True, None))
 
-    for pin in sorted(comp.pins, key=lambda pin: pin.number):
-        node.append(["pin", q(pin.number), ["uuid", q(ids("pin", comp.id, pin.number))]])
+    # Every unit of a multi-unit symbol lists all of the part's pins (as KiCad saves it); a pin's uuid in
+    # the units that do not draw it is derived from the unit too, so uuids stay unique in the file.
+    own = {p.number for p in comp.pins}
+    numbers = [p.number for p in sym.pins] if unit > 1 or sym.unit_count > 1 else sorted(own)
+    for number in sorted(dict.fromkeys(numbers)):
+        uid = ids("pin", comp_id, number) if number in own else ids("pin", comp_id, f"unit{unit}", number)
+        node.append(["pin", q(number), ["uuid", q(uid)]])
     node.append([
         "instances",
         ["project", q(project_name),
-         ["path", q(instance_path), ["reference", q(comp.reference)], ["unit", "1"]]],
+         ["path", q(instance_path), ["reference", q(comp.reference)], ["unit", str(unit)]]],
     ])
     return node
 

@@ -139,6 +139,8 @@ class ResolvedPart:
     mpn: str | None = None
     description: str | None = None
     datasheet_notes: str | None = None
+    stacks: list[tuple[str, ...]] = field(default_factory=list)
+    """Pin numbers stacked on one connection point in the symbol (extra GND/VCC pins): KiCad joins them."""
 
 
 Resolver = Callable[[dict], tuple[ResolvedPart | None, str]]
@@ -326,6 +328,22 @@ def build_circuit(parts: list[ResolvedPart], connections: dict, *, project_id: s
         if key in owner:
             problems.append(f"{key[0]}.{key[1]}: no_connect인데 '{owner[key]}' Net에도 들어 있습니다.")
         no_connect.add(key)
+    # Stacked pins (an MCU's extra GND/VCC pins hidden under the visible one) are one point in KiCad: when the
+    # AI connected one of them, the others join the same net instead of counting as missing.
+    for p in parts:
+        for stack in p.stacks:
+            names = {owner[(p.ref, n)] for n in stack if (p.ref, n) in owner}
+            if len(names) > 1:
+                problems.append(f"{p.ref}.{'/'.join(stack)}: 한 점에 겹친 핀인데 서로 다른 Net({', '.join(sorted(names))})에 "
+                                "들어 있습니다. 같은 Net이어야 합니다.")
+            elif names:
+                (name,) = names
+                net = next(x for x in nets if x["name"] == name)
+                for n in stack:
+                    if (p.ref, n) not in owner:
+                        owner[(p.ref, n)] = name
+                        no_connect.discard((p.ref, n))
+                        net["nodes"].append({"component_id": p.ref.lower(), "pin": n})
     for p in parts:
         for n, nm, etype in p.pins:
             if (p.ref, n) not in owner and (p.ref, n) not in no_connect:
