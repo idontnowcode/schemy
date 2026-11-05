@@ -1,15 +1,16 @@
-# AI Circuit Studio — 앱 개발 기획서 v1.6
+# AI Circuit Studio — 앱 개발 기획서 v1.7
 
 - 작성일: 2026-11-04
 - 목적: Claude Code에서 개발 착수 가능한 PRD + 기술 설계 + 구현 순서
 - 대상: Windows 우선 로컬 데스크톱 앱
-- 상태: v1.6. 실제 부품 선정과 회로 검증은 별도 승인 필요.
+- 상태: v1.7. Phase 0~4 완료. 실제 부품 선정과 회로 검증은 별도 승인 필요.
 - v1.1 개정 취지: AI EDA Agent의 제한된 도구 실행, 검증-수정 반복, 확장 가능한 PCB/FW 데이터 구조 추가.
 - v1.2 개정 취지: v1.1 검토 결과 반영. 승인 경로 단일화, 상태 3축 분리, Agent 상태 머신 보완, 승인 범위 정의, 격리 작업공간 정의, 단계 순서 정리, Phase 0 결과 반영.
 - v1.3 개정 취지: 사용자 요청 반영. 프로젝트→보드→페이지 구조, PDF 회로도 카피(Markdown 가져오기 + AI 변환 옵션), 보유 자재 우선 사용, AI 공급자 결정(Gemini 기본, 옵션), 제품 비전(하나의 입력 창에서 회로도·아트웍·펌웨어).
 - v1.4 개정 취지: 사용자 요청 반영. 제조사가 확실한 부품의 데이터시트를 자동으로 받아 회로 분석(핀맵·정격·외부 부품)에 쓰고, 이후 회로 작성의 근거로 쓴다.
 - v1.5 개정 취지: Phase 2 완료. 사용자 목표 "요구사항 적기 → AI가 회로도 자동 작성·검토"를 제안(proposal) 승인 경로 위에 구현. AI 설계 회로가 KiCad 검사를 통과하도록 생성기 항목 일부(no-connect, PWR_FLAG, 파생 심볼)를 Phase 3에서 앞당김.
 - v1.6 개정 취지: 사용자 요청 반영. AI가 쓰는 글은 한국어, 검토 의견을 반영한 수정안, 읽기 쉬운 회로도(연결 기반 블록 배치, 전원 심볼, 부품 사이 직접 배선, 커넥터 좌우 반전), AI 공급자에 Claude 추가(API 키 또는 Anthropic CLI 로그인).
+- v1.7 개정 취지: Phase 3(다중 유닛·겹친 핀, 검토된 템플릿, 엔지니어 검토 기록)과 Phase 4(제한된 AI EDA Agent) 완료. 템플릿 출처·책임 정책 결정(ADR-007), Agent 설계 결정(ADR-008).
 - 변경 원칙: v1.0의 Phase 0 및 기존 MVP 범위를 보존하고 단계적 확장.
 
 ## 1. 제품 목표
@@ -67,11 +68,11 @@
 | FR-08 | ERC·Netlist·SVG 결과 표시 | P0 | 실행 결과와 오류를 UI에서 확인 | 1 |
 | FR-09 | 변경 diff·버전 이력 | P1 | 승인/취소/롤백 가능 | 1(이력), 2(diff·승인) ✅ |
 | FR-10 | BOM CSV | P1 | ref/value/MPN/footprint 포함 | 1 |
-| FR-11 | 검증 상태 추적 | P0 | 상태 3축(10.1절) 구분 표시 | 1 |
+| FR-11 | 검증 상태 추적 | P0 | 상태 3축(10.1절) 구분 표시. (v1.7) 엔지니어링 검토 축은 검토 기록에서 계산 | 1, 3 ✅ |
 | FR-12 | 데이터시트 수집·첨부 | P1 | (v1.4) KiCad 심볼 링크로 받기 또는 직접 올리기. PDF 본문에서 품번 확인, 출처 URL·해시 기록. 워크스페이스 공통 라이브러리 | 1.6 ✅ |
-| FR-13 | Agent 작업 계획/도구 호출 기록 | P1 | 입력·결과·시각·revision 연계 | 4 |
-| FR-14 | 제한된 EDA 도구 실행 | P1 | 허용된 명령만 실행, 작업별 타임아웃 | 4 |
-| FR-15 | 자동 재검증 루프 | P1 | 제한 횟수 내 수정 제안·재검증·보고 | 4 |
+| FR-13 | Agent 작업 계획/도구 호출 기록 | P1 | 입력·결과·시각·revision 연계 | 4 ✅ |
+| FR-14 | 제한된 EDA 도구 실행 | P1 | 허용된 명령만 실행, 작업별 타임아웃 | 4 ✅ |
+| FR-15 | 자동 재검증 루프 | P1 | 제한 횟수 내 수정 제안·재검증·보고 | 4 ✅ |
 | FR-16 | 승인 게이트 | P0 | 승인 없는 원본 덮어쓰기·제조 산출물 확정 금지. 승인 경로는 하나 | 2 ✅ |
 | FR-17 | PCB/FW 확장용 아티팩트 참조 | P2 | 회로 revision과 결과 파일 연결 | 1(스키마), 5 |
 | FR-18 | 여러 보드·여러 페이지 | P0 | 프로젝트에 보드 여러 개, 보드마다 페이지 여러 장. 페이지를 나눠도 Netlist 동일 | 1.5 ✅ |
@@ -227,6 +228,7 @@ AI-Circuit-Studio/
 - `POST /projects/{id}/proposals` : AI 설계 제안 (적용하지 않음, Phase 2)
 - `POST /projects/{id}/proposals/{proposal_id}/approve|reject` : **유일한 승인 경로** (Phase 2)
 > **(v1.5)** 구현: `GET|POST …/boards/{board}/proposals`, `GET …/proposals/{id}`, `POST …/proposals/{id}/check|approve|reject`, `GET …/proposals/{id}/files/{name}`. AI: `GET|PUT /projects/{id}/requirements/spec`, `POST /projects/{id}/requirements/structure`(job), `GET …/boards/{board}/ai/design/preview`, `POST …/ai/design`(job), `POST …/ai/review`(job), `GET …/ai/review`, `POST …/ai/revise`(job).
+> **(v1.7)** 구현: 템플릿 `GET /templates`, `GET /templates/{id}`, `POST …/boards/{board}/templates/{id}`(제안 생성). 검토 `GET|POST …/boards/{board}/reviews`, `GET …/reviews/checklist`. Agent `GET|POST …/boards/{board}/agent-runs`, `GET …/agent-runs/{id}`(기록 포함), `POST …/agent-runs/{id}/approve-scope`, `POST …/agent-runs/{id}/cancel`, `GET /agent/tools`.
 - `POST /projects/{id}/agent-runs` : 격리된 Agent 실행 생성 (기본 dry-run, Phase 4). 결과는 proposal로 제출된다.
 - `GET /projects/{id}/agent-runs/{run_id}` : 계획, 도구 실행, 로그, 검증 결과
 - `POST /projects/{id}/agent-runs/{run_id}/cancel` : 실행 취소
@@ -258,6 +260,7 @@ PROPOSED_PLAN → SCOPE_APPROVED → SANDBOX_EXECUTION → VALIDATION ─┬─�
 어느 단계에서든: → CANCELLED (사용자 취소) / FAILED (상한 초과·오류) / STALE (base revision 변경)
 ```
 - `DRAFT_REQUIREMENTS`는 Agent 실행이 아니라 프로젝트 단계이므로 상태 머신에서 뺐다.
+- **(v1.7)** 구현에는 계획을 만드는 동안의 일시 상태 `PLANNING`이 앞에 있다. 도구 호출은 단계마다 JSON 행동 하나(공급자 중립 구조화 출력)이고, 범위 밖 변경이 필요하면 `request_scope_change`로 PROPOSED_PLAN에 돌아가 재승인을 받는다(ADR-008).
 - 재시도: VALIDATION 실패 시 SANDBOX_EXECUTION으로 돌아가며 동일 실행에서 최대 2회. 재시도 중 범위 밖 연산이 필요하면 SCOPE_APPROVED 이전으로 돌아가 재승인을 받는다.
 - `REVIEW_REQUIRED`에서 run은 proposal을 제출하고, 사용자의 approve/reject가 `COMMITTED`/`REJECTED`를 결정한다.
 - `STALE`: 실행 중 원본 revision이 바뀌면 제출 불가. 새 base에서 다시 실행한다.
@@ -268,7 +271,7 @@ PROPOSED_PLAN → SCOPE_APPROVED → SANDBOX_EXECUTION → VALIDATION ─┬─�
   - 각 도구의 입력은 Pydantic 스키마로 검증하고, 실행마다 타임아웃을 둔다.
 - 원본 삭제, 외부 프로그램 설치, 네트워크 업로드, Gerber 릴리스는 별도 명시적 승인 없이는 불가하다.
 - **격리 작업공간의 정의:** OS 수준 보안 샌드박스가 아니라 구조적 격리다. Agent에게는 셸이 없고, Gateway 도구는 앱의 Python 함수뿐이며, 쓰기 경로는 run의 `workspace/`로 제한되고, 원본 반영은 Revision Service만 한다.
-- **비용 상한:** 실행당 LLM 호출 수, 토큰, 경과 시간, 추정 비용의 상한을 설정값으로 두고, 넘으면 `FAILED`(사유: limit_exceeded)로 끝낸다. 기본값은 Phase 4에서 정한다.
+- **비용 상한:** 실행당 LLM 호출 수, 토큰, 경과 시간, 추정 비용의 상한을 설정값으로 두고, 넘으면 `FAILED`(사유: limit_exceeded)로 끝낸다. **(v1.7) 기본값:** LLM 호출 12회, 토큰 300,000, 900초, 도구 호출 30회, 재시도 2회. 공급자마다 단가가 달라 금액 상한 대신 토큰 상한을 둔다(ADR-008).
 - **프롬프트 인젝션:** 로그·데이터시트의 명령형 텍스트는 프롬프트로 막을 수 있다고 가정하지 않는다. 도구 권한 제한, 비신뢰 입력 표시, 코드가 계산한 diff와 승인 게이트로 구조적으로 막는다.
 
 ## 10. 검증 전략
@@ -343,16 +346,20 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - **(v1.5) 구현:** 요구사항 탭 → (AI 요구사항 정리) → AI 회로 설계(부품 계획 → KiCad 심볼·핀 확정 → 연결 → 코드 검사·최대 2회 수정) → proposal → 격리 검사(IR 규칙, KiCad ERC·Netlist, 데이터시트) → AI 검토 → 승인 → revision·재생성. AI 검토 의견으로 수정안 만들기. PDF 가져오기(AI)도 proposal로.
 - 결과: `docs/phase2-report.md`, ADR-006.
 
-### Phase 3 — Engineering Templates (4~8주 목표)
+### Phase 3 — Engineering Templates (완료: 2026-11-05)
 - 생성기 확장: 전원 심볼·PWR_FLAG, 다중 유닛 심볼, no-connect 표시(MCU 회로의 전제). **(v1.5)** no-connect, PWR_FLAG 자동 추가(커넥터로 전원이 들어오는 Net), 파생 심볼(`extends`)은 Phase 2에서 완료. **(v1.6)** 전원 심볼, 부품 사이 직접 배선, 연결 기반 블록 배치, 커넥터 좌우 반전도 완료(ADR-001 갱신). 남은 것: 다중 유닛 심볼(OP앰프, 일부 MCU), 사람이 손본 배치를 다음 생성에도 유지하는 기능.
 - 전원부, MCU 최소 회로, CAN 회로 템플릿 확장.
 - 실제 데이터시트 기반 핀맵/정격 검토 프로세스. **(v1.4)** 자동 사전 점검(Phase 1.6) 위에 엔지니어 검토 기록(누가, 어느 데이터시트 개정, 어느 쪽)을 더한다.
 - Gate: 각 템플릿에 근거와 검증 체크리스트 첨부.
+- **(v1.7) 구현:** 다중 유닛 심볼(유닛별 배치), 겹친 숨은 핀(같은 Net 강제; KiCad 10 라이브러리에는 숨은 power_in 핀이 없음), 템플릿 4종(AMS1117 LDO, LM2596 벅, SN65HVD230 CAN, ATmega328P 최소 회로), 템플릿 넣기(제안), AI 설계의 템플릿 우선 사용과 부품 출처(origin) 표시, 엔지니어 검토 기록. 쪽 번호는 원문을 열 수 없어 검토 기록에서 채운다(ADR-007).
+- 결과: `docs/phase3-report.md`, ADR-007.
 
-### Phase 4 — Bounded AI EDA Agent (3~6주 목표)
+### Phase 4 — Bounded AI EDA Agent (완료: 2026-11-05)
 - 2a의 proposal·revision·격리 작업공간 위에 EDA Tool Gateway, 실행 계획, 상태 머신, 비용 상한, 작업 로그를 구현.
 - AI가 기존 LED 회로의 저항값을 변경하도록 제안하고, 승인된 범위 내에서 재생성 및 ERC 수행.
 - Gate: 원본 무단 변경 0건, 실패 시 복구, 변경 전후 Netlist/부품값 차이 보고.
+- **(v1.7) 구현:** Tool Gateway(허용 도구 11개 + finish·request_scope_change, Pydantic 인자, 시간 제한, workspace 제한), 상태 머신, 범위 승인과 코드 강제, 코드 검증과 재시도 2회, 비용 상한, JSONL 기록(키 가림), 전후 보고(IR diff + KiCad Netlist 비교), 「Agent」 탭. LED R1 330→1k 시나리오를 KiCad 10.0.8로 확인.
+- 결과: `docs/phase4-report.md`, ADR-008.
 
 ### Phase 5 — 아트웍·펌웨어와 통합 입력 창 확장 (장기, MVP 제외)
 - 제품 비전(1장): 하나의 입력 창에서 회로도·아트웍(PCB)·펌웨어.
@@ -441,9 +448,15 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 | 여러 보드 지원 | **결정: 프로젝트 → 보드 → 페이지** (사용자 결정, 2026-11-04) |
 | 데이터시트 출처 | **결정: KiCad 심볼 링크 + 직접 올리기** (사용자 결정, 2026-11-04). 유통사 API(DigiKey·Mouser)와 AI 검색은 쓰지 않음. 필요해지면 키를 받아 추가 (ADR-005) |
 | KiCad 생성 어댑터 최종 채택 | **결정: 직접 생성기** (ADR-001) |
-| 템플릿의 검증/승인 책임과 출처 관리 정책 | 미정. Phase 3 시작 전 결정 필요 |
+| 템플릿의 검증/승인 책임과 출처 관리 정책 | **결정: 템플릿은 저장소 코드(검토·버전), 근거는 제조사 데이터시트 응용 회로의 절, 쪽 번호는 검토자가 기록, 템플릿 부품은 needs_review로 시작, verified는 엔지니어 검토 기록만** (ADR-007) |
+| Agent 도구 호출 방식과 상한 | **결정: 단계마다 JSON 행동 하나(공급자 중립), 기본 상한 LLM 12회·토큰 300,000·900초·도구 30회·재시도 2회** (ADR-008) |
 
 ## 19. 변경 이력
+### v1.7 (2026-11-05)
+- Phase 3 완료: 다중 유닛 심볼, 겹친 숨은 핀, 검토된 템플릿 4종, 템플릿 넣기(제안), AI 설계의 템플릿 우선, 부품 출처(IR 0.4.0 `Component.origin`), 엔지니어 검토 기록(상태 3축의 세 번째 축).
+- Phase 4 완료: 제한된 AI EDA Agent(FR-13·14·15). 9.1절에 PLANNING 일시 상태와 범위 재승인 행동 추가, 비용 상한 기본값 확정.
+- 18장: 템플릿 정책·Agent 방식 결정.
+
 ### v1.6 (2026-11-04)
 - AI가 쓰는 사람용 글(설계 요약, 검토 의견, 요구사항 정리, 데이터시트 요약)을 한국어로.
 - 검토 반영 수정안: 반영할 의견 고르기, 직접 요청, 이전 제안 대비 변경 표시(데스크톱 앱의 prompt() 제거).
@@ -485,14 +498,12 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - 유지: Circuit IR 단일 기준 원본, Markdown 문서화, KiCad 생성 PoC 우선, 단계별 Gate, ERC와 엔지니어링 검증 구분.
 - 외부 사례: 사용자가 공유한 AI Times 기사(https://www.aitimes.com/news/articleView.html?idxno=216989) 및 관련 AI 기반 물리적 엔지니어링 워크플로의 아이디어를 참고. 특정 모델 성능이나 실물 제작 성과는 본 프로젝트에서 검증된 사실로 간주하지 않음.
 
-## 20. Claude Code 후속 개발 프롬프트 (Phase 2 완료 후 사용)
+## 20. Claude Code 후속 개발 프롬프트 (Phase 4 완료 후 사용)
 ```text
-docs/AI_Circuit_Studio_Development_Plan.md(v1.6)를 읽고 현재 저장소의 Phase 2 완료 여부를 실제 파일과 테스트로 검증하세요.
-완료된 경우 Phase 3(엔지니어링 템플릿)을 진행하세요.
-1. 생성기에 다중 유닛 심볼을 지원하고(유닛별 배치, 숨은 전원 핀), KiCad 10에서 ERC·Netlist·재저장 무손실을 확인하세요.
-2. 전원부(LDO, 벅), MCU 최소 회로, CAN 회로를 검토된 템플릿으로 만들고, 각 템플릿에 데이터시트 근거(쪽 번호)와 검증 체크리스트를 붙이세요.
-3. AI 설계가 템플릿을 우선 쓰도록 하고, 템플릿을 쓴 부분과 AI가 새로 만든 부분을 제안 화면에서 구분해 보여 주세요.
-4. 엔지니어 검토 기록(누가, 어느 데이터시트 개정, 어느 쪽, 무엇을 확인)을 보드 revision에 남기는 화면을 만드세요. 이것만이 「엔지니어링 검토」 상태를 바꿉니다.
-5. 실제 KiCad CLI 옵션은 로컬 설치 버전에서 확인하고, 검증되지 않은 동작은 구현 완료로 보고하지 마세요.
-Agent(Phase 4), PCB 자동 설계, 펌웨어 생성은 시작하지 마세요.
+docs/AI_Circuit_Studio_Development_Plan.md(v1.7)를 읽고 Phase 3·4 완료 여부를 실제 파일과 테스트로 검증하세요.
+그다음은 Phase 5 착수 전 준비입니다. 아래 순서로 하되 각 단계는 사용자 확인 뒤 진행하세요.
+1. 실제 AI(Gemini/Claude)로 AI 설계·Agent를 돌려 성공률·단계 수·토큰을 기록하고, 프롬프트와 상한을 조정하세요(가짜 AI 결과를 성능으로 보고하지 마세요).
+2. 템플릿의 데이터시트 원문을 확인해 쪽 번호와 값을 검토 기록으로 남기고, 템플릿을 v2로 올리세요(쪽 번호를 추측하지 마세요).
+3. 사람이 KiCad에서 옮긴 배치를 다음 생성에 유지하는 기능(외부 수정 가져오기의 첫 단계)을 설계하세요.
+4. Phase 5(PCB·펌웨어)는 각 기능의 검증 방법을 먼저 정한 ADR 없이 구현하지 마세요.
 ```

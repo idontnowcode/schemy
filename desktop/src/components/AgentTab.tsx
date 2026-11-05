@@ -123,7 +123,7 @@ export function AgentTab({ projectId, boardId, revision, onOpenProposal, onChang
   };
 
   return (
-    <div className="requirements-layout">
+    <div className="agent-layout">
       <div className="panel">
         <div className="card">
           <h3>AI Agent에게 변경 요청</h3>
@@ -339,8 +339,7 @@ function RunDetail({
             <thead>
               <tr>
                 <th>#</th>
-                <th>도구</th>
-                <th>이유</th>
+                <th>도구 · 이유</th>
                 <th>결과</th>
                 <th>초</th>
               </tr>
@@ -349,8 +348,10 @@ function RunDetail({
               {tools.map((e, i) => (
                 <tr key={i}>
                   <td>{e.step}</td>
-                  <td className="small">{e.tool}</td>
-                  <td className="small">{e.thought}</td>
+                  <td className="small">
+                    <code>{e.tool}</code>
+                    {e.thought && <div className="muted">{e.thought}</div>}
+                  </td>
                   <td className="small">{e.ok ? <span className="ok-text">성공</span> : <span className="warn-text">{e.error?.code}: {e.error?.message}</span>}</td>
                   <td className="small">{e.seconds}</td>
                 </tr>
