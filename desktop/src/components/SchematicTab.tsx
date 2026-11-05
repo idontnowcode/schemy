@@ -13,7 +13,9 @@ interface Props {
   revision: number | null;
   outputs: OutputsStatus | null;
   system: SystemInfo | null;
+  fixedParts?: number;
   onChanged(): Promise<unknown>;
+  onOpenProposal?(id: string): void;
 }
 
 const ZOOMS = [
@@ -22,8 +24,27 @@ const ZOOMS = [
   { id: "2", label: "200%" },
 ] as const;
 
-export function SchematicTab({ projectId, board, revision, outputs, system, onChanged }: Props) {
+export function SchematicTab({ projectId, board, revision, outputs, system, fixedParts = 0, onChanged, onOpenProposal }: Props) {
   const [job, setJob] = useState<Job | null>(null);
+  const [layoutMessage, setLayoutMessage] = useState<string | null>(null);
+  const [layoutProposal, setLayoutProposal] = useState<string | null>(null);
+  const [layoutBusy, setLayoutBusy] = useState(false);
+
+  const layoutAction = async (action: "import" | "reset") => {
+    setLayoutBusy(true);
+    setLayoutMessage(null);
+    setLayoutProposal(null);
+    try {
+      const r = action === "import" ? await api.importKicadLayout(projectId, board.id) : await api.resetLayout(projectId, board.id);
+      setLayoutProposal(r.proposal.id);
+      setLayoutMessage(`제안 #${Number(r.proposal.id)}을 만들었습니다. 승인하면 반영됩니다.`);
+      await onChanged();
+    } catch (e) {
+      setLayoutMessage(errorText(e));
+    } finally {
+      setLayoutBusy(false);
+    }
+  };
   const [failure, setFailure] = useState<ApiErrorBody | string | null>(null);
   const [svgUrl, setSvgUrl] = useState<string | null>(null);
   const [zoom, setZoom] = useState<(typeof ZOOMS)[number]["id"]>("fit");
@@ -124,7 +145,8 @@ export function SchematicTab({ projectId, board, revision, outputs, system, onCh
             )}
             {outputs.externally_modified.length > 0 && (
               <div className="banner banner-warn">
-                앱 밖에서 수정됨: {outputs.externally_modified.join(", ")}. 다시 생성하면 덮어씁니다.
+                앱 밖에서 수정됨: {outputs.externally_modified.join(", ")}. 다시 생성하면 덮어씁니다. KiCad에서 부품을 옮긴 것이라면
+                아래 「KiCad 배치」에서 가져와 회로에 반영하세요.
               </div>
             )}
             {outputs.missing.length > 0 && <div className="banner banner-warn">없어진 파일: {outputs.missing.join(", ")}</div>}
@@ -173,6 +195,32 @@ export function SchematicTab({ projectId, board, revision, outputs, system, onCh
           </div>
         )}
 
+        {outputs && manifest && (
+          <div className="card">
+            <h3>KiCad 배치</h3>
+            <p className="small">
+              KiCad에서 부품을 옮기고 저장한 뒤 가져오면, 승인 후 다음 생성부터 그 배치(위치·회전·반전)를 유지합니다. 배선·라벨·전원
+              심볼은 다시 그리고, KiCad에서 바꾼 연결이나 추가한 부품은 가져오지 않습니다.
+            </p>
+            <p className="muted small">고정된 부품: {fixedParts}개 {fixedParts === 0 && "(모두 자동 배치)"}</p>
+            <div className="toolbar">
+              <button onClick={() => layoutAction("import")} disabled={layoutBusy || running}>
+                KiCad 배치 가져오기 (제안)
+              </button>
+              {fixedParts > 0 && (
+                <button className="ghost" onClick={() => layoutAction("reset")} disabled={layoutBusy || running}>
+                  자동 배치로 되돌리기
+                </button>
+              )}
+            </div>
+            {layoutMessage && <p className="small">{layoutMessage}</p>}
+            {layoutProposal && onOpenProposal && (
+              <button className="ghost" onClick={() => onOpenProposal(layoutProposal)}>
+                제안 #{Number(layoutProposal)} 열기
+              </button>
+            )}
+          </div>
+        )}
         {outputs && manifest && (
           <div className="card">
             <h3>산출물</h3>

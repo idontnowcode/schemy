@@ -18,10 +18,10 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-SCHEMA_VERSION = "0.5.0"
+SCHEMA_VERSION = "0.6.0"
 """0.2.0 added optional ``sheets`` (pages); 0.3.0 added optional ``Component.manufacturer`` and
-``Pin.no_connect``; 0.4.0 added optional ``Component.origin``; 0.5.0 added optional ``notes``. Older
-documents are still valid."""
+``Pin.no_connect``; 0.4.0 added optional ``Component.origin``; 0.5.0 added optional ``notes``; 0.6.0 added
+optional ``Placement.mirror``. Older documents are still valid."""
 
 StableId = Annotated[
     str,
@@ -125,6 +125,8 @@ class Placement(_Model):
     x: float
     y: float
     rotation: int = Field(default=0, description="Counter-clockwise degrees: 0/90/180/270.")
+    mirror: bool = Field(default=False, description="Mirrored left-right on the sheet after the rotation (KiCad "
+                         "'mirror y'). KiCad's 'mirror x' is the same as this plus a 180 degree turn.")
 
 
 class Sheet(_Model):

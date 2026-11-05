@@ -312,6 +312,12 @@
           "description": "Counter-clockwise degrees: 0/90/180/270.",
           "title": "Rotation",
           "type": "integer"
+        },
+        "mirror": {
+          "default": false,
+          "description": "Mirrored left-right on the sheet after the rotation (KiCad 'mirror y'). KiCad's 'mirror x' is the same as this plus a 180 degree turn.",
+          "title": "Mirror",
+          "type": "boolean"
         }
       },
       "required": [
@@ -395,7 +401,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "default": "0.5.0",
+      "default": "0.6.0",
       "title": "Schema Version",
       "type": "string"
     },

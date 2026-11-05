@@ -221,6 +221,10 @@ export const api = {
     request<{ revision: number | null; items: ChecklistSuggestion[] }>("GET", `${board(p, b)}/reviews/checklist`),
   addReview: (p: string, b: string, body: Omit<EngineeringReview, "id" | "reviewed_at" | "covered">) =>
     request<{ review: EngineeringReview; status: BoardReviewStatus }>("POST", `${board(p, b)}/reviews`, body),
+  importKicadLayout: (p: string, b: string) =>
+    request<{ proposal: Proposal; job: Job; unknown: string[]; extra_units: string[] }>(
+      "POST", `${board(p, b)}/layout/import-kicad`),
+  resetLayout: (p: string, b: string) => request<{ proposal: Proposal; job: Job }>("POST", `${board(p, b)}/layout/reset`),
   placeTemplate: (p: string, b: string, id: string, params: Record<string, string>) =>
     request<{ proposal: Proposal; job: Job }>("POST", `${board(p, b)}/templates/${encodeURIComponent(id)}`, { params }),
   claudeLogin: () => request<ClaudeLoginStatus>("GET", "/ai/claude/login"),

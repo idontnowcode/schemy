@@ -212,7 +212,9 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onP
             revision={data.revision}
             outputs={data.outputs}
             system={system}
+            fixedParts={Object.keys(data.circuit?.layout ?? {}).length}
             onChanged={afterChange}
+            onOpenProposal={openProposal}
           />
         )}
         {tab === "materials" && (

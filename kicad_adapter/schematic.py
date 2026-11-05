@@ -576,7 +576,8 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
     for index, sheet in enumerate(sheets):
         comps = [c for c in all_comps if page_of[c.id] == sheet.id]
         fixed = {c.id: (circuit.layout[c.id],
-                        _part_extent(symbols[c.id], c, net_of, power, circuit.layout[c.id].rotation))
+                        _part_extent(symbols[c.id], c, net_of, power, circuit.layout[c.id].rotation,
+                                     mirror=circuit.layout[c.id].mirror))
                  for c in comps if c.id in circuit.layout}
         free = [c for c in comps if c.id not in circuit.layout]
         by_id = {c.id: c for c in free}
@@ -606,6 +607,8 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
         for c in comps:
             if c.id in circuit.layout:
                 placements[c.id] = circuit.layout[c.id]
+                if circuit.layout[c.id].mirror:
+                    mirrored.add(c.id)
         for g in groups:
             gx, gy = origins[f"group:{g.key}"]
             for member, (dx, dy, rot) in g.offsets.items():

@@ -42,6 +42,7 @@ from .routes_ai import build_ai_router
 from .routes_datasheets import build_datasheet_router
 from .routes_design import build_design_router
 from .routes_inventory import build_inventory_router
+from .routes_layout import build_layout_router
 from .routes_proposals import ProposalService, build_proposal_router
 from .routes_reviews import build_review_router
 from .routes_templates import build_template_router
@@ -388,6 +389,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.proposal_service = proposal_service
     app.include_router(build_ai_router(store, jobs, inventory, settings, pin_lookup, datasheets, proposal_service))
     app.include_router(build_template_router(store, proposal_service, pin_lookup))
+    app.include_router(build_layout_router(store, proposal_service))
     reviews = ReviewStore(store)
     app.state.reviews = reviews
     app.include_router(build_review_router(store, reviews))

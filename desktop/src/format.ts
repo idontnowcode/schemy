@@ -274,6 +274,7 @@ export function proposalSourceLabel(source: string): string {
       ai_pdf_import: "PDF 가져오기 (AI)",
       template: "템플릿",
       agent: "AI Agent",
+      kicad_layout: "KiCad 배치",
     }[source] ?? source
   );
 }

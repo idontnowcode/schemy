@@ -96,8 +96,10 @@ def rotate_rect(rect: Rect, rotation: int, mirror: bool = False) -> Rect:
 
 
 def transform(x: float, y: float, rotation: int, mirror: bool = False) -> tuple[float, float]:
-    """A symbol-frame point on the sheet: KiCad mirrors first (``mirror y``: x -> -x), then rotates."""
-    return rotate(-x if mirror else x, y, rotation)
+    """A symbol-frame point on the sheet: KiCad turns first, then mirrors (``mirror y``: x -> -x on the sheet).
+    The order matters only for parts both turned 90/270 degrees and mirrored (checked against KiCad 10.0.8)."""
+    rx, ry = rotate(x, y, rotation)
+    return (-rx if mirror else rx), ry
 
 
 def transform_dir(d: Dir, rotation: int, mirror: bool = False) -> Dir:
