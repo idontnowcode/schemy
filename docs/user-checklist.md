@@ -13,7 +13,7 @@ GitHub Actions(windows-latest)에서 설치 파일을 만들었습니다. 같은
 
 ### 받기
 - [ ] GitHub 저장소 → **Actions** → **Windows installer** → 맨 위(가장 최근) 실행 → 아래쪽 **Artifacts**의 `AI-Circuit-Studio-Setup`을 받습니다.
-  - 이번 작업으로 만든 실행: https://github.com/idontnowcode/schemy/actions/runs/42023214503
+  - 가장 최근 실행(ChatGPT 로그인·데이터시트 찾기 포함): https://github.com/idontnowcode/schemy/actions/runs/42058431083
   - zip을 풀면 `AI-Circuit-Studio-Setup-0.1.0.exe`가 있습니다. Artifacts는 90일 뒤 지워집니다.
 
 ### 설치와 확인
