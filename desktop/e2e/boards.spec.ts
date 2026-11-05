@@ -93,6 +93,12 @@ test("AI buttons stay off until AI is enabled with a key", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Claude 연결" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Claude 로그인" })).toBeDisabled();
   await expect(page.getByText("Anthropic CLI(`ant`)가 필요합니다", { exact: false })).toBeVisible();
+  // ChatGPT: the user's own account, no API key field.
+  await page.getByRole("radio", { name: "OpenAI ChatGPT (내 계정)" }).click();
+  await expect(page.getByLabel("AI 모델")).toHaveValue("gpt-6.1-sol");
+  await expect(page.getByRole("heading", { name: "ChatGPT 계정" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "ChatGPT로 계속하기" })).toBeEnabled();
+  await expect(page.getByLabel("Gemini API 키")).toHaveCount(0);
   await page.getByRole("radio", { name: "Google Gemini API" }).click();
   await expect(page.getByLabel("AI 모델")).toHaveValue("gemini-flash-latest");
 });

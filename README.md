@@ -39,7 +39,7 @@
 - **KiCad 생성과 자동 검사.** 보드마다 `.kicad_pro`와 페이지별 `.kicad_sch`를 만들고 ERC, Netlist ↔ IR 비교, SVG 미리보기를 실행합니다. 같은 입력이면 같은 파일이 나옵니다.
 - **PDF 회로도 카피.**
   - 1단계(AI 없음): 코파일럿 등으로 PDF를 "회로도 MD v0.1"로 옮겨 적고([프롬프트](docs/prompts/pdf-schematic-to-markdown.md)), **회로도 MD 가져오기**로 넣습니다.
-  - 2단계(선택): 설정에서 AI를 켜면 **PDF 가져오기 (AI)**가 Gemini 또는 Claude로 옮겨 적은 뒤 1단계와 같은 규칙으로 가져옵니다.
+  - 2단계(선택): 설정에서 AI를 켜면 **PDF 가져오기 (AI)**가 고른 AI(Gemini, Claude, ChatGPT)로 옮겨 적은 뒤 1단계와 같은 규칙으로 가져옵니다.
   - 어느 쪽이든 핀 번호는 KiCad 라이브러리로만 정하고, 결과는 편집기에서 검토한 뒤 저장해야 반영됩니다.
 - **보유 자재 우선 사용.** **보유 자재** 화면에 자재 목록(CSV/XLSX)을 올리면, 각 보드의 **자재** 탭에서 부품마다 보유/대체 가능/미보유를 판정하고 재고를 확인합니다. **보유 자재 적용**은 제조사 품번과 풋프린트를 새 revision으로 저장합니다. AI를 켜면 보유 목록 안에서 대체 자재를 추천받을 수 있습니다.
 - **데이터시트.** 제조사·품번이 확실한 부품(또는 부품 전용 KiCad 심볼)은 보드의 **데이터시트** 탭에서 데이터시트를 받습니다.
@@ -92,13 +92,18 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1
 
 ### AI 기능 켜기 (선택)
 
-앱의 **설정**에서 AI 공급자를 고릅니다: **Google Gemini API**(기본) 또는 **Anthropic Claude API**.
+앱의 **설정**에서 AI 공급자를 고릅니다: **Google Gemini API**(기본), **Anthropic Claude API**, **OpenAI ChatGPT(내 계정)**.
 
 - **Gemini**: [Google AI Studio](https://aistudio.google.com/)에서 API 키를 발급해 설정에 저장합니다. 기본 모델은 `gemini-flash-latest`입니다.
 - **Claude**: 두 가지 방법이 있습니다. 기본 모델은 `claude-opus-5-5`입니다.
   - **로그인**: [Anthropic CLI(`ant`)](https://github.com/anthropics/anthropic-cli/releases)를 설치해 PATH에 두고(또는 `AICS_ANT_CLI`에 경로 지정) 설정의 **Claude 로그인**을 누르면 브라우저에서 Claude Console 계정으로 로그인합니다. 터미널에서 `ant auth login`을 해도 됩니다. 토큰은 Anthropic CLI 폴더에 저장되고, 앱은 그 토큰을 읽지 않습니다(공식 `anthropic` SDK가 사용).
   - **API 키**: [Claude Console](https://console.anthropic.com/)에서 발급한 키를 설정에 저장합니다.
   - 사용량은 Console 계정의 API 크레딧으로 과금됩니다. claude.ai 구독(Pro/Max) 로그인은 Anthropic 정책상 다른 앱에서 쓸 수 없습니다. 환경 변수 `ANTHROPIC_API_KEY`가 있으면 로그인보다 우선합니다.
+- **ChatGPT**: API 키 없이 **내 ChatGPT 계정**으로 로그인합니다(OpenAI의 Sign in with ChatGPT). 기본 모델은 `gpt-6.1-sol`입니다.
+  - 설정의 **ChatGPT로 계속하기**를 누르면 브라우저가 열립니다. 처음에는 이 앱을 등록하고 「ChatGPT 요금제 사용」을 허용합니다. 브라우저는 `http://127.0.0.1:1455/auth/callback`으로 앱에 돌아옵니다.
+  - 사용량은 그 계정의 ChatGPT 요금제(Plus·Pro 등)에서 차감되고, 한도는 ChatGPT 설정 → 사용량에서 봅니다. 한도에 닿으면 AI 요청이 멈출 뿐 다른 결제로 넘어가지 않습니다.
+  - 로그인 정보는 사용자 폴더의 `chatgpt.json`(Windows `%APPDATA%\AI Circuit Studio`, 소유자만 읽기)에만 저장됩니다. 프로젝트 파일·기록·로그에는 남지 않습니다. 로그아웃하면 OpenAI 쪽 토큰도 폐기합니다. 계정을 바꾸려면 **다른 계정으로 바꾸기**를 누릅니다.
+  - OpenAI가 미리보기로 내놓은 기능이라 형식이나 제한이 바뀔 수 있습니다.
 
 키는 Windows 자격 증명 관리자(macOS 키체인)에만 저장되고, 프로젝트 파일·로그에는 남지 않습니다. 보안 저장소를 쓸 수 없는 환경에서는 환경 변수 `GEMINI_API_KEY` / `ANTHROPIC_API_KEY`로 지정하고 앱을 다시 시작합니다. 그다음 **AI 기능 사용**을 켭니다. **모델 목록 불러오기**로 모델을 바꿀 수 있습니다.
 
@@ -210,7 +215,7 @@ circuit_core/     Circuit IR 모델(Pydantic), 규칙 검사, Markdown/JSON/BOM 
                   템플릿, 계산 기반 기술 검토(engineering), 근거 리포트(rationale)
 kicad_adapter/    .kicad_sch 생성기(여러 페이지, 자동 배치·배선, 주석, 다중 유닛), 심볼 라이브러리 읽기·색인,
                   kicad-cli 실행, Netlist/ERC 파싱, KiCad 배치 읽기
-ai_engine/        AI 공급자(Gemini, Claude) 어댑터, API 키 저장소, AI 회로 설계·검토·요구사항 정리,
+ai_engine/        AI 공급자(Gemini, Claude, ChatGPT 로그인) 어댑터, API 키 저장소, AI 회로 설계·검토·요구사항 정리,
                   PDF 변환·대체 추천·데이터시트 요약 작업과 프롬프트
 backend/          FastAPI 로컬 API: 프로젝트·보드·revision·제안·생성 job·산출물·자재·데이터시트·AI (127.0.0.1 + 토큰)
 desktop/          Electron 셸 + React UI (Vite), e2e 테스트(Playwright)
@@ -258,6 +263,7 @@ xvfb-run -a npx playwright test e2e/electron.spec.ts       # Electron 셸 e2e (L
 
 - **Windows 11에서는 아직 실행해 보지 않았습니다.** 검증은 Linux 컨테이너(KiCad 10.0.8 Docker, Electron 45 + Xvfb)에서 했습니다.
 - **Gemini API는 실제로 호출해 보지 않았습니다.** 개발 환경에 키가 없어 가짜 공급자로만 시험했습니다. PDF 변환 정확도도 실제 회로도로 재지 않았습니다([Phase 1.5 보고서](docs/phase1_5-report.md)).
+- **ChatGPT 로그인은 실제 계정으로 해 보지 않았습니다.** OpenAI 공개 문서대로 만들고 가짜 서버로 시험했습니다([ADR-004](docs/adr/ADR-004-ai-provider.md)).
 - **AI 회로 설계·검토는 실제 Gemini로 시험하지 않았습니다.** 흐름과 검사는 각본대로 답하는 가짜 AI로 확인했습니다. 실제 모델의 설계 품질은 키를 넣고 확인해야 합니다.
 - AI 설계는 KiCad 라이브러리에 있는 단일 유닛 심볼만 고릅니다. 다중 유닛 부품(OP앰프 등)은 생성기와 템플릿에서는 쓰지만 AI가 직접 고르지는 못합니다.
 - **데이터시트를 실제 제조사 사이트에서 받아 보지 않았습니다.** 개발 환경에서 외부 사이트가 막혀 있어 로컬 테스트 서버로만 시험했습니다. 사이트가 자동 다운로드를 막으면 브라우저로 받아 **PDF 올리기**로 넣으세요.

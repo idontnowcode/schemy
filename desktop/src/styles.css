@@ -995,3 +995,7 @@ label.block {
 .issue .small-btn {
   margin-top: 6px;
 }
+
+.break {
+  word-break: break-all;
+}

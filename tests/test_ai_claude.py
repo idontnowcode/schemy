@@ -182,7 +182,7 @@ def test_switching_to_claude_uses_its_default_model_and_login(tmp_path, anthropi
     client, created = ai_client(tmp_path)
     r = client.put("/api/ai/settings", json={"provider": "claude", "enabled": True}).json()
     assert r["settings"]["provider"] == "claude" and r["settings"]["model"] == "claude-opus-5-5"
-    assert r["providers"] == ["gemini", "claude"]
+    assert r["providers"] == ["gemini", "claude", "chatgpt"]
     assert r["key"]["configured"] is False and r["key"]["login"]["logged_in"] is False
     no_key = client.get("/api/ai/models").json()
     assert no_key["error_code"] == "AI_NO_KEY" and "Claude" in no_key["message"]

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, errorText } from "../api";
 import { providerLabel } from "../format";
-import type { AiProvider, AiStatus, ClaudeLoginStatus, SystemInfo } from "../types";
+import type { AiProvider, AiStatus, ChatGptLoginStatus, ClaudeLoginStatus, SystemInfo } from "../types";
 
 export function SettingsPage({ system, onError }: { system: SystemInfo | null; onError(message: string | null): void }) {
   const [status, setStatus] = useState<AiStatus | null>(null);
@@ -11,6 +11,7 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
   const [models, setModels] = useState<{ name: string; display_name: string | null }[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [login, setLogin] = useState<ClaudeLoginStatus | null>(null);
+  const [gpt, setGpt] = useState<ChatGptLoginStatus | null>(null);
 
   const refresh = useCallback(async () => {
     const s = await api.aiStatus();
@@ -28,6 +29,29 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
     if (provider !== "claude") return;
     api.claudeLogin().then(setLogin).catch(() => setLogin(null));
   }, [provider]);
+
+  useEffect(() => {
+    if (provider !== "chatgpt") return;
+    api.chatgptLogin().then(setGpt).catch(() => setGpt(null));
+  }, [provider]);
+
+  // While the ChatGPT sign-in waits for the browser, poll until it finishes.
+  useEffect(() => {
+    if (!gpt?.pending) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const next = await api.chatgptLogin();
+        setGpt(next);
+        if (!next.pending) {
+          await refresh();
+          setMessage(next.logged_in && next.plan_usage ? "ChatGPT에 로그인했습니다." : next.error ?? "로그인하지 못했습니다.");
+        }
+      } catch (e) {
+        setMessage(errorText(e));
+      }
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [gpt?.pending, refresh]);
 
   // While `ant auth login` waits for the browser, poll until it finishes.
   useEffect(() => {
@@ -90,6 +114,29 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
       setMessage("브라우저에서 Claude Console 계정으로 로그인하세요. 끝나면 여기에 자동으로 반영됩니다.");
     });
 
+  const startGpt = () =>
+    run(async () => {
+      setGpt(await api.startChatgptLogin());
+      setMessage("브라우저에서 ChatGPT 계정으로 로그인하고, 이 앱이 ChatGPT 요금제를 쓰도록 허용하세요. 끝나면 여기에 자동으로 반영됩니다.");
+    });
+
+  const logoutGpt = () =>
+    run(async () => {
+      const r = await api.chatgptLogout();
+      setGpt(r);
+      await refresh();
+      setMessage(r.revoked === false ? "로그아웃했지만 OpenAI 쪽 세션 취소는 확인하지 못했습니다. ChatGPT 설정에서 이 앱의 연결을 끊을 수 있습니다." : "ChatGPT에서 로그아웃했습니다.");
+    });
+
+  const switchGptAccount = () => {
+    if (!window.confirm("이 컴퓨터에 저장된 ChatGPT 앱 등록과 로그인 정보를 지웁니다. 다음 로그인 때 다른 계정으로 이 앱을 새로 등록합니다. 계속할까요?")) return;
+    run(async () => {
+      setGpt(await api.chatgptLogout(true));
+      await refresh();
+      setMessage("ChatGPT 등록을 지웠습니다. 'ChatGPT로 계속하기'를 눌러 사용할 계정으로 로그인하세요.");
+    });
+  };
+
   const logout = () =>
     run(async () => {
       setLogin(await api.claudeLogout());
@@ -110,12 +157,13 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
   if (!status) return <div className="empty">불러오는 중…</div>;
   const k = status.key;
   const claude = status.settings.provider === "claude";
+  const chatgpt = status.settings.provider === "chatgpt";
   const envVar = claude ? "ANTHROPIC_API_KEY" : "GEMINI_API_KEY";
   const sourceText =
     k.source === "env"
       ? `환경 변수 ${envVar}`
       : k.source === "login"
-        ? `Claude 로그인${k.login?.profile ? ` (프로필 ${k.login.profile})` : ""}`
+        ? chatgpt ? "ChatGPT 계정 로그인" : `Claude 로그인${k.login?.profile ? ` (프로필 ${k.login.profile})` : ""}`
         : "OS 보안 저장소";
 
   return (
@@ -129,8 +177,8 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
       <div className="card">
         <h3>AI 기능 (선택)</h3>
         <p className="small">
-          켜면 AI 회로 설계·검토, 「PDF 가져오기 (AI)」, 「AI 대체 추천」, 데이터시트 요약을 쓸 수 있습니다. AI는 Google Gemini 또는 Anthropic
-          Claude 중에서 고릅니다. 끈 상태에서도 나머지 기능은 모두 동작하며, 코파일럿으로 만든 회로도 Markdown은 AI 없이 가져올 수 있습니다.
+          켜면 AI 회로 설계·검토, 「PDF 가져오기 (AI)」, 「AI 대체 추천」, 데이터시트 요약을 쓸 수 있습니다. AI는 Google Gemini, Anthropic
+          Claude, OpenAI ChatGPT(내 계정 로그인) 중에서 고릅니다. 끈 상태에서도 나머지 기능은 모두 동작하며, 코파일럿으로 만든 회로도 Markdown은 AI 없이 가져올 수 있습니다.
         </p>
         <label className="switch">
           <input type="checkbox" checked={status.settings.enabled} onChange={toggle} aria-label="AI 기능 사용" /> AI 기능 사용
@@ -140,7 +188,7 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
           ai_runs/에 남고, API 키나 로그인 토큰은 기록하지 않습니다.
         </p>
         <div className="toolbar" role="radiogroup" aria-label="AI 공급자">
-          {(["gemini", "claude"] as AiProvider[]).map((p) => (
+          {(["gemini", "claude", "chatgpt"] as AiProvider[]).map((p) => (
             <label key={p} className="small">
               <input type="radio" name="ai-provider" checked={status.settings.provider === p} onChange={() => choose(p)} />{" "}
               {providerLabel(p)}
@@ -150,10 +198,60 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
       </div>
 
       <div className="card">
-        <h3>{claude ? "Claude 연결" : "Gemini API 키"}</h3>
+        <h3>{claude ? "Claude 연결" : chatgpt ? "ChatGPT 계정" : "Gemini API 키"}</h3>
         <p className="small">
           상태: {k.configured ? <span className="ok-text">설정됨 ({sourceText})</span> : <span className="warn-text">없음</span>}
         </p>
+
+        {chatgpt && (
+          <>
+            <p className="small">
+              API 키 없이 <b>내 ChatGPT 계정</b>으로 로그인합니다(OpenAI의 Sign in with ChatGPT). 사용량은 그 계정의 ChatGPT 요금제(Plus·Pro 등)에서
+              차감됩니다. 처음 로그인할 때 브라우저에서 이 앱을 등록하고 「ChatGPT 요금제 사용」을 허용하세요.
+            </p>
+            <div className="toolbar">
+              <button onClick={startGpt} disabled={gpt?.pending}>
+                {gpt?.pending ? "브라우저에서 로그인하는 중…" : gpt?.logged_in ? "ChatGPT로 다시 계속하기" : "ChatGPT로 계속하기"}
+              </button>
+              {gpt?.logged_in && (
+                <button className="ghost" onClick={logoutGpt}>
+                  로그아웃
+                </button>
+              )}
+              {gpt?.registered && !gpt.pending && (
+                <button className="ghost" onClick={switchGptAccount}>
+                  다른 계정으로 바꾸기
+                </button>
+              )}
+              {gpt && (
+                <span className="small">
+                  {gpt.logged_in ? (
+                    <span className={gpt.plan_usage ? "ok-text" : "warn-text"}>
+                      {gpt.email ?? "로그인됨"} · {gpt.plan_usage ? "요금제 사용 허용됨" : "요금제 사용이 허용되지 않음 — 다시 로그인해 허용하세요"}
+                    </span>
+                  ) : (
+                    <span className="muted">로그인 안 됨</span>
+                  )}
+                </span>
+              )}
+            </div>
+            {gpt?.pending && gpt.authorize_url && (
+              <p className="small muted">
+                브라우저가 열리지 않으면 이 주소를 브라우저에 붙여 넣으세요: <code className="break">{gpt.authorize_url}</code>
+              </p>
+            )}
+            {gpt?.error && !gpt.pending && <p className="small warn-text">{gpt.error}</p>}
+            <details className="small">
+              <summary>로그인과 요금 안내</summary>
+              <ul>
+                <li>{gpt?.usage_hint ?? "ChatGPT 설정 → 사용량(Usage)에서 이 앱의 사용 한도를 확인·조정할 수 있습니다."}</li>
+                <li>Plus 요금제의 5시간 사용 한도는 이 기능을 쓰는 모든 앱이 함께 씁니다. 한도에 닿으면 AI 요청이 멈추고, 다른 결제로 넘어가지 않습니다.</li>
+                <li>이 앱은 대화 기록·메모리·파일에 접근하지 않습니다. 로그인 정보는 이 컴퓨터의 사용자 폴더에만 저장됩니다.</li>
+                <li>회사 도면·BOM·요구사항을 보낸다면 사내 규정을 먼저 확인하세요.</li>
+              </ul>
+            </details>
+          </>
+        )}
 
         {claude && (
           <>
@@ -199,7 +297,7 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
           </>
         )}
 
-        {k.keyring_available ? (
+        {chatgpt ? null : k.keyring_available ? (
           <div className="toolbar">
             <input
               type="password"
@@ -224,8 +322,8 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
             이 컴퓨터에서는 OS 보안 저장소를 쓸 수 없습니다. 환경 변수 {envVar}로 키를 지정한 뒤 앱을 다시 시작하세요.
           </p>
         )}
-        <p className="muted small">키는 Windows 자격 증명 관리자(macOS 키체인)에만 저장되고, 프로젝트 파일·로그에는 남지 않습니다.</p>
-        {!claude && (
+        {!chatgpt && <p className="muted small">키는 Windows 자격 증명 관리자(macOS 키체인)에만 저장되고, 프로젝트 파일·로그에는 남지 않습니다.</p>}
+        {!claude && !chatgpt && (
           <details className="small">
             <summary>무료로 쓰려면 / 요금</summary>
             <ul>
@@ -265,7 +363,9 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
         <p className="muted small">
           {claude
             ? "기본값 claude-opus-5-5는 Anthropic의 가장 성능 좋은 모델입니다. 비용을 줄이려면 목록에서 claude-sonnet-5-5를 골라 보세요."
-            : "기본값 gemini-flash-latest는 Google이 최신 Flash 모델로 이어 주는 이름입니다. 회로가 복잡해 PDF 변환이 부정확하면 목록에서 Pro 계열을 골라 보세요."}
+            : chatgpt
+              ? "로그인한 계정에서 쓸 수 있는 모델은 「모델 목록 불러오기」로 확인하세요. 기본값 gpt-6.1-sol은 OpenAI 안내서의 예시 모델입니다."
+              : "기본값 gemini-flash-latest는 Google이 최신 Flash 모델로 이어 주는 이름입니다. 회로가 복잡해 PDF 변환이 부정확하면 목록에서 Pro 계열을 골라 보세요."}
         </p>
         {models.length > 0 && <p className="small">사용 가능한 모델 {models.length}개를 불러왔습니다. 입력란에서 고르세요.</p>}
         {message && (

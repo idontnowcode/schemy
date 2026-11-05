@@ -1,5 +1,5 @@
 """Shared gate for every AI call: AI must be switched on and credentials must be available
-(a Gemini or Claude API key, or for Claude the login of Anthropic's ``ant`` CLI)."""
+(a Gemini or Claude API key, for Claude the login of Anthropic's ``ant`` CLI, for ChatGPT the user's account)."""
 
 from __future__ import annotations
 
@@ -26,6 +26,10 @@ class AiAccess:
             return AiSettings()
 
     def key_status(self, provider: str) -> dict:
+        if provider == "chatgpt":
+            login = self.app_settings.chatgpt_login.status()
+            return {"configured": login["logged_in"] and login["plan_usage"], "source": "login" if login["logged_in"] else None,
+                    "keyring_available": self.app_settings.keystore.available, "login": login}
         key, source = self.app_settings.keystore.get(provider)
         status = {"configured": key is not None, "source": source,
                   "keyring_available": self.app_settings.keystore.available}
@@ -39,6 +43,12 @@ class AiAccess:
     def provider_for(self, cfg: AiSettings, *, require_enabled: bool = True) -> LlmProvider:
         if require_enabled and not cfg.enabled:
             raise ApiError(409, "AI_DISABLED", "AI 기능이 꺼져 있습니다.", recovery_hint="설정 화면에서 AI 기능을 켜세요.")
+        if cfg.provider == "chatgpt":
+            try:
+                token = self.app_settings.chatgpt_login.access_token()
+                return self.app_settings.ai_provider_factory("chatgpt", token, cfg.model, cfg.timeout_s)
+            except AiError as exc:
+                raise api_error(exc) from exc
         key, _ = self.app_settings.keystore.get(cfg.provider)
         if not key:
             if cfg.provider == "claude" and claude_login_status()["logged_in"]:

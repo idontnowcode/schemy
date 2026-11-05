@@ -3,7 +3,7 @@
 The app talks to ``LlmProvider`` only, so a provider can be swapped without touching
 features. Gemini (Google AI, ``google-genai`` SDK) is the default; Claude (Anthropic,
 ``anthropic`` SDK) can be used with an API key or with the login of Anthropic's ``ant``
-CLI. Tests use a fake.
+CLI; ChatGPT (OpenAI) with the user's own account (Sign in with ChatGPT, see ``chatgpt``). Tests use a fake.
 """
 
 from __future__ import annotations
@@ -20,7 +20,9 @@ DEFAULT_GEMINI_MODEL = "gemini-flash-latest"
 Users can pick another model from the list the API returns for their key."""
 
 DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
-DEFAULT_MODELS = {"gemini": DEFAULT_GEMINI_MODEL, "claude": DEFAULT_CLAUDE_MODEL}
+DEFAULT_CHATGPT_MODEL = "gpt-6.1-sol"
+"""OpenAI's example model for Sign in with ChatGPT; the signed-in account's model list has the real choices."""
+DEFAULT_MODELS = {"gemini": DEFAULT_GEMINI_MODEL, "claude": DEFAULT_CLAUDE_MODEL, "chatgpt": DEFAULT_CHATGPT_MODEL}
 
 INLINE_LIMIT_BYTES = 18 * 1024 * 1024
 """Larger attachments go through the Files API (inline requests are limited to about 20 MB)."""
@@ -293,4 +295,8 @@ def make_provider(provider: str, api_key: str | None, model: str, timeout_s: flo
         return GeminiProvider(api_key=api_key, model=model or DEFAULT_GEMINI_MODEL, timeout_s=timeout_s)
     if provider == "claude":
         return ClaudeProvider(api_key=api_key, model=model or DEFAULT_CLAUDE_MODEL, timeout_s=timeout_s)
+    if provider == "chatgpt":  # api_key is the signed-in account's OAuth access token
+        from .chatgpt import ChatGptProvider
+
+        return ChatGptProvider(access_token=api_key or "", model=model or DEFAULT_CHATGPT_MODEL, timeout_s=timeout_s)
     raise AiError("AI_PROVIDER_UNKNOWN", f"지원하지 않는 AI 공급자입니다: {provider}")

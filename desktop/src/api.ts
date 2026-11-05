@@ -14,6 +14,7 @@ import type {
   BoardReviewStatus,
   ChecklistSuggestion,
   CircuitIR,
+  ChatGptLoginStatus,
   CircuitTemplate,
   ClaudeLoginStatus,
   DatasheetEntry,
@@ -242,6 +243,10 @@ export const api = {
   resetLayout: (p: string, b: string) => request<{ proposal: Proposal; job: Job }>("POST", `${board(p, b)}/layout/reset`),
   placeTemplate: (p: string, b: string, id: string, params: Record<string, string>) =>
     request<{ proposal: Proposal; job: Job }>("POST", `${board(p, b)}/templates/${encodeURIComponent(id)}`, { params }),
+  chatgptLogin: () => request<ChatGptLoginStatus>("GET", "/ai/chatgpt/login"),
+  startChatgptLogin: () => request<ChatGptLoginStatus>("POST", "/ai/chatgpt/login"),
+  chatgptLogout: (forget = false) =>
+    request<ChatGptLoginStatus>("POST", `/ai/chatgpt/logout${forget ? "?forget=true" : ""}`),
   claudeLogin: () => request<ClaudeLoginStatus>("GET", "/ai/claude/login"),
   startClaudeLogin: () => request<ClaudeLoginStatus & { started: boolean }>("POST", "/ai/claude/login"),
   claudeLogout: () => request<ClaudeLoginStatus>("POST", "/ai/claude/logout"),

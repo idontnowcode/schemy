@@ -365,7 +365,20 @@ export interface MarkdownImportResult {
   saved_copy?: string;
 }
 
-export type AiProvider = "gemini" | "claude";
+export type AiProvider = "gemini" | "claude" | "chatgpt";
+
+/** Sign in with ChatGPT: the user's own ChatGPT account and plan, no API key. */
+export interface ChatGptLoginStatus {
+  logged_in: boolean;
+  email: string | null;
+  plan_usage: boolean;
+  registered: boolean;
+  pending: boolean;
+  authorize_url: string | null;
+  error: string | null;
+  usage_hint: string;
+  revoked?: boolean | null;
+}
 
 export interface AiSettings {
   enabled: boolean;

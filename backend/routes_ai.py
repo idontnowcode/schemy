@@ -29,7 +29,7 @@ from .store import ProjectStore, sha256_bytes
 from .uploads import MB, decode_upload
 
 BOARD = "/api/projects/{project_id}/boards/{board_id}"
-PROVIDERS = ["gemini", "claude"]
+PROVIDERS = ["gemini", "claude", "chatgpt"]
 MAX_PDF_BYTES = 50 * MB
 
 
@@ -64,6 +64,9 @@ def build_ai_router(store: ProjectStore, jobs: JobRunner, inventory: InventorySt
     @router.put("/api/ai/key")
     def put_key(body: ApiKeyBody):
         cfg = ai_settings()
+        if cfg.provider == "chatgpt":
+            raise ApiError(409, "LOGIN_ONLY", "ChatGPT는 API 키 대신 내 ChatGPT 계정으로 로그인해 씁니다.",
+                           recovery_hint="설정에서 'ChatGPT로 계속하기'를 누르세요.")
         try:
             settings.keystore.set(cfg.provider, body.api_key.strip())
         except KeyStoreError as exc:
@@ -88,6 +91,23 @@ def build_ai_router(store: ProjectStore, jobs: JobRunner, inventory: InventorySt
     @router.post("/api/ai/claude/logout")
     def claude_logout():
         return claude_login.logout()
+
+    # --- ChatGPT with the user's account (Sign in with ChatGPT) ----------------------------------
+
+    @router.get("/api/ai/chatgpt/login")
+    def chatgpt_login_state():
+        return settings.chatgpt_login.status()
+
+    @router.post("/api/ai/chatgpt/login")
+    def chatgpt_login_start():
+        try:
+            return settings.chatgpt_login.start()
+        except AiError as exc:
+            raise _api_error(exc) from exc
+
+    @router.post("/api/ai/chatgpt/logout")
+    def chatgpt_logout(forget: bool = False):
+        return settings.chatgpt_login.logout(forget=forget)
 
     @router.delete("/api/ai/key")
     def delete_key():

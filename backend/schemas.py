@@ -247,7 +247,7 @@ class AiSettings(_Model):
     """Stored in the SQLite settings table. Never contains the API key."""
 
     enabled: bool = False
-    provider: Literal["gemini", "claude"] = "gemini"
+    provider: Literal["gemini", "claude", "chatgpt"] = "gemini"
     model: str = Field(default="gemini-flash-latest", min_length=1, max_length=100)
     max_output_tokens: int = Field(default=32768, ge=1024, le=1_000_000)
     timeout_s: int = Field(default=300, ge=10, le=3600)
@@ -255,7 +255,7 @@ class AiSettings(_Model):
 
 class AiSettingsUpdate(_Model):
     enabled: bool | None = None
-    provider: Literal["gemini", "claude"] | None = None
+    provider: Literal["gemini", "claude", "chatgpt"] | None = None
     """Switching provider without a model picks that provider's default model."""
     model: str | None = Field(default=None, min_length=1, max_length=100)
     max_output_tokens: int | None = Field(default=None, ge=1024, le=1_000_000)

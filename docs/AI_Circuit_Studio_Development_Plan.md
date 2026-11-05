@@ -446,7 +446,7 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 |---|---|
 | 지원 KiCad 메이저 버전 | **결정: 10.0.x** (ADR-002) |
 | Windows 단일 플랫폼 우선 여부 | Windows 11 우선 유지. 개발·CI는 Linux에서도 동작 |
-| LLM 제공자 및 API 키 입력 방식 | **결정: Google Gemini 기본, AI는 선택 기능.** 키는 OS 보안 저장소(keyring) 또는 `GEMINI_API_KEY` (ADR-004). **(v1.6)** Claude 추가: API 키(keyring, `ANTHROPIC_API_KEY`) 또는 Anthropic CLI 로그인 |
+| LLM 제공자 및 API 키 입력 방식 | **결정: Google Gemini 기본, AI는 선택 기능.** 키는 OS 보안 저장소(keyring) 또는 `GEMINI_API_KEY` (ADR-004). **(v1.6)** Claude 추가: API 키(keyring, `ANTHROPIC_API_KEY`) 또는 Anthropic CLI 로그인. **(v1.9)** ChatGPT 추가: API 키 없이 Sign in with ChatGPT(사용자 요금제 사용량). Claude 구독(Pro/Max) 로그인은 Anthropic 정책상 넣지 않음 |
 | 여러 보드 지원 | **결정: 프로젝트 → 보드 → 페이지** (사용자 결정, 2026-11-04) |
 | 데이터시트 출처 | **결정: KiCad 심볼 링크 + 직접 올리기** (사용자 결정, 2026-11-04). 유통사 API(DigiKey·Mouser)와 AI 검색은 쓰지 않음. 필요해지면 키를 받아 추가 (ADR-005) |
 | KiCad 생성 어댑터 최종 채택 | **결정: 직접 생성기** (ADR-001) |
@@ -465,6 +465,8 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - Windows 설치 파일 워크플로: 패키징을 바꾸는 push에서도 빌드하고, 동봉 백엔드를 실행해 예제 회로도를 생성해 본다.
 - 샘플 보드 `examples/dc-motor-drv8871`(12V DC 모터 드라이버, 설계 검토 리포트 포함). 기술 검토에 모터 드라이버 규칙(VM 범위·전류 제한·출력 손실), 전원 핀 이름에 VM. 배치: 퓨즈·다이오드를 거쳐 레일로 들어가는 전원 입력도 전원 입력 블록으로(ADR-009 추가 16).
 - 회로도 그리기(ADR-009 추가 12~15): PWR_FLAG를 레일 전원 심볼과 같은 연결점에, IC 디커플링 콘덴서를 전원 핀 옆에 선으로, 48자를 넘는 주석은 여러 줄로, 위·아래를 향한 커넥터는 1번 핀이 왼쪽에 오게 반전.
+- 검토·검사 결과에 바로 조치: AI 검토 의견마다 「이 의견 반영하기」, 의견 모두 반영·검사 문제 고치기 수정안(AI). 떠 있는 입력 핀은 「바로 고치기」로 AI 없이 풀다운·풀업·직접 연결을 고르면 후속 제안을 만든다(`circuit_core/quick_fixes.py`, `GET/POST …/quick-fixes`, 제안의 `parent`·`diff_from_parent`). KiCad ERC 경고는 쉬운 설명을 붙인다.
+- AI 공급자 ChatGPT(내 계정 로그인, ADR-004 추가 결정): OpenAI Sign in with ChatGPT(PKCE, 앱 등록, ID 토큰 검증)로 로그인하고 Responses API(`store: false`, 스트리밍)를 쓴다. 토큰은 사용자 폴더 `chatgpt.json`(0600)에만. `GET/POST /api/ai/chatgpt/login`, `POST /api/ai/chatgpt/logout`.
 
 ### v1.8 (2026-11-05)
 - IR 0.5.0: `notes`(영문 한 줄, 부품 묶음 또는 Net 하나에 붙음). patch 연산 `set_note`·`remove_note`, 제안 비교 표·Markdown 문서에 주석. 템플릿은 영문 캡션을 주석으로 붙이고, AI 설계는 `schematic_notes`로 블록·Net 주석을 낸다. 생성기는 KiCad 기울임 텍스트로 그린다(KiCad 재저장 무손실).

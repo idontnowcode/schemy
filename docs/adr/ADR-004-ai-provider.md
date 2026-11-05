@@ -54,12 +54,41 @@
 
 검증: `tests/test_ai_claude.py`. 실제 `anthropic` SDK를 가짜 HTTP 전송으로 돌려 요청 모양(문서 블록, 닫힌 스키마, 대체 설정·베타 헤더, 온도 없음), 스트리밍 결과, 거절, 오류 코드 변환, 모델 목록을 확인한다. 로그인 프로필 감지(경로 조작 이름 거부 포함), CLI 실행 인자, 백엔드 설정 전환도 확인한다. 실제 Claude API 호출은 키가 없어 이 환경에서 하지 않았다.
 
+## 추가 결정 (2026-11): ChatGPT 계정 로그인
+
+사용자 요청: "api도 chatgpt나 claude를 사용할 수 있게 해줘. 단, API 키를 사용하는 것이 아니라 내 계정을 로그인하는 방식으로."
+
+1. **세 번째 공급자로 OpenAI ChatGPT를 추가하고, API 키 없이 "Sign in with ChatGPT"로만 쓴다.** OpenAI가 오픈소스·로컬 앱용으로 공개한 방식이며, 사용량은 사용자의 ChatGPT 요금제에서 나간다. 앱 등록이나 OpenAI 승인은 필요 없다. 코드는 `ai_engine/chatgpt.py` 한 곳에 있다.
+   - 처음 로그인: 브라우저로 `auth.openai.com/api/accounts/authorize`를 연다. `client_id=dynamic_agent_client`, 앱 이름 `agent_name_hint=AI Circuit Studio`, 이 PC의 `ext_agent_host_id`(`urn:uuid:…`, 한 번 만들어 계속 씀), PKCE(S256), `state`, `nonce`, 범위 `openid profile email offline_access resource.invoke chatgpt.tokens.use.direct`, `resource=https://api.openai.com/v1`.
+   - 돌아오는 주소는 `http://127.0.0.1:1455/auth/callback`이다(1455가 쓰이고 있으면 빈 포트, 경로는 그대로). 콜백에서 `state`를 확인하고, 발급된 `client_id`(`oaiapp_…`)를 저장한다. `dynamic_agent_client`는 저장하지 않는다.
+   - 다시 로그인할 때는 저장한 `client_id`와 이전 ID 토큰(`id_token_hint`), 이메일(`login_hint`)을 보낸다. 콜백이 다른 `client_id`를 주면 거부한다.
+   - 코드 교환은 `auth.openai.com/api/accounts/oauth/token`에 폼으로 보낸다(클라이언트 비밀 없음). ID 토큰은 OpenAI 공개 키(JWKS)로 서명을 검증하고 발급자·대상(`client_id`)·만료·`nonce`를 확인한다. 같은 계정 재로그인이면 `sub`가 같은지도 본다.
+   - 받은 범위에 `chatgpt.tokens.use.direct`가 없으면 로그인은 되었어도 요금제 사용이 꺼진 것으로 보고 설정 화면에 그렇게 알린다.
+2. **토큰은 사용자 설정 폴더의 `chatgpt.json` 한 파일에 둔다.** Windows `%APPDATA%\AI Circuit Studio`, macOS `~/Library/Application Support/AI Circuit Studio`, 그 밖은 `~/.config/ai-circuit-studio`.
+   - 파일은 임시 파일에 쓴 뒤 바꿔치기하고, 권한은 소유자만(0600)이다. OpenAI 문서가 권하는 방식이다. Claude 로그인 토큰을 Anthropic CLI가 자기 폴더에 두는 것과 같은 성격이다.
+   - 프로젝트 폴더, SQLite, AI 실행 기록, 로그에는 쓰지 않는다. 콜백 주소에는 인증 코드가 실리므로 콜백 서버는 요청 로그를 남기지 않는다. API는 이메일·로그인 여부·요금제 사용 가능 여부만 돌려준다.
+   - 접근 토큰은 1시간짜리다. 만료 5분 전이면 refresh token으로 새로 받고, 새 refresh token으로 바로 바꿔 저장한다(한 번 쓴 refresh token은 다시 못 씀). 갱신이 거부되면 로그인을 지우고 다시 로그인하라고 안내한다.
+   - 로그아웃하면 refresh token을 OpenAI에 폐기 요청하고 파일에서 토큰을 지운다. 발급된 `client_id`와 호스트 id는 남겨 다음 로그인 때 다시 쓴다.
+   - 발급된 `client_id`는 처음 등록한 계정에 묶인다. 그래서 **다른 계정으로 바꾸기**(`POST /api/ai/chatgpt/logout?forget=true`)는 토큰과 `client_id`를 함께 지우고, 다음 로그인 때 새로 등록한다. 호스트 id는 그대로 둔다.
+3. **추론은 `POST api.openai.com/v1/responses`에 `store: false`, `stream: true`로 보낸다.** 이 경로가 받지 않는 `max_output_tokens`, `temperature`는 보내지 않는다. JSON 응답은 `text.format`의 `json_schema`로 요청하고, PDF는 `input_file`, 그림은 `input_image`로 넣는다. 모델 목록은 `GET /v1/models`에서 `visibility`가 `list`인 것만 보여 준다. 기본 모델은 `gpt-6.1-sol`이다.
+4. **오류 코드:** `subscription_sharing_usage_limit_exceeded`·429 → `AI_QUOTA`(ChatGPT 설정 → 사용량에서 한도 확인 안내), `…_user_not_eligible` → `AI_AUTH_FAILED`(요금제 안내), `…_unavailable`·503 → `AI_UNAVAILABLE`, `…_unsupported_capability` → `AI_REQUEST_FAILED`, 401 → `AI_AUTH_FAILED`(다시 로그인).
+5. **API 키 입력은 없다.** `PUT /api/ai/key/chatgpt`는 `409 LOGIN_ONLY`. 로그인은 `POST /api/ai/chatgpt/login`(브라우저 열기, 주소도 돌려줌), 상태는 `GET`, 로그아웃은 `POST /api/ai/chatgpt/logout`.
+
+**Claude는 구독 계정(Pro/Max) 로그인을 넣지 않는다.** Anthropic은 claude.ai 구독의 OAuth 토큰을 Claude Code·claude.ai 밖의 다른 제품이나 Agent SDK에서 쓰는 것을 금지하고, 다른 앱은 API 키(Console) 인증을 쓰라고 한다. 그래서 Claude 쪽 "내 계정 로그인"은 이미 있는 Claude Console 로그인(`ant auth login`, API 크레딧 과금)으로 남긴다.
+
+검증: `tests/test_chatgpt.py`. 가짜 auth.openai.com·api.openai.com 서버로 첫 등록(요청 인자, `state` 확인, 발급 `client_id` 저장, ID 토큰 검증, 0600 파일), 재로그인(`id_token_hint`, 다른 `client_id` 거부), 토큰 갱신과 교체, 로그아웃 폐기, 요금제 범위 없음, 서명 위조·`nonce`·대상·만료 거부, Responses 스트리밍 결과와 요청 본문(보내면 안 되는 필드 없음), 오류 코드 변환, 모델 목록, 백엔드 경로(`LOGIN_ONLY` 포함)를 확인한다. **실제 ChatGPT 계정으로는 로그인해 보지 않았다**(브라우저와 사용자 계정이 필요).
+
+출처:
+- OpenAI, Sign in with ChatGPT for open-source clients: https://developers.openai.com/siwc/token-sharing-open-source (sign-in, token-reference, models-and-inference, errors-and-recovery, preview-limitations, profiles-and-sessions 하위 문서)
+- OpenAI, UI/UX guidelines: https://developers.openai.com/siwc/ui-ux-guidelines
+- Anthropic, Legal and compliance (Claude Code 문서의 인증 정책): https://code.claude.com/docs/en/legal-and-compliance
+
 ## 검토한 다른 안
 
 | 안 | 판단 |
 |---|---|
 | Anthropic Claude API | 처음에는 사용자가 Gemini를 기본으로 지정해 넣지 않았다. 2026-11 사용자 요청으로 두 번째 공급자로 추가했다(위 추가 결정). |
-| OpenAI API | 위와 같음. |
+| OpenAI API(키) | 사용자가 키 대신 계정 로그인을 원해, 2026-11에 ChatGPT 계정 로그인으로 추가했다(위 추가 결정). |
 | 로컬 모델(Ollama 등) | 회로도 PDF를 읽는 비전 성능이 아직 부족하고, 사용자 PC 사양에 따라 달라진다. 사내 반출 제한이 있는 사용자에게는 나중에 후보가 될 수 있다. |
 | 키를 앱 설정 파일에 저장 | 기획서 13장(키는 OS 보안 저장소)에 어긋나므로 쓰지 않는다. |
 
@@ -80,4 +109,5 @@
 - **실제 Gemini API로는 아직 한 번도 호출하지 않았다.** 개발 환경에 키가 없고 `ai.google.dev`에 접근할 수 없었다. SDK 호출 형태는 `google-genai` 2.34.0 소스와 타입으로 맞췄지만, 실제 응답 형식·오류·토큰 한도는 키를 넣고 확인해야 한다.
 - **PDF 변환 정확도는 실제 회로도로 측정하지 않았다.** IC 핀 번호, 선 교차와 접속 구분, 숨은 전원 핀에서 틀릴 수 있다. 가져오기 단계의 라이브러리 대조와 "검토 필요" 표시가 1차 안전장치다.
 - **Windows 자격 증명 관리자에 실제로 저장해 보지 않았다.** 개발 컨테이너에는 보안 저장소가 없어 환경 변수 경로만 확인했다.
+- **ChatGPT 로그인은 실제 계정으로 해 보지 않았다.** OpenAI 공개 문서대로 만들고 가짜 서버로만 시험했다. 이 방식은 OpenAI가 미리보기(preview)로 표시한 기능이라 요청 형식이나 제한이 바뀔 수 있고, PDF(`input_file`)와 JSON 형식 지정이 이 경로에서 그대로 되는지도 실제로 확인해야 한다.
 - 회사 회로도를 외부 AI로 보내도 되는지는 사용자의 사내 규정 문제다. 앱은 보내기 전 확인만 한다.
