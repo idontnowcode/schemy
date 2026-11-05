@@ -60,6 +60,20 @@ def test_timer_board_end_to_end(timer_board, library, kicad_cli, workdir):
     assert len(differing) == 2  # the generator name and version lines
 
 
+def test_regulator_board_end_to_end(regulator_board, library, kicad_cli, workdir):
+    """examples/lm7805-24v-to-5v: wired rails with one power symbol per piece pass ERC and match the IR."""
+    generated = generate_schematic(regulator_board, library)
+    sch = generated.write(workdir)
+    report = run_checks(regulator_board, generated, sch, kicad_cli)
+    assert report.erc.errors == [], report.erc.summary()
+    assert report.erc.warnings == [], report.erc.summary()
+    assert report.connectivity.ok, report.connectivity.describe()
+    kicad_cli.upgrade(sch)
+    resaved = sch.read_text(encoding="utf-8").splitlines()
+    differing = [(a, b) for a, b in zip(generated.text.splitlines(), resaved, strict=True) if a != b]
+    assert len(differing) == 2
+
+
 def test_kicad_round_trip_preserves_file(led_circuit, library, kicad_cli, workdir):
     """KiCad loads the file and re-saves it: only the generator lines may change."""
     generated = generate_schematic(led_circuit, library)

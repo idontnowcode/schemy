@@ -1,0 +1,388 @@
+{
+  "project_id": "lm7805-24v-to-5v",
+  "title": "24V → 5V 레귤레이터 (7805)",
+  "components": [
+    {
+      "id": "j-in",
+      "reference": "J1",
+      "value": "24V_IN",
+      "symbol_id": "Connector_Generic:Conn_01x02",
+      "footprint_id": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal",
+      "description": "24V 입력 단자",
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1"
+        },
+        {
+          "number": "2",
+          "name": "Pin_2"
+        }
+      ]
+    },
+    {
+      "id": "d-rev",
+      "reference": "D1",
+      "value": "1N4007",
+      "symbol_id": "Diode:1N4007",
+      "footprint_id": "Diode_THT:D_DO-41_SOD81_P10.16mm_Horizontal",
+      "description": "역전압 보호 (직렬)",
+      "pins": [
+        {
+          "number": "1",
+          "name": "K"
+        },
+        {
+          "number": "2",
+          "name": "A"
+        }
+      ]
+    },
+    {
+      "id": "c-in",
+      "reference": "C1",
+      "value": "100uF/50V",
+      "symbol_id": "Device:C_Polarized",
+      "footprint_id": "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm",
+      "description": "입력 벌크",
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "c-in2",
+      "reference": "C2",
+      "value": "330nF/50V",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0805_2012Metric",
+      "description": "입력 세라믹 (데이터시트 0.33uF)",
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "u-reg",
+      "reference": "U1",
+      "value": "L7805",
+      "symbol_id": "Regulator_Linear:L7805",
+      "footprint_id": "Package_TO_SOT_THT:TO-220-3_Vertical",
+      "description": "5V 리니어 레귤레이터",
+      "pins": [
+        {
+          "number": "1",
+          "name": "IN"
+        },
+        {
+          "number": "2",
+          "name": "GND"
+        },
+        {
+          "number": "3",
+          "name": "OUT"
+        }
+      ]
+    },
+    {
+      "id": "c-out2",
+      "reference": "C3",
+      "value": "100nF",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0805_2012Metric",
+      "description": "출력 세라믹 (데이터시트 0.1uF)",
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "c-out",
+      "reference": "C4",
+      "value": "47uF/16V",
+      "symbol_id": "Device:C_Polarized",
+      "footprint_id": "Capacitor_THT:CP_Radial_D5.0mm_P2.00mm",
+      "description": "출력 벌크",
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "d-prot",
+      "reference": "D2",
+      "value": "1N4001",
+      "symbol_id": "Diode:1N4001",
+      "footprint_id": "Diode_THT:D_DO-41_SOD81_P10.16mm_Horizontal",
+      "description": "입력 단락 시 출력 콘덴서 방전 경로",
+      "pins": [
+        {
+          "number": "1",
+          "name": "K"
+        },
+        {
+          "number": "2",
+          "name": "A"
+        }
+      ]
+    },
+    {
+      "id": "r-led",
+      "reference": "R1",
+      "value": "1k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0805_2012Metric",
+      "description": "전원 LED 전류 제한",
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "d-led",
+      "reference": "D3",
+      "value": "GREEN",
+      "symbol_id": "Device:LED",
+      "footprint_id": "LED_SMD:LED_0805_2012Metric",
+      "description": "5V 전원 LED",
+      "pins": [
+        {
+          "number": "1",
+          "name": "K"
+        },
+        {
+          "number": "2",
+          "name": "A"
+        }
+      ]
+    },
+    {
+      "id": "j-out",
+      "reference": "J2",
+      "value": "5V_OUT",
+      "symbol_id": "Connector_Generic:Conn_01x02",
+      "footprint_id": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal",
+      "description": "5V 출력 단자",
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1"
+        },
+        {
+          "number": "2",
+          "name": "Pin_2"
+        }
+      ]
+    }
+  ],
+  "nets": [
+    {
+      "id": "n0",
+      "name": "PWR_IN",
+      "nodes": [
+        {
+          "component_id": "j-in",
+          "pin": "1"
+        },
+        {
+          "component_id": "d-rev",
+          "pin": "2"
+        }
+      ]
+    },
+    {
+      "id": "n1",
+      "name": "+24V",
+      "nodes": [
+        {
+          "component_id": "d-rev",
+          "pin": "1"
+        },
+        {
+          "component_id": "c-in",
+          "pin": "1"
+        },
+        {
+          "component_id": "c-in2",
+          "pin": "1"
+        },
+        {
+          "component_id": "u-reg",
+          "pin": "1"
+        },
+        {
+          "component_id": "d-prot",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "n2",
+      "name": "+5V",
+      "nodes": [
+        {
+          "component_id": "u-reg",
+          "pin": "3"
+        },
+        {
+          "component_id": "c-out2",
+          "pin": "1"
+        },
+        {
+          "component_id": "c-out",
+          "pin": "1"
+        },
+        {
+          "component_id": "d-prot",
+          "pin": "2"
+        },
+        {
+          "component_id": "r-led",
+          "pin": "1"
+        },
+        {
+          "component_id": "j-out",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "n3",
+      "name": "GND",
+      "nodes": [
+        {
+          "component_id": "j-in",
+          "pin": "2"
+        },
+        {
+          "component_id": "c-in",
+          "pin": "2"
+        },
+        {
+          "component_id": "c-in2",
+          "pin": "2"
+        },
+        {
+          "component_id": "u-reg",
+          "pin": "2"
+        },
+        {
+          "component_id": "c-out2",
+          "pin": "2"
+        },
+        {
+          "component_id": "c-out",
+          "pin": "2"
+        },
+        {
+          "component_id": "d-led",
+          "pin": "1"
+        },
+        {
+          "component_id": "j-out",
+          "pin": "2"
+        }
+      ]
+    },
+    {
+      "id": "n4",
+      "name": "LED_A",
+      "nodes": [
+        {
+          "component_id": "r-led",
+          "pin": "2"
+        },
+        {
+          "component_id": "d-led",
+          "pin": "2"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    {
+      "id": "note-in",
+      "text": "24V input, D1 = reverse polarity protection",
+      "components": [
+        "j-in",
+        "d-rev"
+      ]
+    },
+    {
+      "id": "note-reg",
+      "text": "7805 linear regulator: 5V out",
+      "components": [
+        "u-reg",
+        "c-in",
+        "c-in2",
+        "c-out2",
+        "c-out",
+        "d-prot"
+      ]
+    },
+    {
+      "id": "note-heat",
+      "text": "Heat = (Vin - 5V) x Iout: ~1.8 W at 100 mA",
+      "components": [
+        "u-reg",
+        "c-in",
+        "c-in2",
+        "c-out2",
+        "c-out",
+        "d-prot"
+      ]
+    },
+    {
+      "id": "note-prot",
+      "text": "D2: discharges C4 if the input is shorted",
+      "components": [
+        "d-prot"
+      ]
+    },
+    {
+      "id": "note-led",
+      "text": "Power LED, ~3 mA",
+      "components": [
+        "r-led",
+        "d-led"
+      ]
+    },
+    {
+      "id": "note-out",
+      "text": "5V output",
+      "components": [
+        "j-out"
+      ]
+    }
+  ]
+}

@@ -1353,16 +1353,22 @@
 		(uuid "d7083d94-148c-55cb-b85e-b45ad3e13b89")
 	)
 	(junction
+		(at 101.6 73.66)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "2bb90de8-061d-5cf9-a47f-9dd4fd0c7301")
+	)
+	(junction
 		(at 83.82 68.58)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "60f48b83-eac2-58c1-bc67-11af3436b759")
 	)
 	(junction
-		(at 99.06 76.2)
+		(at 101.6 76.2)
 		(diameter 0)
 		(color 0 0 0 0)
-		(uuid "a5faa43b-e785-5bb2-8cdb-d32878550fc7")
+		(uuid "9358106a-976d-5720-95ac-5f8956d44871")
 	)
 	(junction
 		(at 81.28 76.2)
@@ -1399,16 +1405,6 @@
 			(type default)
 		)
 		(uuid "12c6fdc1-7cd1-5cf6-896b-1690301f3786")
-	)
-	(wire
-		(pts
-			(xy 81.28 76.2) (xy 99.06 76.2)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "24b2da6b-5b90-563d-992c-37157fc726f7")
 	)
 	(wire
 		(pts
@@ -1492,13 +1488,13 @@
 	)
 	(wire
 		(pts
-			(xy 99.06 73.66) (xy 99.06 76.2)
+			(xy 101.6 73.66) (xy 101.6 76.2)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
-		(uuid "b90cd6b4-86c8-59f4-b5a2-3fd840082796")
+		(uuid "a34cc41f-5398-5991-ace7-ee31328c0d39")
 	)
 	(wire
 		(pts
@@ -1509,6 +1505,16 @@
 			(type default)
 		)
 		(uuid "bc622c32-cd39-59e1-a7e2-c198e97d05fc")
+	)
+	(wire
+		(pts
+			(xy 81.28 76.2) (xy 101.6 76.2)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "cd79028c-44e0-565e-ad62-a094cf39f2f6")
 	)
 	(wire
 		(pts
@@ -1529,16 +1535,6 @@
 			(type default)
 		)
 		(uuid "d0cdf1e8-f4be-5d5d-beeb-1d9e6964fc12")
-	)
-	(wire
-		(pts
-			(xy 99.06 76.2) (xy 101.6 76.2)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "d952882d-8691-5e05-8998-0bc928feaaca")
 	)
 	(wire
 		(pts
@@ -1600,16 +1596,6 @@
 		)
 		(uuid "4823c903-bc97-50a5-8f14-c0d9dcff05cf")
 	)
-	(label "TRIG_THR"
-		(at 101.6 76.2 180)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right bottom)
-		)
-		(uuid "824a6e87-97bc-5d93-a678-978ed38542ee")
-	)
 	(label "CONT"
 		(at 113.03 50.8 0)
 		(effects
@@ -1619,6 +1605,16 @@
 			(justify left bottom)
 		)
 		(uuid "8fbdbe99-ce92-536a-a29c-43edc26213a1")
+	)
+	(label "TRIG_THR"
+		(at 99.06 73.66 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "a0c0d22a-2274-57ef-be4a-653a4ae6e6f5")
 	)
 	(label "PWR_LED"
 		(at 60.96 60.96 90)
@@ -1633,6 +1629,7 @@
 	(symbol
 		(lib_id "Device:R")
 		(at 83.82 62.23 0)
+		(mirror y)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -1642,7 +1639,7 @@
 		(dnp no)
 		(uuid "06107294-eb53-57fc-a740-dd3b7aa65d0c")
 		(property "Reference" "R2"
-			(at 85.852 62.23 90)
+			(at 81.788 62.23 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -1662,7 +1659,7 @@
 			)
 		)
 		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
-			(at 82.042 62.23 90)
+			(at 85.598 62.23 90)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)

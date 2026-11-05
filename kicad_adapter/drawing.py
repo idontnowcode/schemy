@@ -444,6 +444,8 @@ class Wiring:
     wires: list[tuple[Point, Point, str]]
     labels: list[Label]
     junctions: list[Point]
+    rails: list[tuple[str, _Cluster]] = field(default_factory=list)
+    """Wired pieces of rails (nets drawn with power symbols): each gets a power symbol instead of a label."""
 
 
 def _clean(path: list[Point]) -> list[Point] | None:
@@ -497,6 +499,8 @@ def _shapes(a: Point, da: Dir, b: Point, db: Dir | None) -> list[list[Point]]:
 
 def _cost(path: list[Point], da: Dir, db: Dir | None) -> float:
     cost = path_length(path) + (len(path) - 2) * STEP * 1.5
+    if len(path) == 2:  # one straight wire reads well even when it meets a pin from the side (a line of parts)
+        return cost
     if direction(path[0], path[1]) != da:
         cost += 3 * STEP
     if db is not None and direction(path[-2], path[-1]) != (-db[0], -db[1]):
@@ -635,7 +639,20 @@ def _wire_spot(router: Router, net: str, cluster: _Cluster) -> tuple[Point, Dir,
     return None if best is None else best[1:]
 
 
-def wire_page(router: Router, nets: dict[str, list[tuple[Key, Point, Dir]]]) -> Wiring:
+def junctions_of(router: Router) -> list[Point]:
+    """Points where three or more wire ends and pins meet."""
+    counts: dict[Point, int] = {}
+    for a, b, _ in router.wires:
+        counts[a] = counts.get(a, 0) + 1
+        counts[b] = counts.get(b, 0) + 1
+    for pt in router.pin_points:
+        if pt in counts:
+            counts[pt] += 1
+    return sorted(pt for pt, n in counts.items() if n >= 3)
+
+
+def wire_page(router: Router, nets: dict[str, list[tuple[Key, Point, Dir]]],
+              rails: set[str] | frozenset[str] = frozenset()) -> Wiring:
     """Route every signal net on the page, then give each wired cluster one label with the net's name.
 
     Every cluster keeps a label even when it holds the whole net, so the net keeps its name in KiCad (and on
@@ -657,8 +674,15 @@ def wire_page(router: Router, nets: dict[str, list[tuple[Key, Point, Dir]]]) -> 
             return [_Cluster([terminals[0][0]], vertices={terminals[0][1]})]
         return router.route_net(net, terminals)
 
+    rail_pieces: list[tuple[str, _Cluster]] = []
+
     def label(net: str, clusters: list[_Cluster]) -> None:
         terminals = nets[net]
+        if net in rails:  # the caller hangs a power symbol on each piece
+            rail_pieces.extend((net, cl) for cl in clusters)
+            for key, _, _ in terminals:
+                router.reserved.pop(key, None)
+            return
         info = {key: (pt, out) for key, pt, out in terminals}
         keep: set[Key] = set()
         for cluster in clusters:
@@ -700,16 +724,33 @@ def wire_page(router: Router, nets: dict[str, list[tuple[Key, Point, Dir]]]) -> 
         label(net, clusters)
     for net in later:
         label(net, route(net))
+    return Wiring(router.wires, labels, junctions_of(router), rail_pieces)
 
-    counts: dict[Point, int] = {}
-    for a, b, _ in router.wires:
-        counts[a] = counts.get(a, 0) + 1
-        counts[b] = counts.get(b, 0) + 1
-    for pt in router.pin_points:
-        if pt in counts:
-            counts[pt] += 1
-    junctions = sorted(pt for pt, n in counts.items() if n >= 3)
-    return Wiring(router.wires, labels, junctions)
+
+def rail_port(router: Router, net: str, sym: LibSymbol, piece: _Cluster, ends: dict[Key, tuple[Point, Dir]],
+              prefer: list[Key], taken: list[Rect]) -> Port:
+    """The power symbol for one wired piece of a rail: upright on a point of the piece where it fits (a preferred
+    pin first, e.g. the regulator's), else after a short wire, else lying along a pin like a label."""
+    up = upright(sym)
+    keys = sorted(piece.keys, key=lambda k: (k not in prefer, piece.keys.index(k)))
+    spots = [ends[k][0] for k in keys] + sorted(piece.vertices - {ends[k][0] for k in keys})
+
+    def fits(port: Port) -> bool:
+        box = grow(port.rects[0], 0.3)
+        if any(overlaps(box, b) for b in [*router.blocks, *taken]):
+            return False
+        if port.stub_end is not None and not router.clear([port.end, port.stub_end], net, end_joins=False):
+            return False
+        return all(not segment_hits_rect(a, b, box) for a, b, _ in router.wires)
+
+    for stub in (0.0, STUB, 2 * STUB):
+        for pt in spots:
+            port = _port(PinView(f"rail:{pt[0]},{pt[1]}", pt, up, net), sym, stub, 0)
+            if fits(port):
+                return port
+    k = keys[0]
+    pt, out = ends[k]
+    return _port(PinView(k[1], pt, out, net), sym, 0.0, orient(up, out) or 0)
 
 
 # --- notes -----------------------------------------------------------------------------------

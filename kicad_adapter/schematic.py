@@ -39,6 +39,7 @@ from .drawing import (
     field_anchor,
     field_rect,
     grow,
+    junctions_of,
     label_rect,
     note_rect,
     place_note,
@@ -46,6 +47,7 @@ from .drawing import (
     power_symbol_for,
     r4,
     rail_kind,
+    rail_port,
     rect_of,
     rotate_rect,
     shift,
@@ -270,9 +272,11 @@ def _part_extent(sym: LibSymbol, comp, net_of: dict, power: dict[str, LibSymbol]
     body = rotate_rect(body_rect(sym, getattr(comp, "unit", 1)), rotation, mirror)
     views = _pin_views(sym, comp, net_of, rotation, mirror, unique=True)
     texts = _field_rects(sym, comp, rotation, mirror)
-    rects = [body, *(r for port in plan_ports(body, views, power, texts) for r in port.rects), *texts]
+    # A ``quiet`` rail pin is wired (inside a regulator's block), so it has no power symbol of its own.
+    port_views = [v for v in views if not (v.net in power and v.number in quiet)]
+    rects = [body, *(r for port in plan_ports(body, port_views, power, texts) for r in port.rects), *texts]
     for v in views:
-        if not v.net or v.net in power:
+        if not v.net or (v.net in power and v.number not in quiet):
             continue
         if v.number not in quiet:
             rects.append(label_rect(v.end, v.out, v.net))
@@ -562,6 +566,8 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
     # Placement per page -------------------------------------------------------
     placements: dict[str, Placement] = {}
     mirrored: set[str] = set()
+    wired_rail_pins: set[tuple[str, str]] = set()
+    """Rail pins drawn with wires (inside a regulator's block) instead of a power symbol each."""
     """Auto-placed connectors drawn with KiCad's ``mirror y`` so pin 1 stays on top while facing right."""
     papers: dict[str, str] = {}
     sheet_origins: dict[str, tuple[float, float]] = {}
@@ -604,6 +610,8 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
             gx, gy = origins[f"group:{g.key}"]
             for member, (dx, dy, rot) in g.offsets.items():
                 placements[member] = Placement(x=round(gx + dx, 4), y=round(gy + dy, 4), rotation=rot)
+                wired_rail_pins |= {(member, p.number) for p in by_id[member].pins
+                                    if net_of.get((member, p.number)) in g.wired_rails}
             mirrored |= g.mirrored
         for key, origin in origins.items():
             if key.startswith("sheet:"):
@@ -630,6 +638,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
         ports: list[tuple[str, Port]] = []
         boxes: list[Extent] = []
         part_rects: dict[str, list[Extent]] = {}
+        pin_ends: dict[tuple[str, str], tuple[tuple[float, float], tuple[int, int]]] = {}
 
         for comp in comps:
             sym, pl = symbols[comp.id], placements[comp.id]
@@ -655,10 +664,12 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                                             ["uuid", q(ids("no-connect", comp.id, v.number))]])
                     continue
                 router.add_point((x, y), v.net)
-                if v.net not in power:
+                if v.net not in power or (comp.id, v.number) in wired_rail_pins:
                     terminals.setdefault(v.net, []).append(((comp.id, v.number), (x, y), v.out))
                     router.reserved[(comp.id, v.number)] = (v.net, label_rect((x, y), v.out, v.net))
-            for port in plan_ports(body, [v for v in views if v.number in drawn_pins], power, texts):
+                    pin_ends[(comp.id, v.number)] = ((x, y), v.out)
+            symbol_pins = [v for v in views if v.number in drawn_pins and (comp.id, v.number) not in wired_rail_pins]
+            for port in plan_ports(body, symbol_pins, power, texts):
                 port = port.moved(pl.x, pl.y)
                 ports.append((comp.id, port))
                 router.blocks.append(port.rects[0])
@@ -672,7 +683,22 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
             placed.append(_placed_symbol(comp, sym, pl, ids, project_name, instance_path,
                                          trace=not isinstance(comp, _VirtualSymbol), mirror=mirror))
 
-        wiring = wire_page(router, terminals)
+        wiring = wire_page(router, terminals, set(power))
+        if wiring.rails:
+            # One power symbol per wired piece of a rail (a regulator's input line, its output line).
+            big = {c.id for c in comps if len(c.pins) >= 3}
+            for net, piece in wiring.rails:
+                port = rail_port(router, net, power[net], piece, pin_ends, [k for k in piece.keys if k[0] in big],
+                                 boxes)
+                ports.append((piece.keys[0][0], port))
+                router.blocks.append(port.rects[0])
+                boxes += port.rects
+                attach = port.stub_end or port.end
+                if port.stub_end:
+                    router.add_wire(port.end, port.stub_end, net)
+                router.add_point(attach, net)
+                router.pin_points.append(attach)
+            wiring.junctions = junctions_of(router)
         wires = [[
             "wire",
             ["pts", ["xy", num(a[0]), num(a[1])], ["xy", num(b[0]), num(b[1])]],

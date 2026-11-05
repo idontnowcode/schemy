@@ -9,7 +9,16 @@ from kicad_adapter.schematic import project_file
 from kicad_adapter.sexpr import child, children, head, unquote
 
 from .circuits import rotation_ring
-from .conftest import EXAMPLE_DIR, EXAMPLE_NAME, SAMPLE_DIR, SAMPLE_NAME, TIMER_DIR, TIMER_NAME
+from .conftest import (
+    EXAMPLE_DIR,
+    EXAMPLE_NAME,
+    REGULATOR_DIR,
+    REGULATOR_NAME,
+    SAMPLE_DIR,
+    SAMPLE_NAME,
+    TIMER_DIR,
+    TIMER_NAME,
+)
 
 KICAD_10_NEW_PROJECT_TEMPLATE = """{
   "board": {
@@ -78,6 +87,37 @@ def test_sample_board_matches_generator(sample_board, library, workdir):
     """examples/atmega328p-led-board: the sample MCU board is a second golden, with a template, a crystal
     block and a 32-pin IC, so layout changes show up here too."""
     check_golden(sample_board, library, workdir, SAMPLE_NAME, SAMPLE_DIR)
+
+
+def test_regulator_board_matches_generator(regulator_board, library, workdir):
+    """examples/lm7805-24v-to-5v: a regulator block drawn with wired input and output lines - a fourth golden."""
+    check_golden(regulator_board, library, workdir, REGULATOR_NAME, REGULATOR_DIR)
+
+
+def test_regulator_block_is_drawn_like_the_textbook(regulator_board, library):
+    """The 7805's input and output rails are wires: J1 - D1 - input caps - U1 - output caps - LED - J2 on one
+    straight line, capacitors down to ground, the protection diode over the regulator, and one power symbol per
+    wired piece of a rail (no labels on rails)."""
+    g = generate_schematic(regulator_board, library)
+    drawn = drawn_nets(g)
+    connected = {nodes: tags for nodes, tags in drawn.items() if len(nodes) > 1 or tags}
+    assert set(connected) == set(ir_nets(regulator_board))
+    pins = {(a.reference, a.pin): (a.x, a.y) for a in g.anchors}
+    line = pins[("U1", "1")][1]
+    on_line = [("J1", "1"), ("D1", "1"), ("D1", "2"), ("C1", "1"), ("C2", "1"), ("U1", "3"), ("C3", "1"),
+               ("C4", "1"), ("R1", "1"), ("J2", "1")]
+    assert all(pins[k][1] == line for k in on_line), {k: pins[k] for k in on_line}
+    xs = [pins[k][0] for k in (("J1", "1"), ("D1", "2"), ("C2", "1"), ("U1", "1"), ("U1", "3"), ("J2", "1"))]
+    assert xs == sorted(xs)  # left to right: input, regulator, output
+    for cap in ("C1", "C2", "C3", "C4"):
+        assert pins[(cap, "2")][1] > line, cap  # down to ground
+    assert pins[("D2", "1")][1] < line and pins[("D2", "2")][1] < line  # over the regulator
+    doc = sexpr.parse(g.text)
+    labels = {unquote(lbl[1]) for lbl in children(doc, "label")}
+    assert not labels & {"+24V", "+5V"}
+    values = [next(unquote(p[2]) for p in children(s, "property") if unquote(p[1]) == "Value")
+              for s in children(doc, "symbol") if unquote(child(s, "lib_id")[1]) in ("power:+24V", "power:+5V")]
+    assert sorted(values) == ["+24V", "+5V"]
 
 
 def test_timer_board_matches_generator(timer_board, library, workdir):
@@ -555,7 +595,7 @@ def test_timer_board_keeps_blocks_together(timer_board, library):
     assert set(connected) == set(ir_nets(timer_board))
     pins = {(a.reference, a.pin): (a.x, a.y) for a in g.anchors}
     r2, r3, c2 = (pins[(r, "1")] for r in ("R2", "R3", "C2"))
-    assert abs(r2[0] - r3[0]) <= 2.54 and r3[0] == c2[0] and r2[1] < r3[1] < c2[1]
+    assert abs(r2[0] - r3[0]) <= 2.54 + 1e-6 and r3[0] == c2[0] and r2[1] < r3[1] < c2[1]
     assert pins[("C2", "1")][1] - pins[("R3", "2")][1] <= 5.08  # straight under R3
     assert pins[("C3", "2")][1] > pins[("C3", "1")][1]  # ground below the capacitor, not above it
     j1 = pins[("J1", "1")]

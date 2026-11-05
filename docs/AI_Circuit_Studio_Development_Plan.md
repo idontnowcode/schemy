@@ -456,7 +456,8 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 ### v1.8 (2026-11-05)
 - IR 0.5.0: `notes`(영문 한 줄, 부품 묶음 또는 Net 하나에 붙음). patch 연산 `set_note`·`remove_note`, 제안 비교 표·Markdown 문서에 주석. 템플릿은 영문 캡션을 주석으로 붙이고, AI 설계는 `schematic_notes`로 블록·Net 주석을 낸다. 생성기는 KiCad 기울임 텍스트로 그린다(KiCad 재저장 무손실).
 - 배치: 크리스탈은 두 선 아래에 눕히고 양 끝에서 부하 콘덴서가 바로 GND로, 전원 전용 커넥터는 벌크 콘덴서·전원 LED와 한 블록, 위를 향한 핀의 GND 콘덴서는 핀 옆에 세움, IC는 세부 윤곽(몸체·라벨 띠·전원 심볼)으로 충돌 검사, 배선 최대 길이 35.56mm.
-- 샘플 보드 2종(`examples/atmega328p-led-board`, MCU 없는 `examples/ne555-led-board`).
+- 레귤레이터 블록: 7805·AMS1117 같은 레귤레이터의 입출력 레일은 블록 안에서 선으로(콘덴서는 선에서 GND로, 보호 다이오드는 위로, 전원 LED는 세로), 레일 묶음마다 전원 심볼 하나.
+- 샘플 보드 3종(`examples/atmega328p-led-board`, MCU 없는 `examples/ne555-led-board`, `examples/lm7805-24v-to-5v`).
 
 ### v1.7 (2026-11-05)
 - Phase 3 완료: 다중 유닛 심볼, 겹친 숨은 핀, 검토된 템플릿 4종, 템플릿 넣기(제안), AI 설계의 템플릿 우선, 부품 출처(IR 0.4.0 `Component.origin`), 엔지니어 검토 기록(상태 3축의 세 번째 축).

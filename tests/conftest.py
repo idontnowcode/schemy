@@ -19,6 +19,8 @@ SAMPLE_NAME = "atmega328p-led-board"
 SAMPLE_DIR = ROOT.parent / "examples" / SAMPLE_NAME
 TIMER_NAME = "ne555-led-board"
 TIMER_DIR = ROOT.parent / "examples" / TIMER_NAME
+REGULATOR_NAME = "lm7805-24v-to-5v"
+REGULATOR_DIR = ROOT.parent / "examples" / REGULATOR_NAME
 
 
 @pytest.fixture
@@ -36,6 +38,12 @@ def sample_board() -> CircuitIR:
 def timer_board() -> CircuitIR:
     """examples/ne555-led-board: a board without an MCU (555 timer, power input block, English notes)."""
     return CircuitIR.model_validate_json((TIMER_DIR / "circuit.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def regulator_board() -> CircuitIR:
+    """examples/lm7805-24v-to-5v: a 7805 with input/output capacitors, protection diodes and a power LED."""
+    return CircuitIR.model_validate_json((REGULATOR_DIR / "circuit.json").read_text(encoding="utf-8"))
 
 
 @pytest.fixture
