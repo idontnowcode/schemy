@@ -376,7 +376,7 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 | LLM의 잘못된 핀 번호 | 라이브러리 핀맵 및 근거 검증, 임의 핀맵 금지, 불일치 시 생성 거부 |
 | EDA 자동 배치 가독성 | 검증된 기능 블록 템플릿 우선 |
 | KiCad 버전 차이 | 지원 버전 고정(10.0.x), CI에서 Golden 파일·round-trip 검증 |
-| 양방향 편집 데이터 충돌 | 초기에는 외부 수정 읽기 전용(checksum 감지), 이후 명시적 import/diff |
+| 양방향 편집 데이터 충돌 | 초기에는 외부 수정 읽기 전용(checksum 감지), 이후 명시적 import/diff. **(v1.9)** KiCad에서 고친 배치(ADR-010)와 연결·값·부품(ADR-012)을 제안으로 가져옴 |
 | 설계 변경으로 기존 Net 손상 | 안정 ID, patch precondition, Netlist diff |
 | 민감 설계 정보 API 유출 | 기본 로컬 저장, 명시적 전송 승인, 로그 마스킹 |
 | AI 출력 스키마 불일치 | Pydantic 검증, 제한된 재시도, 실패 원인 표시 |
@@ -461,6 +461,8 @@ B. 직접 KiCad schematic generator: 제어력 높으나 심볼 인스턴스, �
 - IR 0.8.0: `Net.voltage`·`Net.load_current`(계산 입력, 그리기에는 안 씀), patch 연산 `set_net_spec`, 「검토」 탭의 「전원 조건」 표(제안으로 반영). 레귤레이터 발열을 실제 부하 전류로, 레귤레이터 최대 전류, 다이오드 전류·역전압, I2C 풀업, 크리스탈 부하 콘덴서 규칙 추가. AI 설계는 `rails`로 전원 조건을 낸다.
 - 근거 리포트(`circuit_core/rationale.py`): 「문서 · BOM → 근거 리포트」, 생성 결과물 `rationale.md`, `aics report`. 샘플 보드 3종에 결정과 리포트를 넣음.
 - 회로도 작성 기능 전반의 근거 리포트: `docs/schematic-rationale-report.md`.
+- KiCad에서 고친 연결·값·풋프린트·부품·배치 가져오기(외부 수정 가져오기 2단계, ADR-012): kicad-cli Netlist ↔ IR을 `AICS_ID`로 짝지어 patch 연산 제안(출처 `kicad_edit`), `POST …/kicad/import-edits`.
+- Windows 설치 파일 워크플로: 패키징을 바꾸는 push에서도 빌드하고, 동봉 백엔드를 실행해 예제 회로도를 생성해 본다.
 - 회로도 그리기(ADR-009 추가 12~15): PWR_FLAG를 레일 전원 심볼과 같은 연결점에, IC 디커플링 콘덴서를 전원 핀 옆에 선으로, 48자를 넘는 주석은 여러 줄로, 위·아래를 향한 커넥터는 1번 핀이 왼쪽에 오게 반전.
 
 ### v1.8 (2026-11-05)

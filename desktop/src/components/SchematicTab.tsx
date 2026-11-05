@@ -30,14 +30,23 @@ export function SchematicTab({ projectId, board, revision, outputs, system, fixe
   const [layoutProposal, setLayoutProposal] = useState<string | null>(null);
   const [layoutBusy, setLayoutBusy] = useState(false);
 
-  const layoutAction = async (action: "import" | "reset") => {
+  const layoutAction = async (action: "import" | "edits" | "reset") => {
     setLayoutBusy(true);
     setLayoutMessage(null);
     setLayoutProposal(null);
     try {
-      const r = action === "import" ? await api.importKicadLayout(projectId, board.id) : await api.resetLayout(projectId, board.id);
+      let skipped: string[] = [];
+      let r;
+      if (action === "edits") {
+        const e = await api.importKicadEdits(projectId, board.id);
+        skipped = e.skipped;
+        r = e;
+      } else {
+        r = action === "import" ? await api.importKicadLayout(projectId, board.id) : await api.resetLayout(projectId, board.id);
+      }
       setLayoutProposal(r.proposal.id);
-      setLayoutMessage(`제안 #${Number(r.proposal.id)}을 만들었습니다. 승인하면 반영됩니다.`);
+      setLayoutMessage(`제안 #${Number(r.proposal.id)}을 만들었습니다. 승인하면 반영됩니다.` +
+        (skipped.length ? ` 가져오지 않은 것: ${skipped.join(" ")}` : ""));
       await onChanged();
     } catch (e) {
       setLayoutMessage(errorText(e));
@@ -145,8 +154,8 @@ export function SchematicTab({ projectId, board, revision, outputs, system, fixe
             )}
             {outputs.externally_modified.length > 0 && (
               <div className="banner banner-warn">
-                앱 밖에서 수정됨: {outputs.externally_modified.join(", ")}. 다시 생성하면 덮어씁니다. KiCad에서 부품을 옮긴 것이라면
-                아래 「KiCad 배치」에서 가져와 회로에 반영하세요.
+                앱 밖에서 수정됨: {outputs.externally_modified.join(", ")}. 다시 생성하면 덮어씁니다. KiCad에서 고친 것이라면
+                아래 「KiCad에서 고친 것 가져오기」로 회로에 반영하세요.
               </div>
             )}
             {outputs.missing.length > 0 && <div className="banner banner-warn">없어진 파일: {outputs.missing.join(", ")}</div>}
@@ -197,14 +206,25 @@ export function SchematicTab({ projectId, board, revision, outputs, system, fixe
 
         {outputs && manifest && (
           <div className="card">
-            <h3>KiCad 배치</h3>
+            <h3>KiCad에서 고친 것 가져오기</h3>
             <p className="small">
-              KiCad에서 부품을 옮기고 저장한 뒤 가져오면, 승인 후 다음 생성부터 그 배치(위치·회전·반전)를 유지합니다. 배선·라벨·전원
-              심볼은 다시 그리고, KiCad에서 바꾼 연결이나 추가한 부품은 가져오지 않습니다.
+              생성된 회로도를 KiCad에서 고치고 저장한 뒤 가져오면 제안으로 만들어집니다. 승인하면 회로에 들어가고 회로도를 다시 그립니다.
             </p>
+            <ul className="small">
+              <li>
+                <b>고친 것 모두</b>: 바꾼 연결, 값·풋프린트, 추가·삭제한 부품, 옮긴 부품의 위치. 연결은 kicad-cli로 KiCad가 읽은 대로
+                가져옵니다(KiCad 필요).
+              </li>
+              <li>
+                <b>배치만</b>: 모든 부품의 위치·회전·반전을 고정합니다. 배선·라벨·전원 심볼은 다시 그립니다.
+              </li>
+            </ul>
             <p className="muted small">고정된 부품: {fixedParts}개 {fixedParts === 0 && "(모두 자동 배치)"}</p>
             <div className="toolbar">
-              <button onClick={() => layoutAction("import")} disabled={layoutBusy || running}>
+              <button onClick={() => layoutAction("edits")} disabled={layoutBusy || running}>
+                고친 것 모두 가져오기 (제안)
+              </button>
+              <button className="ghost" onClick={() => layoutAction("import")} disabled={layoutBusy || running}>
                 KiCad 배치 가져오기 (제안)
               </button>
               {fixedParts > 0 && (

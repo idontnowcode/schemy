@@ -228,6 +228,9 @@ export const api = {
   importKicadLayout: (p: string, b: string) =>
     request<{ proposal: Proposal; job: Job; unknown: string[]; extra_units: string[] }>(
       "POST", `${board(p, b)}/layout/import-kicad`),
+  importKicadEdits: (p: string, b: string) =>
+    request<{ proposal: Proposal; job: Job; skipped: string[]; counts: Record<string, number> }>(
+      "POST", `${board(p, b)}/kicad/import-edits`),
   resetLayout: (p: string, b: string) => request<{ proposal: Proposal; job: Job }>("POST", `${board(p, b)}/layout/reset`),
   placeTemplate: (p: string, b: string, id: string, params: Record<string, string>) =>
     request<{ proposal: Proposal; job: Job }>("POST", `${board(p, b)}/templates/${encodeURIComponent(id)}`, { params }),

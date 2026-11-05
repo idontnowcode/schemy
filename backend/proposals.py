@@ -33,7 +33,7 @@ from .schemas import AutomatedCheck, PageOutput
 from .store import ProjectStore, atomic_write, kicad_project_name, now_iso
 
 ProposalSource = Literal["user", "ai_design", "ai_revision", "ai_pdf_import", "template", "agent",
-                         "kicad_layout"]
+                         "kicad_layout", "kicad_edit"]
 ProposalStatus = Literal["checking", "ready", "invalid", "check_failed", "approved", "rejected", "stale"]
 OPEN = ("checking", "ready", "invalid", "check_failed")
 

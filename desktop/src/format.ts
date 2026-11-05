@@ -275,6 +275,7 @@ export function proposalSourceLabel(source: string): string {
       template: "템플릿",
       agent: "AI Agent",
       kicad_layout: "KiCad 배치",
+      kicad_edit: "KiCad 수정",
     }[source] ?? source
   );
 }

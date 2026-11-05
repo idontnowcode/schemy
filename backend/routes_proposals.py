@@ -94,7 +94,7 @@ def build_proposal_router(service: ProposalService) -> APIRouter:
         job = None
         if body.generate:
             # A layout taken from the KiCad file replaces that file: its edits are in the circuit now.
-            force = p.source == "kicad_layout"
+            force = p.source in ("kicad_layout", "kicad_edit")
             job = jobs.submit(project_id, "export", lambda job_id: run_export(
                 store, project_id, board_id, symbol_dirs=settings.symbol_dirs, kicad_factory=settings.kicad_factory,
                 force=force, run_id=job_id), board_id=board_id)

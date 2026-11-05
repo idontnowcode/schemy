@@ -401,7 +401,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.proposal_service = proposal_service
     app.include_router(build_ai_router(store, jobs, inventory, settings, pin_lookup, datasheets, proposal_service))
     app.include_router(build_template_router(store, proposal_service, pin_lookup))
-    app.include_router(build_layout_router(store, proposal_service))
+    app.include_router(build_layout_router(store, proposal_service, settings))
     reviews = ReviewStore(store)
     app.state.reviews = reviews
     app.include_router(build_review_router(store, reviews))

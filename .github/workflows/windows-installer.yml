@@ -32,6 +32,41 @@ jobs:
         run: |
           uv sync --group packaging
           uv run --group packaging python packaging/build_backend.py
+      - name: Smoke test (the bundled backend starts and generates the LED example)
+        shell: pwsh
+        env:
+          AICS_SYMBOL_DIRS: ${{ github.workspace }}\tests\fixtures\kicad_symbols
+        run: |
+          $ws = Join-Path $env:RUNNER_TEMP "aics-ws"
+          $base = "http://127.0.0.1:8765/api"
+          $p = Start-Process -FilePath build\backend\aics-backend\aics-backend.exe -PassThru -NoNewWindow `
+            -ArgumentList "--no-auth", "--port", "8765", "--workspace", $ws `
+            -RedirectStandardOutput backend.out -RedirectStandardError backend.err
+          try {
+            $system = $null
+            for ($i = 0; $i -lt 60 -and -not $system; $i++) {
+              try { $system = Invoke-RestMethod "$base/system" } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $system) { throw "the bundled backend did not answer" }
+            $system | ConvertTo-Json -Depth 4
+            $proj = Invoke-RestMethod -Method Post "$base/projects" -ContentType "application/json; charset=utf-8" -Body '{"name":"Smoke"}'
+            $ir = Get-Content examples\led-resistor-connector\circuit.json -Raw -Encoding utf8
+            Invoke-RestMethod -Method Put "$base/projects/$($proj.id)/boards/a/circuit" -ContentType "application/json; charset=utf-8" -Body $ir | Out-Null
+            $job = Invoke-RestMethod -Method Post "$base/projects/$($proj.id)/boards/a/exports" -ContentType "application/json" -Body '{"force":false}'
+            for ($i = 0; $i -lt 120; $i++) {
+              $j = Invoke-RestMethod "$base/jobs/$($job.id)"
+              if ($j.status -in @("succeeded", "failed")) { break }
+              Start-Sleep -Seconds 1
+            }
+            $j | ConvertTo-Json -Depth 6
+            if ($j.status -ne "succeeded") { throw "generation failed in the bundled backend" }
+            $out = Invoke-RestMethod "$base/projects/$($proj.id)/boards/a/outputs"
+            if (-not ($out.manifest.artifacts | Where-Object { $_.path -like "*.kicad_sch" })) { throw "no schematic written" }
+            "generated: " + (($out.manifest.artifacts | ForEach-Object { $_.path }) -join ", ")
+          } finally {
+            Stop-Process -Id $p.Id -ErrorAction SilentlyContinue
+            Get-Content backend.err -ErrorAction SilentlyContinue | Select-Object -Last 20
+          }
       - name: Installer (electron-builder)
         working-directory: desktop
         env:

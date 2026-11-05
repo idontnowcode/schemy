@@ -22,7 +22,8 @@ BY_TITLE = {
 BY_SHORT = {"requirement": "요구 반영", "changed": "요구 수정", "ai": "AI 선정", "template": "템플릿", "engineer": "엔지니어"}
 SEVERITY = {"fail": "실패", "warn": "주의", "info": "참고", "ok": "통과"}
 SOURCE = {"user": "직접 제안", "ai_design": "AI 설계", "ai_revision": "AI 수정안", "ai_pdf_import": "PDF 가져오기 (AI)",
-          "template": "템플릿", "agent": "AI Agent", "kicad_layout": "KiCad 배치"}
+          "template": "템플릿", "agent": "AI Agent", "kicad_layout": "KiCad 배치",
+          "kicad_edit": "KiCad 수정"}
 STATUS = {"approved": "승인", "rejected": "거부", "ready": "승인 대기", "check_failed": "검사 실패", "invalid": "규칙 오류",
           "stale": "기준 회로 바뀜", "checking": "검사 중"}
 REVIEW = {"verified": "검토 완료", "needs_review": "검토 필요", "unverified": "미검증"}

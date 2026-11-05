@@ -27,6 +27,10 @@ test("import the KiCad layout as a proposal, approve, then go back to automatic 
     .toBeVisible({ timeout: 180_000 });
   await expect(page.getByText("고정된 부품: 0개")).toBeVisible();
 
+  // Nothing was edited in KiCad: the full import says so (or that it needs kicad-cli to read connections).
+  await page.getByRole("button", { name: "고친 것 모두 가져오기 (제안)" }).click();
+  await expect(page.getByText(kicadExpected() ? "NO_KICAD_CHANGES" : "KICAD_UNAVAILABLE")).toBeVisible({ timeout: 60_000 });
+
   await page.getByRole("button", { name: "KiCad 배치 가져오기 (제안)" }).click();
   await expect(page.getByText("제안 #1을 만들었습니다. 승인하면 반영됩니다.")).toBeVisible();
   await page.getByRole("button", { name: "제안 #1 열기" }).click();

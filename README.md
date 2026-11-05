@@ -18,7 +18,7 @@
 | Phase 2 이후 개선 | ✅ 완료 | AI 출력 한국어, 검토 반영 수정안, 읽기 쉬운 회로도(블록 배치·전원 심볼·직접 배선), Claude 공급자 ([회로도 예](docs/images/schematic-auto-layout.png)) |
 | Phase 3 — 엔지니어링 템플릿 | ✅ 완료 | 다중 유닛 심볼, 검토된 회로 템플릿 4종, AI 설계의 템플릿 우선 사용, 엔지니어 검토 기록 ([보고서](docs/phase3-report.md)) |
 | Phase 4 — 제한된 AI EDA Agent | ✅ 완료 | 계획(dry-run) → 범위 승인 → 허용 도구만 쓰는 격리 실행 → 코드 검증 → 제안 → 승인 ([보고서](docs/phase4-report.md)) |
-| Phase 4 이후 개선 | ✅ 완료 | 회로도 영문 주석, 레귤레이터·크리스탈 블록, KiCad 배치 가져오기, Windows 설치 파일, 선택 근거 기록·기술 검토·근거 리포트 ([ADR-009](docs/adr/ADR-009-schematic-notes-and-compact-blocks.md)~[ADR-011](docs/adr/ADR-011-design-decisions-and-technical-review.md)) |
+| Phase 4 이후 개선 | ✅ 완료 | 회로도 영문 주석, 레귤레이터·크리스탈 블록, KiCad에서 고친 배치·연결·값·부품 가져오기, Windows 설치 파일, 선택 근거 기록·기술 검토·근거 리포트 ([ADR-009](docs/adr/ADR-009-schematic-notes-and-compact-blocks.md)~[ADR-012](docs/adr/ADR-012-kicad-edit-import.md)) |
 | Phase 5 — PCB·펌웨어 | 장기 | 각 기능의 검증 방법을 정한 뒤 착수 |
 
 ## 지금 할 수 있는 것
@@ -69,7 +69,8 @@ npm start                                 # 빌드 후 Electron 실행 (백엔�
 - 앱을 처음 쓸 때는 **회로 (IR)** 탭의 **예제 불러오기**에서 LED 예제를 저장하고, **회로도 · 검증** 탭에서 생성해 보세요. **회로도 MD 가져오기**로 [`examples/led-resistor-connector/schematic.md`](examples/led-resistor-connector/schematic.md)를 넣어 봐도 됩니다.
 - 조금 더 큰 예제로 **ATmega328P 상태 LED 보드**([`examples/atmega328p-led-board/`](examples/atmega328p-led-board/))와 MCU 없는 **NE555 LED 점멸 보드**([`examples/ne555-led-board/`](examples/ne555-led-board/)), **24V → 5V 레귤레이터 (7805)**([`examples/lm7805-24v-to-5v/`](examples/lm7805-24v-to-5v/))가 있습니다. 임의로 정한 요구사항으로 제안을 거쳐 만든 샘플 보드이고, 회로도에 영문 주석(블록 설명·사양·Net 설명)이 들어 있고, 폴더마다 근거 리포트(`rationale.md`)가 있습니다. 같은 **예제 불러오기**에서 고를 수 있습니다.
 - 생성 결과는 **KiCad에서 열기** 버튼이나 보드 폴더의 `outputs/<프로젝트>-<보드>.kicad_pro`로 엽니다.
-- KiCad에서 부품을 옮기고 저장했다면 **회로도 · 검증** 탭의 **KiCad 배치 가져오기**를 누르세요. 위치·회전·반전이 제안으로 만들어지고, 승인하면 다음 생성부터 그 배치를 유지합니다(배선은 다시 그림, ADR-010). **자동 배치로 되돌리기**로 언제든 되돌릴 수 있습니다.
+- KiCad에서 회로도를 고치고 저장했다면 **회로도 · 검증** 탭의 **고친 것 모두 가져오기**를 누르세요. 바꾼 연결, 값·풋프린트, 추가·삭제한 부품, 옮긴 부품의 위치가 제안으로 만들어지고, 승인하면 회로에 들어갑니다(연결은 kicad-cli로 읽음, ADR-012).
+- 배치만 가져오려면 **KiCad 배치 가져오기**를 누르세요. 모든 부품의 위치·회전·반전을 고정하고, 다음 생성부터 그 배치를 유지합니다(배선은 다시 그림, ADR-010). **자동 배치로 되돌리기**로 언제든 되돌릴 수 있습니다.
 
 ### Windows 설치 파일 만들기
 
@@ -260,9 +261,9 @@ xvfb-run -a npx playwright test e2e/electron.spec.ts       # Electron 셸 e2e (L
 - AI 설계는 KiCad 라이브러리에 있는 단일 유닛 심볼만 고릅니다. 다중 유닛 부품(OP앰프 등)은 생성기와 템플릿에서는 쓰지만 AI가 직접 고르지는 못합니다.
 - **데이터시트를 실제 제조사 사이트에서 받아 보지 않았습니다.** 개발 환경에서 외부 사이트가 막혀 있어 로컬 테스트 서버로만 시험했습니다. 사이트가 자동 다운로드를 막으면 브라우저로 받아 **PDF 올리기**로 넣으세요.
 - 데이터시트 전압 점검은 Net 이름에 전압이 있거나(+3V3, +5V, VCC_12V) 「전원 조건」에 전압을 적은 Net만 합니다. 패키지가 여러 개인 부품은 핀 수와 풋프린트로 고르고, 못 고르면 풋프린트를 지정해야 합니다.
-- **Windows 설치 파일은 실제 Windows에서 만들어 보지 않았습니다.** 같은 구성을 Linux에서 만들어 실행까지 확인했고, Windows용은 GitHub Actions 워크플로로 만듭니다([ADR-003](docs/adr/ADR-003-desktop-shell.md)). 코드 서명은 없습니다.
+- **Windows 설치 파일은 GitHub Actions(windows-latest)에서 만들고, 동봉한 백엔드가 Windows에서 뜨고 예제 회로도를 생성하는지까지 확인합니다.** 설치와 앱 화면은 실제 PC에서 아직 확인하지 않았습니다([ADR-003](docs/adr/ADR-003-desktop-shell.md)). 코드 서명은 없습니다.
 - KiCad 10.0.x만 지원합니다([ADR-002](docs/adr/ADR-002-kicad-version.md)).
-- 계층 시트는 페이지 나누기 용도로만 씁니다. 자동 배치는 연결 기반 블록 단위이며, 사람이 그린 회로도만큼 정돈되지는 않습니다. KiCad에서 옮긴 배치는 가져올 수 있지만, KiCad에서 바꾼 연결·추가한 부품은 가져오지 않고 알려 주기만 합니다(ADR-010).
+- 계층 시트는 페이지 나누기 용도로만 씁니다. 자동 배치는 연결 기반 블록 단위이며, 사람이 그린 회로도만큼 정돈되지는 않습니다. KiCad에서 고친 연결·값·부품·배치는 가져올 수 있지만, 기호 변경·심볼 교체·다중 유닛의 유닛별 변경·새 계층 시트는 가져오지 않고 알려 주기만 합니다(ADR-012).
 - 기술 검토(자동 계산)는 전원 조건을 적지 않으면 전압을 Net 이름에서 읽고 레귤레이터 발열을 100 mA 기준으로 계산합니다. 스위칭 레귤레이터·트랜지스터·MOSFET·OP앰프는 검토하지 않습니다(ADR-011).
 - 보유 자재 대조는 값·패키지·종류·품번만 봅니다. 정격(전압·전력)과 허용오차는 비교하지 않습니다.
 - 실행 중인 생성 작업은 취소할 수 없습니다.

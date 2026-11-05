@@ -609,7 +609,7 @@ export interface Proposal {
   board_id: string;
   title: string;
   rationale: string | null;
-  source: "user" | "ai_design" | "ai_revision" | "ai_pdf_import" | "template" | "agent" | "kicad_layout";
+  source: "user" | "ai_design" | "ai_revision" | "ai_pdf_import" | "template" | "agent" | "kicad_layout" | "kicad_edit";
   base_revision: number | null;
   status: ProposalStatus;
   created_at: string;
