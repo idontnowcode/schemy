@@ -84,7 +84,8 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1
 # 결과: desktop\release\AI-Circuit-Studio-Setup-<버전>.exe
 ```
 
-- GitHub Actions의 **Windows installer** 워크플로를 수동 실행하거나 `v*` 태그를 올려도 같은 설치 파일이 artifact로 만들어집니다.
+- GitHub Actions의 **Windows installer** 워크플로가 같은 설치 파일을 artifact로 만듭니다. 수동 실행, `v*` 태그, 패키징 파일을 바꾸는 push 때 돌고, 동봉한 백엔드를 Windows에서 실행해 예제 회로도를 생성해 봅니다.
+- 설치·실행 확인 순서와, 실제 AI 시험·데이터시트 대조처럼 사람이 할 일은 [`docs/user-checklist.md`](docs/user-checklist.md)에 있습니다.
 - 코드 서명을 하지 않아서, 처음 실행할 때 Windows SmartScreen이 한 번 확인을 묻습니다.
 - 앱 아이콘은 아직 Electron 기본 아이콘입니다.
 - 같은 구성을 Linux(`npm run dist`, `desktop/release/linux-unpacked`)에서 만들어 실행까지 확인했습니다(ADR-003).
