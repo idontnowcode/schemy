@@ -1,4 +1,5 @@
 import json
+import math
 import os
 
 import pytest
@@ -108,6 +109,44 @@ def test_i2c_sensor_board_matches_generator(library, workdir):
     (KiCad ERC 0/0, real LM1117 datasheet) - a golden too."""
     board = CircuitIR.model_validate_json((I2C_DIR / "circuit.json").read_text(encoding="utf-8"))
     check_golden(board, library, workdir, I2C_NAME, I2C_DIR)
+
+
+def test_mixed_host_connector_is_the_power_input(library):
+    """J1 brings 5V, GND, SCL and SDA in. It is still where the power enters: drawn at the left with the
+    I2C lines, while the fuse stays on the regulator's input line; notes sit by their own parts."""
+    from kicad_adapter.drawing import note_rect
+
+    board = CircuitIR.model_validate_json((I2C_DIR / "circuit.json").read_text(encoding="utf-8"))
+    g = generate_schematic(board, library)
+    pins: dict[str, list[tuple[float, float]]] = {}
+    for a in g.anchors:
+        pins.setdefault(a.reference, []).append((a.x, a.y))
+    left = {ref: min(x for x, _ in pts) for ref, pts in pins.items()}
+    assert left["J1"] == min(left.values())
+    vi = next((a.x, a.y) for a in g.anchors if a.reference == "U1" and a.pin == "3")
+    assert {y for _, y in pins["F1"]} == {vi[1]} and max(x for x, _ in pins["F1"]) < vi[0]  # F1 -> C1 -> U1 VI
+
+    doc = sexpr.parse(g.text)
+    at = {unquote(t[1]): (float(child(t, "at")[1]), float(child(t, "at")[2])) for t in children(doc, "text")}
+    refs = {c.id: c.reference for c in board.components}
+    for note in board.notes:
+        rect = note_rect(at[note.text], note.text)
+        near = min(math.dist(((rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2), p)
+                   for cid in note.components for p in pins[refs[cid]])
+        assert near <= 25.4, note.text  # not left at the top of the page
+
+
+def test_sideways_power_text_runs_away_from_the_arrow(library):
+    """KiCad turns a field with its symbol, which mirrors the justification on a symbol turned 90°: the file
+    says the opposite so the text still runs away from the arrow (it used to run back over the part)."""
+    from kicad_adapter.drawing import PinView, _port, orient, upright
+
+    cases = [("power:PWR_FLAG", (-1, 0), 90, "left"), ("power:PWR_FLAG", (1, 0), 270, "left"),
+             ("power:GND", (-1, 0), 270, "right"), ("power:GND", (1, 0), 90, "right")]
+    for lib_id, d, rotation, written in cases:
+        sym = library.get(lib_id)
+        port = _port(PinView("1", (0.0, 0.0), d, "X"), sym, 0.0, orient(upright(sym), d) or 0)
+        assert (port.rotation, port.value_at[2]) == (rotation, written), (lib_id, d)
 
 
 def test_power_input_through_a_series_chain_is_one_block(motor_board, library):

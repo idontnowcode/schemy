@@ -164,6 +164,10 @@ def plan_groups(order: list[str], pins: dict[str, list[PinGeom]],
         rails_of, chain = {n for n in nets(c) if n in upright}, []
         for n in (n for n in nets(c) if n not in upright):
             found = series_to_rail(c, n)
+            if found is None and not rail[n]:
+                # A signal pin (I2C, UART) on a connector that also brings power in - a host connector with
+                # 5V, GND, SCL, SDA is still where the power enters; its signals are labelled, not chained.
+                continue
             if found is None or found[1] in reg_lines:
                 break
             chain += found[0]
@@ -220,6 +224,17 @@ def plan_groups(order: list[str], pins: dict[str, list[PinGeom]],
         ins = {n for n in ins if not is_ground_name(n)}
         if ins and outs:
             local[a] = {n for n in ins | outs if n}
+    # A two-pin part in series between two supplies, one of them a regulator's input (a fuse or a diode from the
+    # connector's VIN to the regulator's +5V), is drawn on that regulator's input line - not by the connector,
+    # whose rail is drawn with a power symbol anyway.
+    for s in satellites:
+        supplies = {n for n in nets(s, signal=False) if not is_ground_name(n)}
+        if s in group_of or len(pins[s]) != 2 or len(supplies) != 2 or nets(s, signal=True):
+            continue
+        a = next((a for a in local if supplies & {net_of.get((a, p.number)) for p in pins[a]
+                                                  if p.etype == "power_in"}), None)
+        if a is not None:
+            group_of[s] = a
     for s in satellites:
         if s in group_of:
             continue

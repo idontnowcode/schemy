@@ -40,6 +40,7 @@ from .drawing import (
     field_anchor,
     field_rect,
     flag_port,
+    flag_spot,
     grow,
     junctions_of,
     label_rect,
@@ -670,6 +671,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
             body = rotate_rect(body_rect(sym, getattr(comp, "unit", 1)), pl.rotation, mirror)
             texts = _field_rects(sym, comp, pl.rotation, mirror)
             router.blocks.append(shift(body, pl.x, pl.y))
+            router.texts += [shift(r, pl.x, pl.y) for r in texts]
             boxes += [shift(r, pl.x, pl.y) for r in (body, *texts)]
             part_rects[comp.id] = [shift(r, pl.x, pl.y) for r in (body, *texts)]
             drawn_pins = {v.number for v in _pin_views(sym, comp, net_of, pl.rotation, mirror, unique=True)}
@@ -729,9 +731,14 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
                                                       f"No power symbol for '{flag.net}' on this page to put its "
                                                       "PWR_FLAG on.")])
             fp = placements.get(flag.feeder)
-            _, target = min(on_net, key=lambda cp: (cp[0] != flag.feeder, math.dist(
+            on_net.sort(key=lambda cp: (cp[0] != flag.feeder, math.dist(
                 cp[1].stub_end or cp[1].end, (fp.x, fp.y)) if fp else 0.0))
-            port = flag_port(router, symbols[flag.id], target, boxes)
+            # The flag goes on the power symbol nearest the part that brings the power in, unless something is
+            # in its way there (a pin row, a label, a reference): then on the nearest symbol of that rail with room.
+            label_boxes_now = [label_rect(lbl.stub_from or lbl.at, lbl.out, lbl.net, 2.54 if lbl.stub_from else 0.0)
+                               for lbl in wiring.labels]
+            spots = [flag_spot(router, symbols[flag.id], p, [*boxes, *label_boxes_now]) for _, p in on_net]
+            port = next((p for cost, p in spots if cost == 0), min(spots, key=lambda s: s[0])[1])
             placements[flag.id] = Placement(x=port.at[0], y=port.at[1], rotation=port.rotation)
             router.blocks.append(port.rects[0])
             boxes += port.rects
@@ -779,7 +786,20 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
             else:
                 targets = []
             text = wrap_note(note.text)
-            spot = place_note(text, targets, boxes, segments, list(router.points)) if targets else None
+            spot = None
+            if targets:
+                # Next to all its parts when they sit together; otherwise next to each part in the order the note
+                # lists them (the first is the one it is mainly about). Never nearer another part than its own.
+                mine = set(note.components)
+                others = [r for cid, rects in part_rects.items() if cid not in mine for r in rects]
+                tries = [targets] + ([part_rects.get(cid, []) for cid in note.components]
+                                     if len(note.components) > 1 else [])
+                for group in (t for t in tries if t):
+                    spot = place_note(text, group, boxes, segments, list(router.points), others)
+                    if spot is not None:
+                        break
+                if spot is None:  # crowded all round (an IC among its parts): the first free spot by its parts
+                    spot = place_note(text, targets, boxes, segments, list(router.points))
             if spot is None:  # nothing free nearby (or a page note): lines above everything on the page
                 top = min((b[1] for b in boxes), default=_MARGIN + NOTE_LINE)
                 left = min((b[0] for b in boxes), default=_MARGIN)

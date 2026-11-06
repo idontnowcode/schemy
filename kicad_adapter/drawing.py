@@ -9,6 +9,7 @@ wires, labels and symbol bodies before it is drawn, and the generator checks the
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -23,6 +24,8 @@ STUB = 2.54
 FONT = 1.27
 MAX_ROUTE = 35.56
 """Longest wire drawn between two pins (mm); farther pins keep labels."""
+TEXT_DETOUR = 4 * 2.54
+"""How much longer (in route cost) a path may be to keep clear of part texts."""
 EPS = 1e-6
 
 Point = tuple[float, float]
@@ -365,8 +368,15 @@ def _port(pin: PinView, sym: LibSymbol, stub: float, rotation: int) -> Port:
         if tip[1] == 0:  # on its side: horizontal text just past the arrow
             x = (graphic[2] if tip[0] > 0 else graphic[0]) + tip[0] * 0.635
             y = attach[1]
+            # KiCad lays a field out in the symbol's own frame and then turns it with the symbol, so on a symbol
+            # turned 90° (counter-clockwise) the written justification comes out mirrored: write the opposite
+            # to get text that runs away from the arrow. At 270° it comes out as written. (Checked in KiCad 10:
+            # a PWR_FLAG pointing left with "right" ran its text back over the part beside it.)
+            away = "left" if tip[0] > 0 else "right"
+            if rotation == 90:
+                away = "right" if away == "left" else "left"
             value_at = (r4((x, y)), float((int(value.angle) + 90) % 180 if rotation in (90, 270) else value.angle),
-                        "left" if tip[0] > 0 else "right")
+                        away)
             length = len(text) * CHAR
             rect = union(rect, (min(x, x + tip[0] * length), y - FONT * 0.6, max(x, x + tip[0] * length),
                                 y + FONT * 0.6))
@@ -523,6 +533,8 @@ class Router:
         self.wires: list[tuple[Point, Point, str]] = []
         self.reserved: dict[Key, tuple[str, Rect]] = {}
         self.pin_points: list[Point] = []
+        self.texts: list[Rect] = []
+        """Reference and value texts of parts: a wire may cross one, but a path that keeps clear is preferred."""
 
     def add_point(self, pt: Point, net: str) -> None:
         self.points.setdefault(r4(pt), net)
@@ -531,6 +543,10 @@ class Router:
         self.wires.append((r4(a), r4(b), net))
         self.add_point(a, net)
         self.add_point(b, net)
+
+    def over_text(self, path: list[Point]) -> bool:
+        segs = list(zip(path, path[1:], strict=False))
+        return any(segment_hits_rect(p, q, rect) for rect in self.texts for p, q in segs)
 
     def clear(self, path: list[Point], net: str, end_joins: bool) -> bool:
         """``path`` touches nothing but its own start and (when ``end_joins``) its own net at its end."""
@@ -601,6 +617,11 @@ class Router:
                             options.append((_cost([a, b], da, None), serial, key, ci, [a, b], (u, v)))
             options.sort(key=lambda o: (o[0], o[1]))
             chosen = next((o for o in options if self.clear(o[4], net, end_joins=True)), None)
+            if chosen is not None and self.over_text(chosen[4]):
+                # A wire through a part's name or value is hard to read: take a path that keeps clear of the
+                # texts when one costs little more (a few grid steps), otherwise keep the shortest.
+                chosen = next((o for o in options if o[0] <= chosen[0] + TEXT_DETOUR and not self.over_text(o[4])
+                               and self.clear(o[4], net, end_joins=True)), chosen)
             if chosen is None:
                 key = remaining.pop(0)
                 clusters.append(_Cluster([key], vertices={info[key][0]}))
@@ -759,9 +780,10 @@ def rail_port(router: Router, net: str, sym: LibSymbol, piece: _Cluster, ends: d
     return _port(PinView(k[1], pt, out, net), sym, 0.0, orient(up, out) or 0)
 
 
-def flag_port(router: Router, flag: LibSymbol, port: Port, taken: list[Rect]) -> Port:
+def flag_spot(router: Router, flag: LibSymbol, port: Port, taken: list[Rect]) -> tuple[float, Port]:
     """A PWR_FLAG on the connection point of a rail's power symbol (both pins on the same point join them),
-    lying on its side away from the wire that reaches that point. The side with the least in its way wins."""
+    lying on its side away from the wire that reaches that point. The side with the least in its way wins;
+    the cost says how much is in its way (0 = clear), so the caller can try another symbol of the same rail."""
     at = port.stub_end or port.end
     tip = rotate_dir(upright(port.symbol), port.rotation)
     back = direction(at, port.end) if port.stub_end else (-tip[0], -tip[1])
@@ -772,8 +794,13 @@ def flag_port(router: Router, flag: LibSymbol, port: Port, taken: list[Rect]) ->
         box = cand.rects[0]
         cost = sum(overlap_area(box, b) for b in [*router.blocks, *taken])
         cost += sum(10.0 for a, b, _ in router.wires if segment_hits_rect(a, b, grow(box, -0.2)))
-        tries.append((cost, len(tries), cand))
-    return min(tries)[2]
+        tries.append((round(cost, 6), len(tries), cand))
+    cost, _, cand = min(tries)
+    return cost, cand
+
+
+def flag_port(router: Router, flag: LibSymbol, port: Port, taken: list[Rect]) -> Port:
+    return flag_spot(router, flag, port, taken)[1]
 
 
 # --- notes -----------------------------------------------------------------------------------
@@ -809,10 +836,19 @@ def note_rect(at: Point, text: str) -> Rect:
     return at[0], at[1] - note_height(text), at[0] + width, at[1] + 0.3
 
 
+def _gap(a: Rect, b: Rect) -> float:
+    """Distance between two boxes (0 when they touch or overlap)."""
+    dx = max(b[0] - a[2], a[0] - b[2], 0.0)
+    dy = max(b[1] - a[3], a[1] - b[3], 0.0)
+    return math.hypot(dx, dy)
+
+
 def place_note(text: str, targets: list[Rect], obstacles: list[Rect], wires: list[tuple[Point, Point]],
-               points: list[Point]) -> tuple[Point, Rect] | None:
+               points: list[Point], others: list[Rect] = ()) -> tuple[Point, Rect] | None:
     """The first free spot for a note next to ``targets``: above them, then below, then beside, a little
-    further out each round. Free means clear of every obstacle box, wire and connection point."""
+    further out each round. Free means clear of every obstacle box, wire and connection point. With ``others``
+    (the boxes of the parts the note is not about), a spot more than a grid step nearer one of them than any
+    target is not taken: a caption beside the wrong part reads as that part's."""
     if not targets:
         return None
     x0, y0, x1, y1 = union(*targets)
@@ -837,6 +873,7 @@ def place_note(text: str, targets: list[Rect], obstacles: list[Rect], wires: lis
         for sx, sy in spots:
             at = (snap(sx), snap(sy))
             rect = note_rect(at, text)
-            if free(rect):
+            if free(rect) and (not others or min(_gap(rect, t) for t in targets)
+                               <= min(_gap(rect, o) for o in others) + STEP):
                 return at, rect
     return None
