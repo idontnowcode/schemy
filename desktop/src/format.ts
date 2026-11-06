@@ -208,7 +208,7 @@ export function ratingsLabel(status: string): Label {
 }
 
 export function externalLabel(rows: { status: string; requirement: string }[]): Label {
-  const bad = rows.filter((r) => ["missing", "short", "value_differs"].includes(r.status));
+  const bad = rows.filter((r) => ["missing", "short", "value_differs", "spec_differs"].includes(r.status));
   const required = bad.filter((r) => r.requirement === "required").length;
   if (required) return { text: `필수 부품 확인 ${required}`, tone: "warn" };
   if (bad.length) return { text: `권장 부품 확인 ${bad.length}`, tone: "info" };
@@ -220,6 +220,7 @@ export const ROW_STATUS: Record<string, Label> = {
   match: { text: "일치", tone: "ok" },
   mismatch: { text: "불일치", tone: "bad" },
   missing_in_symbol: { text: "심볼에 없음", tone: "bad" },
+  spec_differs: { text: "사양 불일치", tone: "bad" },
   same_as: { text: "같은 신호의 탭·중복 핀", tone: "ok" },
   missing_in_datasheet: { text: "데이터시트에 없음", tone: "bad" },
   no_name: { text: "이름 없음", tone: "muted" },
@@ -304,8 +305,33 @@ const DIFF_FIELD: Record<string, string> = {
   description: "설명",
 };
 
+export const SPEC_LABEL: Record<string, string> = {
+  voltage_rating: "정격 전압 (V)",
+  current_rating: "정격 전류 (A)",
+  power_rating: "정격 전력 (W)",
+  tolerance: "허용 오차 (%)",
+  dielectric: "종류",
+  esr: "ESR (Ω)",
+  forward_voltage: "순방향 전압 Vf (V)",
+};
+
+export const DIELECTRIC_LABEL: Record<string, string> = {
+  C0G: "세라믹 C0G",
+  X7R: "세라믹 X7R",
+  X5R: "세라믹 X5R",
+  X7S: "세라믹 X7S",
+  Y5V: "세라믹 Y5V",
+  ceramic: "세라믹 (등급 모름)",
+  tantalum: "탄탈",
+  polymer: "폴리머",
+  electrolytic: "전해",
+  film: "필름",
+};
+
 export function diffFieldLabel(field: string): string {
   if (DIFF_FIELD[field]) return DIFF_FIELD[field];
+  const spec = /^specs\.(.+)$/.exec(field);
+  if (spec) return `사양: ${SPEC_LABEL[spec[1]] ?? spec[1]}`;
   const nc = /^pin (.+) no_connect$/.exec(field);
   if (nc) return `핀 ${nc[1]} 미연결 표시`;
   const pin = /^pin (.+)$/.exec(field);

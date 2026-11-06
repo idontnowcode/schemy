@@ -437,6 +437,11 @@ function Details({ row }: { row: DatasheetComponentRow }) {
                     </td>
                     <td>
                       {r.net ?? "미연결"} {r.voltage !== null ? `(${r.voltage} V)` : ""}
+                      {r.voltage_min != null && r.voltage_max != null && (r.voltage_min !== r.voltage || r.voltage_max !== r.voltage) && (
+                        <div className="muted small">
+                          최악 {r.voltage_min}~{r.voltage_max} V
+                        </div>
+                      )}
                     </td>
                     <td>{r.abs_max.map((x) => `${rangeText(x.min, x.max)} (p.${x.page ?? "?"})`).join(", ") || "—"}</td>
                     <td>{r.recommended.map((x) => `${rangeText(x.min, x.max)} (p.${x.page ?? "?"})`).join(", ") || "—"}</td>
@@ -479,6 +484,14 @@ function Details({ row }: { row: DatasheetComponentRow }) {
                     <td>
                       <Chip {...ROW_STATUS[r.status]} />
                       {r.reason && <div className="muted small">{r.reason}</div>}
+                      {r.spec && (
+                        <div className="small">
+                          조건: {r.spec.required}
+                          {r.spec.verdicts.filter((v) => v.status === "ok").map((v, j) => (
+                            <div key={j} className="ok-text">✓ {v.note}</div>
+                          ))}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}

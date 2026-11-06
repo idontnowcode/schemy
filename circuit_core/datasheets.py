@@ -241,6 +241,18 @@ def net_voltages(circuit) -> dict[str, float | None]:
     return {n.name: n.voltage if n.voltage is not None else net_voltage(n.name) for n in circuit.nets}
 
 
+def net_ranges(circuit) -> dict[str, tuple[float, float] | None]:
+    """(lowest, highest) voltage of every net: ``voltage_min``/``voltage_max`` when written, else the nominal."""
+    nominal = net_voltages(circuit)
+    out: dict[str, tuple[float, float] | None] = {}
+    for n in circuit.nets:
+        v = nominal[n.name]
+        lo = n.voltage_min if n.voltage_min is not None else v
+        hi = n.voltage_max if n.voltage_max is not None else v
+        out[n.name] = None if lo is None or hi is None else (lo, hi)
+    return out
+
+
 def to_volts(value: float | None, unit: str) -> float | None:
     if value is None:
         return None

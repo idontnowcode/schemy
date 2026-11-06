@@ -100,6 +100,18 @@
           "default": null,
           "description": "Where the part came from: 'template:<id>@<version>' for a part placed from a reviewed template, 'ai' for a part an AI design chose, None for parts entered by hand or imported.",
           "title": "Origin"
+        },
+        "specs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PartSpecs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ratings of the exact part (from its datasheet)."
         }
       },
       "required": [
@@ -204,6 +216,16 @@
           },
           "title": "Components",
           "type": "array"
+        },
+        "waives": {
+          "default": [],
+          "description": "Design-guide entries (ids) this decision deliberately does not follow; the reason is the decision's reason. The guide checklist shows them as exceptions.",
+          "items": {
+            "pattern": "^G-[A-Z0-9-]{1,20}$",
+            "type": "string"
+          },
+          "title": "Waives",
+          "type": "array"
         }
       },
       "required": [
@@ -307,6 +329,36 @@
           "default": null,
           "description": "Current (A) the loads draw from this net, for the technical review (regulator heat and current, series diode current). Unset: the review assumes 100 mA where it needs a current.",
           "title": "Load Current"
+        },
+        "voltage_min": {
+          "anyOf": [
+            {
+              "maximum": 1000,
+              "minimum": -1000,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Lowest voltage the net can have (V), e.g. 4.75 for a 5 V supply at -5%. The review checks dropout and minimum ratings at this value. Unset: the nominal voltage.",
+          "title": "Voltage Min"
+        },
+        "voltage_max": {
+          "anyOf": [
+            {
+              "maximum": 1000,
+              "minimum": -1000,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Highest voltage the net can have (V), e.g. 5.25 for 5 V +5%. The review checks voltage ratings and heat at this value. Unset: the nominal voltage.",
+          "title": "Voltage Max"
         }
       },
       "required": [
@@ -391,6 +443,129 @@
         "text"
       ],
       "title": "Note",
+      "type": "object"
+    },
+    "PartSpecs": {
+      "additionalProperties": false,
+      "description": "What the exact part is rated for, from its own datasheet: the values the technical review and the datasheet\nchecks need that a value string like '10uF' does not say. All optional; unset means unknown (not checked).",
+      "properties": {
+        "voltage_rating": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 100000,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rated voltage (V): a capacitor's rated voltage, a diode's reverse voltage, a fuse's maximum voltage.",
+          "title": "Voltage Rating"
+        },
+        "current_rating": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 10000,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rated current (A): a fuse's hold current, a diode's average forward current, an inductor's saturation current.",
+          "title": "Current Rating"
+        },
+        "power_rating": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 10000,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rated power (W), e.g. a resistor.",
+          "title": "Power Rating"
+        },
+        "tolerance": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 100,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tolerance in percent (1 = \u00b11%).",
+          "title": "Tolerance"
+        },
+        "dielectric": {
+          "anyOf": [
+            {
+              "enum": [
+                "C0G",
+                "X7R",
+                "X5R",
+                "X7S",
+                "Y5V",
+                "ceramic",
+                "tantalum",
+                "polymer",
+                "electrolytic",
+                "film"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Capacitor type: ceramic class (C0G, X7R, X5R \u2026), tantalum, polymer, electrolytic or film.",
+          "title": "Dielectric"
+        },
+        "esr": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 1000,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Equivalent series resistance (\u03a9) from the capacitor's datasheet, for regulators that need an ESR range for stability.",
+          "title": "Esr"
+        },
+        "forward_voltage": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 100,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Forward voltage (V) at the design current, e.g. an LED (2.0 V yellow-green, 3.0 V InGaN green).",
+          "title": "Forward Voltage"
+        }
+      },
+      "title": "PartSpecs",
       "type": "object"
     },
     "Pin": {
@@ -535,7 +710,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "default": "0.8.0",
+      "default": "0.9.0",
       "title": "Schema Version",
       "type": "string"
     },

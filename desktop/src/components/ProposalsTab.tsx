@@ -913,10 +913,12 @@ export function DiffView({ d }: { d: ProposalDiff }) {
                 <thead><tr><th>Net</th><th>항목</th><th>전</th><th>후</th></tr></thead>
                 <tbody>
                   {d.net_specs.map((x, i) => {
-                    const show = (v: number | null) => (v == null ? "—" : x.field === "voltage" ? `${v} V` : `${+(v * 1000).toFixed(3)} mA`);
+                    const amps = x.field === "load_current";
+                    const show = (v: number | null) => (v == null ? "—" : amps ? `${+(v * 1000).toFixed(3)} mA` : `${v} V`);
+                    const label = { voltage: "전압", voltage_min: "최저 전압", voltage_max: "최고 전압", load_current: "부하 전류" }[x.field] ?? x.field;
                     return (
                       <tr key={i}>
-                        <td>{x.net}</td><td>{x.field === "voltage" ? "전압" : "부하 전류"}</td><td>{show(x.before)}</td><td><b>{show(x.after)}</b></td>
+                        <td>{x.net}</td><td>{label}</td><td>{show(x.before)}</td><td><b>{show(x.after)}</b></td>
                       </tr>
                     );
                   })}

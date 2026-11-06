@@ -1,97 +1,569 @@
 {
-  "schema_version": "0.8.0",
+  "schema_version": "0.9.0",
   "project_id": "i2c-sensor-3v3",
   "title": "3.3V I2C 센서 연결 보드 (LM1117-3.3)",
   "components": [
-    {"id": "j-host", "reference": "J1", "value": "HOST 5V/I2C", "symbol_id": "Connector_Generic:Conn_01x04",
-     "footprint_id": "Connector_JST:JST_PH_B4B-PH-K_1x04_P2.00mm_Vertical", "description": "호스트 커넥터: 1 +5V, 2 GND, 3 SCL, 4 SDA",
-     "pins": [{"number": "1", "name": "Pin_1"}, {"number": "2", "name": "Pin_2"}, {"number": "3", "name": "Pin_3"}, {"number": "4", "name": "Pin_4"}]},
-    {"id": "f-ptc", "reference": "F1", "value": "PTC 0.2A hold", "symbol_id": "Device:Polyfuse",
-     "footprint_id": "Fuse:Fuse_0805_2012Metric", "description": "입력 과전류 보호",
-     "pins": [{"number": "1", "name": null}, {"number": "2", "name": null}]},
-    {"id": "u-ldo", "reference": "U1", "value": "LM1117-3.3", "symbol_id": "Regulator_Linear:LM1117MP-3.3",
-     "footprint_id": "Package_TO_SOT_SMD:SOT-223-3_TabPin2", "description": "5V→3.3V LDO",
-     "manufacturer": "Texas Instruments", "manufacturer_part_number": "LM1117MPX-3.3/NOPB",
-     "pins": [{"number": "1", "name": "GND"}, {"number": "2", "name": "VO"}, {"number": "3", "name": "VI"}]},
-    {"id": "c-in", "reference": "C1", "value": "10uF/16V", "symbol_id": "Device:C_Polarized",
-     "footprint_id": "Capacitor_Tantalum_SMD:CP_EIA-3528-21_Kemet-B", "description": "LDO 입력 (탄탈)",
-     "pins": [{"number": "1", "name": null}, {"number": "2", "name": null}]},
-    {"id": "c-out", "reference": "C2", "value": "10uF/10V", "symbol_id": "Device:C_Polarized",
-     "footprint_id": "Capacitor_Tantalum_SMD:CP_EIA-3528-21_Kemet-B", "description": "LDO 출력 (탄탈, ESR 0.3~22Ω)",
-     "pins": [{"number": "1", "name": null}, {"number": "2", "name": null}]},
-    {"id": "c-sen", "reference": "C3", "value": "100nF/16V", "symbol_id": "Device:C",
-     "footprint_id": "Capacitor_SMD:C_0603_1608Metric", "description": "센서 커넥터 디커플링",
-     "pins": [{"number": "1", "name": null}, {"number": "2", "name": null}]},
-    {"id": "r-led", "reference": "R1", "value": "1k", "symbol_id": "Device:R",
-     "footprint_id": "Resistor_SMD:R_0603_1608Metric", "description": "LED 전류 제한",
-     "pins": [{"number": "1", "name": null}, {"number": "2", "name": null}]},
-    {"id": "d-led", "reference": "D1", "value": "GREEN", "symbol_id": "Device:LED",
-     "footprint_id": "LED_SMD:LED_0603_1608Metric", "description": "3.3V 전원 표시",
-     "pins": [{"number": "1", "name": "K"}, {"number": "2", "name": "A"}]},
-    {"id": "r-scl", "reference": "R2", "value": "4.7k", "symbol_id": "Device:R",
-     "footprint_id": "Resistor_SMD:R_0603_1608Metric", "description": "SCL 풀업",
-     "pins": [{"number": "1", "name": null}, {"number": "2", "name": null}]},
-    {"id": "r-sda", "reference": "R3", "value": "4.7k", "symbol_id": "Device:R",
-     "footprint_id": "Resistor_SMD:R_0603_1608Metric", "description": "SDA 풀업",
-     "pins": [{"number": "1", "name": null}, {"number": "2", "name": null}]},
-    {"id": "j-sensor", "reference": "J2", "value": "SENSOR 3V3/I2C", "symbol_id": "Connector_Generic:Conn_01x04",
-     "footprint_id": "Connector_JST:JST_PH_B4B-PH-K_1x04_P2.00mm_Vertical", "description": "센서 커넥터: 1 +3V3, 2 GND, 3 SCL, 4 SDA",
-     "pins": [{"number": "1", "name": "Pin_1"}, {"number": "2", "name": "Pin_2"}, {"number": "3", "name": "Pin_3"}, {"number": "4", "name": "Pin_4"}]}
+    {
+      "id": "j-host",
+      "reference": "J1",
+      "value": "HOST 5V/I2C",
+      "symbol_id": "Connector_Generic:Conn_01x04",
+      "footprint_id": "Connector_JST:JST_PH_B4B-PH-K_1x04_P2.00mm_Vertical",
+      "description": "호스트 커넥터: 1 +5V, 2 GND, 3 SCL, 4 SDA",
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1"
+        },
+        {
+          "number": "2",
+          "name": "Pin_2"
+        },
+        {
+          "number": "3",
+          "name": "Pin_3"
+        },
+        {
+          "number": "4",
+          "name": "Pin_4"
+        }
+      ]
+    },
+    {
+      "id": "f-ptc",
+      "reference": "F1",
+      "value": "PTC 0.2A hold",
+      "symbol_id": "Device:Polyfuse",
+      "footprint_id": "Fuse:Fuse_0805_2012Metric",
+      "description": "입력 과전류 보호",
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ],
+      "specs": {
+        "current_rating": 0.2,
+        "voltage_rating": 6.0
+      }
+    },
+    {
+      "id": "u-ldo",
+      "reference": "U1",
+      "value": "LM1117-3.3",
+      "symbol_id": "Regulator_Linear:LM1117MP-3.3",
+      "footprint_id": "Package_TO_SOT_SMD:SOT-223-3_TabPin2",
+      "description": "5V→3.3V LDO",
+      "manufacturer": "Texas Instruments",
+      "manufacturer_part_number": "LM1117MPX-3.3/NOPB",
+      "pins": [
+        {
+          "number": "1",
+          "name": "GND"
+        },
+        {
+          "number": "2",
+          "name": "VO"
+        },
+        {
+          "number": "3",
+          "name": "VI"
+        }
+      ]
+    },
+    {
+      "id": "c-in",
+      "reference": "C1",
+      "value": "10uF/16V",
+      "symbol_id": "Device:C_Polarized",
+      "footprint_id": "Capacitor_Tantalum_SMD:CP_EIA-3528-21_Kemet-B",
+      "description": "LDO 입력 (탄탈)",
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ],
+      "specs": {
+        "voltage_rating": 16.0,
+        "dielectric": "tantalum"
+      }
+    },
+    {
+      "id": "c-out",
+      "reference": "C2",
+      "value": "10uF/10V",
+      "symbol_id": "Device:C_Polarized",
+      "footprint_id": "Capacitor_Tantalum_SMD:CP_EIA-3528-21_Kemet-B",
+      "description": "LDO 출력 (탄탈, ESR 0.3~22Ω)",
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ],
+      "specs": {
+        "voltage_rating": 10.0,
+        "dielectric": "tantalum"
+      }
+    },
+    {
+      "id": "c-sen",
+      "reference": "C3",
+      "value": "100nF/16V",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0603_1608Metric",
+      "description": "센서 커넥터 디커플링",
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "r-led",
+      "reference": "R1",
+      "value": "1k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "description": "LED 전류 제한",
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "d-led",
+      "reference": "D1",
+      "value": "GREEN",
+      "symbol_id": "Device:LED",
+      "footprint_id": "LED_SMD:LED_0603_1608Metric",
+      "description": "3.3V 전원 표시",
+      "pins": [
+        {
+          "number": "1",
+          "name": "K"
+        },
+        {
+          "number": "2",
+          "name": "A"
+        }
+      ]
+    },
+    {
+      "id": "r-scl",
+      "reference": "R2",
+      "value": "4.7k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "description": "SCL 풀업",
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "r-sda",
+      "reference": "R3",
+      "value": "4.7k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "description": "SDA 풀업",
+      "pins": [
+        {
+          "number": "1",
+          "name": null
+        },
+        {
+          "number": "2",
+          "name": null
+        }
+      ]
+    },
+    {
+      "id": "j-sensor",
+      "reference": "J2",
+      "value": "SENSOR 3V3/I2C",
+      "symbol_id": "Connector_Generic:Conn_01x04",
+      "footprint_id": "Connector_JST:JST_PH_B4B-PH-K_1x04_P2.00mm_Vertical",
+      "description": "센서 커넥터: 1 +3V3, 2 GND, 3 SCL, 4 SDA",
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1"
+        },
+        {
+          "number": "2",
+          "name": "Pin_2"
+        },
+        {
+          "number": "3",
+          "name": "Pin_3"
+        },
+        {
+          "number": "4",
+          "name": "Pin_4"
+        }
+      ]
+    }
   ],
   "nets": [
-    {"id": "n-vin", "name": "VIN", "voltage": 5.0, "nodes": [{"component_id": "j-host", "pin": "1"}, {"component_id": "f-ptc", "pin": "1"}]},
-    {"id": "n-5v", "name": "+5V", "nodes": [{"component_id": "f-ptc", "pin": "2"}, {"component_id": "u-ldo", "pin": "3"}, {"component_id": "c-in", "pin": "1"}]},
-    {"id": "n-gnd", "name": "GND", "nodes": [{"component_id": "j-host", "pin": "2"}, {"component_id": "u-ldo", "pin": "1"}, {"component_id": "c-in", "pin": "2"},
-      {"component_id": "c-out", "pin": "2"}, {"component_id": "c-sen", "pin": "2"}, {"component_id": "d-led", "pin": "1"}, {"component_id": "j-sensor", "pin": "2"}]},
-    {"id": "n-3v3", "name": "+3V3", "load_current": 0.035, "nodes": [{"component_id": "u-ldo", "pin": "2"}, {"component_id": "c-out", "pin": "1"},
-      {"component_id": "c-sen", "pin": "1"}, {"component_id": "r-led", "pin": "1"}, {"component_id": "r-scl", "pin": "1"},
-      {"component_id": "r-sda", "pin": "1"}, {"component_id": "j-sensor", "pin": "1"}]},
-    {"id": "n-led", "name": "LED_A", "nodes": [{"component_id": "r-led", "pin": "2"}, {"component_id": "d-led", "pin": "2"}]},
-    {"id": "n-scl", "name": "SCL", "nodes": [{"component_id": "j-host", "pin": "3"}, {"component_id": "r-scl", "pin": "2"}, {"component_id": "j-sensor", "pin": "3"}]},
-    {"id": "n-sda", "name": "SDA", "nodes": [{"component_id": "j-host", "pin": "4"}, {"component_id": "r-sda", "pin": "2"}, {"component_id": "j-sensor", "pin": "4"}]}
+    {
+      "id": "n-vin",
+      "name": "VIN",
+      "voltage": 5.0,
+      "nodes": [
+        {
+          "component_id": "j-host",
+          "pin": "1"
+        },
+        {
+          "component_id": "f-ptc",
+          "pin": "1"
+        }
+      ],
+      "voltage_min": 4.75,
+      "voltage_max": 5.25
+    },
+    {
+      "id": "n-5v",
+      "name": "+5V",
+      "nodes": [
+        {
+          "component_id": "f-ptc",
+          "pin": "2"
+        },
+        {
+          "component_id": "u-ldo",
+          "pin": "3"
+        },
+        {
+          "component_id": "c-in",
+          "pin": "1"
+        }
+      ],
+      "voltage_min": 4.7,
+      "voltage_max": 5.25
+    },
+    {
+      "id": "n-gnd",
+      "name": "GND",
+      "nodes": [
+        {
+          "component_id": "j-host",
+          "pin": "2"
+        },
+        {
+          "component_id": "u-ldo",
+          "pin": "1"
+        },
+        {
+          "component_id": "c-in",
+          "pin": "2"
+        },
+        {
+          "component_id": "c-out",
+          "pin": "2"
+        },
+        {
+          "component_id": "c-sen",
+          "pin": "2"
+        },
+        {
+          "component_id": "d-led",
+          "pin": "1"
+        },
+        {
+          "component_id": "j-sensor",
+          "pin": "2"
+        }
+      ]
+    },
+    {
+      "id": "n-3v3",
+      "name": "+3V3",
+      "load_current": 0.035,
+      "nodes": [
+        {
+          "component_id": "u-ldo",
+          "pin": "2"
+        },
+        {
+          "component_id": "c-out",
+          "pin": "1"
+        },
+        {
+          "component_id": "c-sen",
+          "pin": "1"
+        },
+        {
+          "component_id": "r-led",
+          "pin": "1"
+        },
+        {
+          "component_id": "r-scl",
+          "pin": "1"
+        },
+        {
+          "component_id": "r-sda",
+          "pin": "1"
+        },
+        {
+          "component_id": "j-sensor",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": "n-led",
+      "name": "LED_A",
+      "nodes": [
+        {
+          "component_id": "r-led",
+          "pin": "2"
+        },
+        {
+          "component_id": "d-led",
+          "pin": "2"
+        }
+      ]
+    },
+    {
+      "id": "n-scl",
+      "name": "SCL",
+      "nodes": [
+        {
+          "component_id": "j-host",
+          "pin": "3"
+        },
+        {
+          "component_id": "r-scl",
+          "pin": "2"
+        },
+        {
+          "component_id": "j-sensor",
+          "pin": "3"
+        }
+      ]
+    },
+    {
+      "id": "n-sda",
+      "name": "SDA",
+      "nodes": [
+        {
+          "component_id": "j-host",
+          "pin": "4"
+        },
+        {
+          "component_id": "r-sda",
+          "pin": "2"
+        },
+        {
+          "component_id": "j-sensor",
+          "pin": "4"
+        }
+      ]
+    }
   ],
   "notes": [
-    {"id": "note-in", "text": "5V in from host, 0.2A PTC", "components": ["j-host", "f-ptc"]},
-    {"id": "note-ldo", "text": "LM1117-3.3 LDO, 3.3V <35 mA", "components": ["u-ldo", "c-in", "c-out"]},
-    {"id": "note-led", "text": "Power LED, ~1.3 mA", "components": ["r-led", "d-led"]},
-    {"id": "note-i2c", "text": "I2C pull-ups to 3.3V, 100 kHz", "components": ["r-scl", "r-sda"]},
-    {"id": "note-sen", "text": "3.3V I2C sensor connector", "components": ["j-sensor", "c-sen"]}
+    {
+      "id": "note-in",
+      "text": "5V in from host, 0.2A PTC",
+      "components": [
+        "j-host",
+        "f-ptc"
+      ]
+    },
+    {
+      "id": "note-ldo",
+      "text": "LM1117-3.3 LDO, 3.3V <35 mA",
+      "components": [
+        "u-ldo",
+        "c-in",
+        "c-out"
+      ]
+    },
+    {
+      "id": "note-led",
+      "text": "Power LED, ~1.3 mA",
+      "components": [
+        "r-led",
+        "d-led"
+      ]
+    },
+    {
+      "id": "note-i2c",
+      "text": "I2C pull-ups to 3.3V, 100 kHz",
+      "components": [
+        "r-scl",
+        "r-sda"
+      ]
+    },
+    {
+      "id": "note-sen",
+      "text": "3.3V I2C sensor connector",
+      "components": [
+        "j-sensor",
+        "c-sen"
+      ]
+    }
   ],
   "decisions": [
-    {"id": "dec-purpose", "topic": "회로 목적", "choice": "호스트의 5V·I2C를 3.3V 센서에 연결하는 보드", "by": "requirement",
-     "reason": "요구사항 그대로입니다.", "request": "호스트 MCU 보드에서 5V와 I2C(SCL, SDA)를 받아, 3.3V로 동작하는 I2C 센서 모듈에 전원과 I2C를 연결한다.",
-     "components": ["j-host", "j-sensor"]},
-    {"id": "dec-ldo", "topic": "3.3V 레귤레이터", "choice": "LM1117-3.3 (TI, SOT-223) 리니어 레귤레이터", "by": "ai",
-     "reason": "부하가 작아(최대 35 mA) 손실이 0.06 W로 작고, 부품 수가 적은 리니어 레귤레이터로 충분합니다. 스위칭 레귤레이터는 잡음과 부품 수가 늘어 이 용도에 이득이 없습니다.",
-     "calc": "P = (5.0 V − 3.3 V) × 0.035 A = 0.06 W, ΔT = 0.06 W × 61.6 °C/W ≈ 3.7 °C",
-     "source": "TI LM1117 데이터시트 SNOS412Q, 7.4 Thermal Information (p.4): SOT-223 RθJA 61.6 °C/W", "components": ["u-ldo"]},
-    {"id": "dec-dropout", "topic": "드롭아웃 여유", "choice": "입력 4.75 V(5 V −5%)에서도 3.3 V 유지", "by": "ai",
-     "reason": "100 mA 이하에서 드롭아웃은 온도 범위 전체에서 최대 1.2 V입니다. 4.75 − 3.3 = 1.45 V로 여유 0.25 V가 있습니다. 호스트 5V가 ±5% 안이라고 가정했습니다.",
-     "calc": "4.75 V − 3.3 V = 1.45 V ≥ 1.2 V (최대 드롭아웃 @100 mA)",
-     "source": "TI LM1117 데이터시트 SNOS412Q, 7.5 Electrical Characteristics (p.6)", "components": ["u-ldo"]},
-    {"id": "dec-cout", "topic": "LDO 출력 콘덴서", "choice": "10 µF/10 V 탄탈 (3528)", "by": "ai",
-     "reason": "LM1117은 출력에 10 µF 이상의 탄탈 콘덴서가 있어야 안정하고, ESR이 0.3~22 Ω 범위여야 합니다. ESR이 매우 낮은 세라믹 하나만 쓰면 이 조건을 벗어날 수 있어 탄탈로 정했습니다.",
-     "source": "TI LM1117 데이터시트 SNOS412Q, 9.2.2.1.3 Output Capacitor (p.15)", "components": ["c-out"]},
-    {"id": "dec-cin", "topic": "LDO 입력 콘덴서", "choice": "10 µF/16 V 탄탈 (3528)", "by": "ai",
-     "reason": "데이터시트가 입력에 10 µF 탄탈을 권합니다. 전압 정격은 5 V의 3배 여유입니다.",
-     "source": "TI LM1117 데이터시트 SNOS412Q, 9.2.2.1.1 Input Bypass Capacitor (p.14)", "components": ["c-in"]},
-    {"id": "dec-ptc", "topic": "입력 과전류 보호", "choice": "PTC 퓨즈 0.2 A 유지 전류", "by": "ai",
-     "reason": "센서 단락 때 호스트 5V를 보호합니다. 정상 최대 35 mA의 약 5배라 정상 동작에서 끊기지 않습니다. 품번은 정하지 않았습니다(유지 0.2 A, 6 V 이상 정격으로 고르세요).",
-     "calc": "0.2 A / 0.035 A ≈ 5.7배", "components": ["f-ptc"]},
-    {"id": "dec-norev", "topic": "역극성 보호", "choice": "역극성 다이오드를 넣지 않고 키 있는 4핀 JST PH 커넥터로 막음", "by": "ai",
-     "reason": "직렬 쇼트키(0.3~0.4 V 강하)를 넣으면 4.75 V 입력에서 LDO 입력이 4.35~4.45 V가 되어 드롭아웃 1.2 V를 지키지 못합니다. 대신 꽂는 방향이 정해진 커넥터를 씁니다.",
-     "calc": "4.75 V − 0.4 V = 4.35 V < 3.3 V + 1.2 V = 4.5 V", "components": ["j-host"]},
-    {"id": "dec-led", "topic": "전원 LED 저항", "choice": "1 kΩ (녹색 LED, 약 1.3 mA)", "by": "ai",
-     "reason": "표시용이라 1~2 mA면 충분히 보이고 3.3 V 레일 부하를 줄입니다.",
-     "calc": "(3.3 V − 2.0 V) / 1 kΩ = 1.3 mA", "components": ["r-led", "d-led"]},
-    {"id": "dec-pullup", "topic": "I2C 풀업", "choice": "SCL·SDA 각 4.7 kΩ, 3.3 V로", "by": "requirement",
-     "reason": "요구대로 이 보드에 풀업을 둡니다. 100 kHz에서 버스 용량 200 pF까지 상승 시간 1000 ns 안에 듭니다. 센서 모듈에도 풀업이 있으면 병렬이 되니 확인해야 합니다.",
-     "calc": "tr ≈ 0.85 × 4.7 kΩ × 200 pF ≈ 0.8 µs < 1 µs", "request": "I2C 풀업 저항은 이 보드에 둔다(100 kHz).",
-     "components": ["r-scl", "r-sda"]},
-    {"id": "dec-logic", "topic": "호스트 I2C 전압", "choice": "호스트 I2C가 3.3 V 로직이거나 5 V 로직이라도 VIH ≤ 3.0 V라고 가정", "by": "ai",
-     "reason": "풀업이 3.3 V라 버스 하이 레벨이 3.3 V입니다. 5 V MCU(VIH = 0.6×VCC = 3.0 V)는 여유가 0.3 V뿐이니 호스트가 5 V 로직이면 레벨 시프터를 검토해야 합니다.",
-     "components": ["r-scl", "r-sda", "j-host"]},
-    {"id": "dec-csen", "topic": "센서 디커플링", "choice": "센서 커넥터 옆 100 nF", "by": "ai",
-     "reason": "센서 모듈까지의 배선으로 생기는 잡음을 줄입니다.", "components": ["c-sen"]}
+    {
+      "id": "dec-purpose",
+      "topic": "회로 목적",
+      "choice": "호스트의 5V·I2C를 3.3V 센서에 연결하는 보드",
+      "by": "requirement",
+      "reason": "요구사항 그대로입니다.",
+      "request": "호스트 MCU 보드에서 5V와 I2C(SCL, SDA)를 받아, 3.3V로 동작하는 I2C 센서 모듈에 전원과 I2C를 연결한다.",
+      "components": [
+        "j-host",
+        "j-sensor"
+      ]
+    },
+    {
+      "id": "dec-ldo",
+      "topic": "3.3V 레귤레이터",
+      "choice": "LM1117-3.3 (TI, SOT-223) 리니어 레귤레이터",
+      "by": "ai",
+      "reason": "부하가 작아(최대 35 mA) 손실이 0.06 W로 작고, 부품 수가 적은 리니어 레귤레이터로 충분합니다. 스위칭 레귤레이터는 잡음과 부품 수가 늘어 이 용도에 이득이 없습니다.",
+      "calc": "P = (5.0 V − 3.3 V) × 0.035 A = 0.06 W, ΔT = 0.06 W × 61.6 °C/W ≈ 3.7 °C",
+      "source": "TI LM1117 데이터시트 SNOS412Q, 7.4 Thermal Information (p.4): SOT-223 RθJA 61.6 °C/W",
+      "components": [
+        "u-ldo"
+      ]
+    },
+    {
+      "id": "dec-dropout",
+      "topic": "드롭아웃 여유",
+      "choice": "입력 4.75 V(5 V −5%)에서도 3.3 V 유지",
+      "by": "ai",
+      "reason": "100 mA 이하에서 드롭아웃은 온도 범위 전체에서 최대 1.2 V입니다. 호스트 5V가 ±5%라고 가정하고 PTC 강하(약 0.05 V)를 빼면 LDO 입력은 최저 4.7 V, 여유는 0.2 V입니다. 「전원 조건」에 VIN 4.75~5.25 V, +5V 4.7~5.25 V로 적어 기술 검토가 최악 조건으로 계산합니다.",
+      "calc": "4.7 V − 3.3 V = 1.4 V ≥ 1.2 V (최대 드롭아웃 @100 mA), 여유 0.2 V",
+      "source": "TI LM1117 데이터시트 SNOS412Q, 7.5 Electrical Characteristics (p.6)",
+      "components": [
+        "u-ldo"
+      ]
+    },
+    {
+      "id": "dec-cout",
+      "topic": "LDO 출력 콘덴서",
+      "choice": "10 µF/10 V 탄탈 (3528)",
+      "by": "ai",
+      "reason": "LM1117은 출력에 10 µF 이상의 탄탈 콘덴서가 있어야 안정하고, ESR이 0.3~22 Ω 범위여야 합니다. ESR이 매우 낮은 세라믹 하나만 쓰면 이 조건을 벗어날 수 있어 탄탈로 정했습니다.",
+      "source": "TI LM1117 데이터시트 SNOS412Q, 9.2.2.1.3 Output Capacitor (p.15)",
+      "components": [
+        "c-out"
+      ]
+    },
+    {
+      "id": "dec-cin",
+      "topic": "LDO 입력 콘덴서",
+      "choice": "10 µF/16 V 탄탈 (3528)",
+      "by": "ai",
+      "reason": "데이터시트가 입력에 10 µF 탄탈을 권합니다. 전압 정격은 5 V의 3배 여유입니다.",
+      "source": "TI LM1117 데이터시트 SNOS412Q, 9.2.2.1.1 Input Bypass Capacitor (p.14)",
+      "components": [
+        "c-in"
+      ]
+    },
+    {
+      "id": "dec-ptc",
+      "topic": "입력 과전류 보호",
+      "choice": "PTC 퓨즈 0.2 A 유지 전류",
+      "by": "ai",
+      "reason": "센서 단락 때 호스트 5V를 보호합니다. 정상 최대 35 mA의 약 5배라 정상 동작에서 끊기지 않습니다. 품번은 정하지 않았습니다(유지 0.2 A, 6 V 이상 정격으로 고르세요).",
+      "calc": "0.2 A / 0.035 A ≈ 5.7배",
+      "components": [
+        "f-ptc"
+      ]
+    },
+    {
+      "id": "dec-norev",
+      "topic": "역극성 보호",
+      "choice": "역극성 다이오드를 넣지 않고 키 있는 4핀 JST PH 커넥터로 막음",
+      "by": "ai",
+      "reason": "직렬 쇼트키(0.3~0.4 V 강하)를 넣으면 4.75 V 입력에서 LDO 입력이 4.35~4.45 V가 되어 드롭아웃 1.2 V를 지키지 못합니다. 대신 꽂는 방향이 정해진 커넥터를 씁니다.",
+      "calc": "4.75 V − 0.4 V = 4.35 V < 3.3 V + 1.2 V = 4.5 V",
+      "components": [
+        "j-host"
+      ]
+    },
+    {
+      "id": "dec-led",
+      "topic": "전원 LED 저항",
+      "choice": "1 kΩ (녹색 LED, 약 1.3 mA)",
+      "by": "ai",
+      "reason": "표시용이라 1~2 mA면 충분히 보이고 3.3 V 레일 부하를 줄입니다.",
+      "calc": "(3.3 V − 2.0 V) / 1 kΩ = 1.3 mA",
+      "components": [
+        "r-led",
+        "d-led"
+      ]
+    },
+    {
+      "id": "dec-pullup",
+      "topic": "I2C 풀업",
+      "choice": "SCL·SDA 각 4.7 kΩ, 3.3 V로",
+      "by": "requirement",
+      "reason": "요구대로 이 보드에 풀업을 둡니다. 100 kHz에서 버스 용량 200 pF까지 상승 시간 1000 ns 안에 듭니다. 센서 모듈에도 풀업이 있으면 병렬이 되니 확인해야 합니다.",
+      "calc": "tr ≈ 0.85 × 4.7 kΩ × 200 pF ≈ 0.8 µs < 1 µs",
+      "request": "I2C 풀업 저항은 이 보드에 둔다(100 kHz).",
+      "components": [
+        "r-scl",
+        "r-sda"
+      ]
+    },
+    {
+      "id": "dec-logic",
+      "topic": "호스트 I2C 전압",
+      "choice": "호스트 I2C가 3.3 V 로직이거나 5 V 로직이라도 VIH ≤ 3.0 V라고 가정",
+      "by": "ai",
+      "reason": "풀업이 3.3 V라 버스 하이 레벨이 3.3 V입니다. 5 V MCU(VIH = 0.6×VCC = 3.0 V)는 여유가 0.3 V뿐이니 호스트가 5 V 로직이면 레벨 시프터를 검토해야 합니다.",
+      "components": [
+        "r-scl",
+        "r-sda",
+        "j-host"
+      ]
+    },
+    {
+      "id": "dec-csen",
+      "topic": "센서 디커플링",
+      "choice": "센서 커넥터 옆 100 nF",
+      "by": "ai",
+      "reason": "센서 모듈까지의 배선으로 생기는 잡음을 줄입니다.",
+      "components": [
+        "c-sen"
+      ]
+    }
   ]
 }

@@ -5,6 +5,7 @@ import { formatTime, originLabel, reviewLabel } from "../format";
 import type { BoardReviewStatus, ChecklistSuggestion, CircuitIR, EngineeringReview, ReviewCheckItem } from "../types";
 import { Chip } from "./Chip";
 import { GuideChecklistPanel } from "./Guides";
+import { PartSpecsCard } from "./PartSpecsCard";
 import { TechnicalReviewCard } from "./TechnicalReviewCard";
 
 interface Props {
@@ -124,6 +125,7 @@ export function ReviewTab({ projectId, boardId, circuit, revision, onChanged, on
     <div className="requirements-layout">
       <div className="panel">
         <TechnicalReviewCard projectId={projectId} boardId={boardId} revision={revision} onOpenProposal={onOpenProposal} />
+        <PartSpecsCard projectId={projectId} boardId={boardId} circuit={circuit} onOpenProposal={onOpenProposal} />
         <div className="card">
           <GuideChecklistPanel projectId={projectId} boardId={boardId} refreshKey={revision} aiReady={aiReady} />
         </div>

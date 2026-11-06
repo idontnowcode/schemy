@@ -175,7 +175,7 @@ def test_i2c_pullups_crystal_caps_and_connector_signals():
                "TXD": [("u1", "7"), ("j1", "1")]})
     findings = engineering_review(c)
     found = {(f.rule, f.severity, f.title) for f in findings}
-    assert ("i2c_pullup", "ok", "I2C_SDA: 풀업 있음") in found
+    assert ("i2c_pullup", "ok", "I2C_SDA: 풀업 4.7 kΩ") in found
     assert ("i2c_pullup", "warn", "SCL: 풀업 저항 없음") in found
     assert ("crystal_caps", "warn", "Y1 (16MHz): 부하 콘덴서 없음 (2번(XTAL2))") in found
     assert not any(f.rule == "unknown_voltage" for f in findings)  # TXD on a connector is a signal, not a supply
@@ -186,6 +186,71 @@ def test_i2c_pullups_crystal_caps_and_connector_signals():
                   "GND": [("c1", "2"), ("c2", "2")]})
     cl = next(f for f in engineering_review(both) if f.rule == "crystal_caps")
     assert cl.severity == "ok" and "= 11 pF + 3~5 pF = 14 pF ~ 16 pF" in cl.calc
+
+
+def test_worst_case_voltages_and_part_specs():
+    """IR 0.9.0: a supply's range and the parts' own ratings drive the checks (found with the I2C sensor example:
+    the dropout margin at 4.75 V was 0.25 V while the nominal check said 1.7 V)."""
+    reg = [{"number": "1", "name": "GND"}, {"number": "2", "name": "VO"}, {"number": "3", "name": "VI"}]
+    parts = [part("u1", "U1", "LM1117-3.3", "Regulator_Linear:LM1117MP-3.3", reg),
+             part("c1", "C1", "10uF", "Device:C"), part("f1", "F1", "PTC 0.04A", "Device:Polyfuse"),
+             part("j1", "J1", "IN", "Connector_Generic:Conn_01x02"),
+             {**part("c2", "C2", "10uF", "Device:C"), "specs": {"voltage_rating": 6.3, "dielectric": "Y5V"}}]
+    nets = {"VIN": [("j1", "1"), ("f1", "1")], "+5V": [("f1", "2"), ("u1", "3"), ("c1", "1")],
+            "+3V3": [("u1", "2"), ("c2", "1")], "GND": [("j1", "2"), ("u1", "1"), ("c1", "2"), ("c2", "2")]}
+    nominal = {f.rule: f for f in engineering_review(board(parts, nets, specs={"+3V3": {"load_current": 0.035}}))}
+    assert nominal["reg_dropout"].severity == "ok" and "1.7 V" in nominal["reg_dropout"].title
+    ranged = board(parts, nets, specs={"+5V": {"voltage_min": 4.4, "voltage_max": 5.25},
+                                      "+3V3": {"load_current": 0.035}})
+    found = {f.rule: f for f in engineering_review(ranged)}
+    drop = found["reg_dropout"]
+    assert drop.severity == "fail" and "최저 입력 4.4 V" in drop.title and "1.1 V" in drop.title  # < 1.2 V
+    assert "5.25" in found["reg_heat"].calc  # heat at the highest input
+    caps = {f.title: f for f in engineering_review(ranged) if f.rule == "cap_voltage"}
+    assert "C1 (10uF): 정격 전압 미기재" in caps and caps["C1 (10uF): 정격 전압 미기재"].calc.endswith("5.25 V")
+    assert any(t.startswith("C2 (10uF): 정격 전압 여유") for t in caps)  # 6.3 V from the specs vs 3.3 V
+    assert found["cap_dielectric"].severity == "warn"
+    fuse = found["fuse_rating"]
+    assert fuse.severity == "warn" and "유지 40 mA / 부하 35 mA" in fuse.title  # 1.14x < 1.25x
+
+
+def test_fuse_i2c_value_and_led_direction_rules():
+    led = [{"number": "1", "name": "K"}, {"number": "2", "name": "A"}]
+    parts = [part("f1", "F1", "PTC", "Device:Polyfuse"), part("j1", "J1", "IN", "Connector_Generic:Conn_01x02"),
+             part("r1", "R1", "1k", "Device:R"),
+             {**part("d1", "D1", "GREEN", "Device:LED", led), "specs": {"forward_voltage": 3.0}},
+             part("r2", "R2", "470", "Device:R"), part("r3", "R3", "10k", "Device:R"),
+             part("r4", "R4", "330", "Device:R"), part("d2", "D2", "RED", "Device:LED", led)]
+    nets = {"VIN": [("j1", "1"), ("f1", "1")], "+3V3": [("f1", "2"), ("r1", "1"), ("r2", "1"), ("r3", "1")],
+            "LED_A": [("r1", "2"), ("d1", "2")], "GND": [("j1", "2"), ("d1", "1"), ("d2", "2")],
+            "SDA": [("r2", "2")], "SCL": [("r3", "2")], "LED_K": [("r4", "1"), ("d2", "1")], "+5V": [("r4", "2")]}
+    found = engineering_review(board(parts, nets, specs={"+3V3": {"load_current": 0.1}}))
+    by = {(f.rule, f.title.split(":")[0]): f for f in found}
+    assert by[("fuse_rating", "F1 (PTC)")].severity == "info"  # no hold current written
+    assert by[("i2c_pullup", "SDA")].severity == "warn" and "강함" in by[("i2c_pullup", "SDA")].title  # 470 Ω
+    assert by[("i2c_pullup", "SCL")].severity == "warn" and "약함" in by[("i2c_pullup", "SCL")].title  # 10 kΩ
+    assert by[("led_direction", "D1 (GREEN)")].severity == "ok"
+    assert "Vf 3 V(부품 사양)" in by[("led_current", "D1 (GREEN)")].calc  # 0.3 mA with a 3.0 V LED
+    assert by[("led_direction", "D2 (RED)")].severity == "fail"  # anode on GND, cathode via R4 to +5V
+
+
+def test_specs_and_range_patches_and_diff(led_circuit):
+    comp = led_circuit.components[0]
+    net = led_circuit.nets[0].name
+    after = apply_patch(led_circuit, ops(
+        {"op": "set_specs", "component_id": comp.id, "specs": {"power_rating": 0.125, "tolerance": 1}},
+        {"op": "set_net_spec", "net": net, "voltage": 5.0, "set_range": True, "voltage_min": 4.75,
+         "voltage_max": 5.25}))
+    assert next(c for c in after.components if c.id == comp.id).specs.power_rating == 0.125
+    d = diff_circuits(led_circuit, after)
+    fields = {(r["field"], r["after"]) for r in d["properties_changed"]}
+    assert ("specs.power_rating", 0.125) in fields and ("specs.tolerance", 1.0) in fields
+    assert {(r["field"], r["after"]) for r in d["net_specs"]} >= {("voltage_min", 4.75), ("voltage_max", 5.25)}
+    with pytest.raises(PatchError):  # stale expectation
+        apply_patch(after, ops({"op": "set_specs", "component_id": comp.id, "specs": None}))
+    with pytest.raises(PatchError):  # min above nominal
+        apply_patch(led_circuit, ops({"op": "set_net_spec", "net": net, "voltage": 5.0, "set_range": True,
+                                      "voltage_min": 5.5, "voltage_max": 6.0}))
 
 
 def test_net_spec_patch_diff_and_validation(led_circuit):

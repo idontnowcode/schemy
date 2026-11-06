@@ -1077,3 +1077,9 @@ label.block {
 .guide-feedback {
   margin-top: 8px;
 }
+
+.spec-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}

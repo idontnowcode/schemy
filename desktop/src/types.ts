@@ -67,6 +67,20 @@ export interface Component {
   description?: string | null;
   /** "template:<id>@<version>", "ai", or absent for parts entered by hand. */
   origin?: string | null;
+  /** Ratings of the exact part from its datasheet (IR 0.9.0). */
+  specs?: PartSpecs | null;
+}
+
+export type Dielectric = "C0G" | "X7R" | "X5R" | "X7S" | "Y5V" | "ceramic" | "tantalum" | "polymer" | "electrolytic" | "film";
+
+export interface PartSpecs {
+  voltage_rating?: number | null;
+  current_rating?: number | null;
+  power_rating?: number | null;
+  tolerance?: number | null;
+  dielectric?: Dielectric | null;
+  esr?: number | null;
+  forward_voltage?: number | null;
 }
 
 export interface Net {
@@ -77,6 +91,9 @@ export interface Net {
   voltage?: number | null;
   /** Amps the loads draw from this net, for the technical review (IR 0.8.0). */
   load_current?: number | null;
+  /** Lowest / highest voltage for worst-case checks (IR 0.9.0). */
+  voltage_min?: number | null;
+  voltage_max?: number | null;
 }
 
 export interface Sheet {
@@ -127,6 +144,8 @@ export interface SupplyNet {
   net: string;
   voltage: number | null;
   voltage_from_name: number | null;
+  voltage_min: number | null;
+  voltage_max: number | null;
   load_current: number | null;
   derived_current: number | null;
 }
@@ -514,6 +533,8 @@ export interface RatingRow {
   name: string;
   net: string | null;
   voltage: number | null;
+  voltage_min?: number | null;
+  voltage_max?: number | null;
   abs_max: RatingRef[];
   recommended: RatingRef[];
   status: "ok" | "over_abs_max" | "outside_recommended" | "unknown_voltage" | "unconnected";
@@ -528,8 +549,10 @@ export interface ExternalRow {
   description: string | null;
   page: number | null;
   found: string[];
-  status: "present" | "short" | "value_differs" | "missing" | "direct" | "unchecked";
+  status: "present" | "short" | "value_differs" | "missing" | "direct" | "unchecked" | "spec_differs";
   reason: string;
+  /** What the description requires (type, ESR) and how each found part compares. */
+  spec?: { required: string; verdicts: { status: "ok" | "differs" | "unknown" | "none"; note: string }[] };
 }
 
 export interface DatasheetChecks {
@@ -640,7 +663,7 @@ export interface ProposalDiff {
   page_moves: { reference: string; before: string; after: string }[];
   notes?: { id: string; target: string; before: string | null; after: string | null }[];
   decisions?: { id: string; topic: string; by: DecisionBy; before: string | null; after: string | null; reason: string | null }[];
-  net_specs?: { net: string; field: "voltage" | "load_current"; before: number | null; after: number | null }[];
+  net_specs?: { net: string; field: "voltage" | "voltage_min" | "voltage_max" | "load_current"; before: number | null; after: number | null }[];
 }
 
 export interface AiFinding {

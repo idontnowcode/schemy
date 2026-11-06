@@ -247,7 +247,18 @@ def test_real_lm1117_summary_checks_the_i2c_example():
     r = check_component(board, u1, summary.facts, pins, [])
     assert r["pin_map"]["status"] == "match" and r["pin_map"]["counts"] == {"match": 3, "same_as": 1}
     assert r["ratings"]["status"] == "ok"
-    assert [x["status"] for x in r["external"]["rows"]] == ["present", "present"]
+    out, inp = r["external"]["rows"]
+    assert [out["status"], inp["status"]] == ["present", "present"]
+    # p.15: the output capacitor needs ESR 0.3~22 Ω. C2 is tantalum (specs) but its ESR is not written yet.
+    assert out["spec"]["required"] == "탄탈, ESR 0.3~22 Ω"
+    assert "C2: 부품 사양에 ESR(0.3~22 Ω 필요)을 적으면 확인합니다" in out["reason"]
+    # A ceramic with a few milliohms would break the stability condition.
+    ceramic = board.model_copy(update={"components": tuple(
+        c.model_copy(update={"specs": c.specs.model_copy(update={"dielectric": "X7R", "esr": 0.005})})
+        if c.reference == "C2" else c for c in board.components)})
+    r2 = check_component(ceramic, u1, summary.facts, pins, [])
+    bad = r2["external"]["rows"][0]
+    assert bad["status"] == "spec_differs" and "ESR 0.005 Ω" in bad["reason"] and r2["external"]["status"] == "warning"
 
 
 # --- library -----------------------------------------------------------------------------------

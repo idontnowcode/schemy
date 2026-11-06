@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .models import CircuitIR, Component, Decision, NetName, Note, Placement, StableId
+from .models import CircuitIR, Component, Decision, NetName, Note, PartSpecs, Placement, StableId
 
 PROPERTY_FIELDS = ("value", "footprint_id", "manufacturer", "manufacturer_part_number", "description")
 
@@ -67,7 +67,8 @@ class RenameNet(_Op):
 
 
 class SetNetSpec(_Op):
-    """The voltage and load current of a net, for the technical review (no connectivity, no drawing)."""
+    """The voltage and load current of a net, for the technical review (no connectivity, no drawing).
+    With ``set_range`` it also sets the lowest and highest voltage (worst-case checks)."""
 
     op: Literal["set_net_spec"] = "set_net_spec"
     net: NetName
@@ -75,6 +76,21 @@ class SetNetSpec(_Op):
     load_current: float | None = Field(default=None, description="Amps the loads draw; None when unknown.")
     expect_voltage: float | None = Field(default=None, description="Current Net.voltage (None when unset).")
     expect_load_current: float | None = Field(default=None, description="Current Net.load_current (None when unset).")
+    set_range: bool = Field(default=False, description="Also set voltage_min/voltage_max (else they stay as they are).")
+    voltage_min: float | None = None
+    voltage_max: float | None = None
+    expect_voltage_min: float | None = None
+    expect_voltage_max: float | None = None
+
+
+class SetSpecs(_Op):
+    """The ratings of one part (voltage, current, power, tolerance, capacitor type, ESR, forward voltage)."""
+
+    op: Literal["set_specs"] = "set_specs"
+    component_id: StableId
+    specs: PartSpecs | None = Field(description="None clears the ratings.")
+    expect_specs: PartSpecs | None = Field(default=None,
+                                           description="Current specs; the patch is refused if they differ.")
 
 
 class SetNoConnect(_Op):
@@ -128,8 +144,8 @@ class ReplaceCircuit(_Op):
 
 
 PatchOp = Annotated[SetProperty | AddComponent | RemoveComponent | Connect | Disconnect | RenameNet | SetNoConnect
-                    | SetNetSpec | Move | SetNote | RemoveNote | SetDecision | RemoveDecision | ReplaceCircuit,
-                    Field(discriminator="op")]
+                    | SetNetSpec | SetSpecs | Move | SetNote | RemoveNote | SetDecision | RemoveDecision
+                    | ReplaceCircuit, Field(discriminator="op")]
 
 
 class PatchFailure(BaseModel):
@@ -283,8 +299,24 @@ def apply_patch(circuit: CircuitIR | None, ops: list) -> CircuitIR:
                 fail(i, op, "PRECONDITION_FAILED", f"Net '{op.net}' is voltage={net.get('voltage')!r}, "
                      f"load_current={net.get('load_current')!r}; "
                      f"expected {op.expect_voltage!r}, {op.expect_load_current!r}.")
+            elif op.set_range and (net.get("voltage_min"), net.get("voltage_max")) != (op.expect_voltage_min,
+                                                                                    op.expect_voltage_max):
+                fail(i, op, "PRECONDITION_FAILED", f"Net '{op.net}' range is {net.get('voltage_min')!r}.."
+                     f"{net.get('voltage_max')!r}; expected {op.expect_voltage_min!r}..{op.expect_voltage_max!r}.")
             else:
                 net["voltage"], net["load_current"] = op.voltage, op.load_current
+                if op.set_range:
+                    net["voltage_min"], net["voltage_max"] = op.voltage_min, op.voltage_max
+        elif isinstance(op, SetSpecs):
+            comp = comps.get(op.component_id)
+            expect = op.expect_specs.model_dump(mode="json") if op.expect_specs else None
+            if comp is None:
+                fail(i, op, "UNKNOWN_COMPONENT", f"Component '{op.component_id}' does not exist.")
+            elif (comp.get("specs") or None) != expect:
+                fail(i, op, "PRECONDITION_FAILED", f"{comp['reference']} specs are {comp.get('specs')!r}, "
+                     f"expected {expect!r}.")
+            else:
+                comp["specs"] = op.specs.model_dump(mode="json") if op.specs else None
         elif isinstance(op, SetNoConnect):
             if pin_ok(PinRef(component_id=op.component_id, pin=op.pin)):
                 for p in comps[op.component_id]["pins"]:

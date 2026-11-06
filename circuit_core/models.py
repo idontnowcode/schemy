@@ -16,13 +16,14 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-SCHEMA_VERSION = "0.8.0"
+SCHEMA_VERSION = "0.9.0"
 """0.2.0 added optional ``sheets`` (pages); 0.3.0 added optional ``Component.manufacturer`` and
 ``Pin.no_connect``; 0.4.0 added optional ``Component.origin``; 0.5.0 added optional ``notes``; 0.6.0 added
 optional ``Placement.mirror``; 0.7.0 added optional ``decisions``; 0.8.0 added optional ``Net.voltage`` and
-``Net.load_current``. Older documents are still valid."""
+``Net.load_current``; 0.9.0 added optional ``Net.voltage_min``/``voltage_max``, ``Component.specs`` and
+``Decision.waives``. Older documents are still valid."""
 
 StableId = Annotated[
     str,
@@ -83,6 +84,29 @@ class Evidence(_Model):
     notes: str | None = None
 
 
+Dielectric = Literal["C0G", "X7R", "X5R", "X7S", "Y5V", "ceramic", "tantalum", "polymer", "electrolytic", "film"]
+
+
+class PartSpecs(_Model):
+    """What the exact part is rated for, from its own datasheet: the values the technical review and the datasheet
+    checks need that a value string like '10uF' does not say. All optional; unset means unknown (not checked)."""
+
+    voltage_rating: float | None = Field(default=None, gt=0, le=100_000, description="Rated voltage (V): a "
+                                         "capacitor's rated voltage, a diode's reverse voltage, a fuse's maximum "
+                                         "voltage.")
+    current_rating: float | None = Field(default=None, gt=0, le=10_000, description="Rated current (A): a fuse's "
+                                         "hold current, a diode's average forward current, an inductor's saturation "
+                                         "current.")
+    power_rating: float | None = Field(default=None, gt=0, le=10_000, description="Rated power (W), e.g. a resistor.")
+    tolerance: float | None = Field(default=None, gt=0, le=100, description="Tolerance in percent (1 = ±1%).")
+    dielectric: Dielectric | None = Field(default=None, description="Capacitor type: ceramic class (C0G, X7R, X5R …), "
+                                          "tantalum, polymer, electrolytic or film.")
+    esr: float | None = Field(default=None, gt=0, le=1000, description="Equivalent series resistance (Ω) from the "
+                              "capacitor's datasheet, for regulators that need an ESR range for stability.")
+    forward_voltage: float | None = Field(default=None, gt=0, le=100, description="Forward voltage (V) at the design "
+                                          "current, e.g. an LED (2.0 V yellow-green, 3.0 V InGaN green).")
+
+
 class Component(_Model):
     id: StableId
     reference: Reference
@@ -104,6 +128,7 @@ class Component(_Model):
         description="Where the part came from: 'template:<id>@<version>' for a part placed from a reviewed "
         "template, 'ai' for a part an AI design chose, None for parts entered by hand or imported.",
     )
+    specs: PartSpecs | None = Field(default=None, description="Ratings of the exact part (from its datasheet).")
 
     def pin_numbers(self) -> tuple[str, ...]:
         return tuple(p.number for p in self.pins)
@@ -128,6 +153,25 @@ class Net(_Model):
         description="Current (A) the loads draw from this net, for the technical review (regulator heat and "
         "current, series diode current). Unset: the review assumes 100 mA where it needs a current.",
     )
+    voltage_min: float | None = Field(
+        default=None, ge=-1000, le=1000,
+        description="Lowest voltage the net can have (V), e.g. 4.75 for a 5 V supply at -5%. The review checks "
+                    "dropout and minimum ratings at this value. Unset: the nominal voltage.",
+    )
+    voltage_max: float | None = Field(
+        default=None, ge=-1000, le=1000,
+        description="Highest voltage the net can have (V), e.g. 5.25 for 5 V +5%. The review checks voltage "
+                    "ratings and heat at this value. Unset: the nominal voltage.",
+    )
+
+    @model_validator(mode="after")
+    def _range_holds(self) -> Net:
+        lo, hi, nom = self.voltage_min, self.voltage_max, self.voltage
+        if lo is not None and hi is not None and lo > hi:
+            raise ValueError(f"net {self.name}: voltage_min {lo} is above voltage_max {hi}")
+        if nom is not None and ((lo is not None and nom < lo) or (hi is not None and nom > hi)):
+            raise ValueError(f"net {self.name}: voltage {nom} is outside {lo}..{hi}")
+        return self
 
 
 class Placement(_Model):
@@ -190,6 +234,9 @@ class Decision(_Model):
     source: str | None = Field(default=None, max_length=500,
                                description="Datasheet (document, section, page), standard or reference used.")
     components: tuple[StableId, ...] = ()
+    waives: tuple[Annotated[str, StringConstraints(pattern=r"^G-[A-Z0-9-]{1,20}$")], ...] = Field(
+        default=(), description="Design-guide entries (ids) this decision deliberately does not follow; the reason "
+                                "is the decision's reason. The guide checklist shows them as exceptions.")
 
 
 class Validation(_Model):

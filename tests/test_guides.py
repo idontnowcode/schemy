@@ -114,7 +114,7 @@ def test_guide_api_board_checklist_and_review(tmp_path):
     board = f"/api/projects/{pid}/boards/a"
     items = {i["id"]: i for i in client.get(board + "/guides").json()["items"]}
     assert items["G-MOT-05"]["status"] == "ok" and created.json()["id"] in items
-    assert items["G-PRT-02"]["status"] == "manual"
+    assert items["G-PRT-02"]["status"] == "ok" and items["G-PRT-03"]["status"] == "manual"  # fuse rule; TVS is manual
 
     # The engineer's checklist offers the guide; an "issue" on it is counted against the guide.
     review_items = client.get(board + "/reviews/checklist").json()["items"]

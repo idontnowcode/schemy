@@ -6,7 +6,7 @@
 	(paper "A4")
 	(title_block
 		(title "3.3V I2C 센서 연결 보드 (LM1117-3.3)")
-		(comment 1 "Generated from Circuit IR 'i2c-sensor-3v3' (schema 0.8.0)")
+		(comment 1 "Generated from Circuit IR 'i2c-sensor-3v3' (schema 0.9.0)")
 		(comment 2 "Design verification status: unverified")
 	)
 	(lib_symbols

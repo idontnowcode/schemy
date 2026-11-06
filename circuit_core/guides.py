@@ -57,6 +57,7 @@ CHECKS: dict[str, str] = {
     "led_series_r": "LED 직렬 저항", "led_direction": "LED 방향", "r_power": "저항 전력",
     "i2c_pullup": "I2C 풀업", "crystal_caps": "크리스탈 부하 콘덴서", "motor_vm": "모터 드라이버 VM",
     "motor_ilim": "모터 드라이버 전류 제한", "motor_heat": "모터 드라이버 발열", "unknown_voltage": "전압 모르는 전원 Net",
+    "fuse_rating": "퓨즈 정격", "cap_dielectric": "콘덴서 유전체",
     "floating_input": "떠 있는 입력 핀",
 }
 
@@ -102,8 +103,8 @@ class GuideEntry(GuideDraft):
 
 # --- built-in baseline ---------------------------------------------------------------------------------
 
-SEED_VERSION = 2
-"""2: an entry applies by its first topic; LDO entries lead with "ldo"."""
+SEED_VERSION = 3
+"""2: an entry applies by its first topic; LDO entries lead with "ldo". 3: G-PRT-02 checked by the fuse rule."""
 _P = "일반 설계 관행 (앱 기본 지침)"
 
 
@@ -151,7 +152,7 @@ SEED: list[dict] = [
           "전원을 거꾸로 꽂으면 IC가 바로 손상될 수 있다.", "diode_reverse", keywords=["외부 전원", "어댑터", "dc jack", "배터리"]),
     _seed("G-PRT-02", ["protection", "power"], "should", "외부 전원 입력에 과전류 보호",
           "외부 전원 입력에 퓨즈나 PTC(폴리퓨즈)를 둔다. 유지 전류는 정상 최대 전류보다 크게, 차단 전류와 동작 시간은 배선·커넥터 "
-          "정격 안에서 끊기도록 고른다.", "단락 때 배선·커넥터·기판 패턴이 타는 것을 막는다."),
+          "정격 안에서 끊기도록 고른다.", "단락 때 배선·커넥터·기판 패턴이 타는 것을 막는다.", "fuse_rating"),
     _seed("G-PRT-03", ["protection", "connector"], "consider", "케이블로 나가는 선에는 서지·ESD 보호 검토",
           "케이블로 연결되는 전원·신호에는 TVS 다이오드를 검토한다. 동작 전압 ≥ 최대 정상 전압, 클램프 전압 < 보호할 부품의 절대 최대 정격.",
           "케이블은 정전기와 유도 서지가 들어오는 길이다."),

@@ -15,10 +15,19 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from .datasheets import DatasheetFacts, DsRating, is_ground_name, net_voltages, norm_pin_name, pin_names_match, to_volts
+from .datasheets import (
+    DatasheetFacts,
+    DsRating,
+    is_ground_name,
+    net_ranges,
+    net_voltages,
+    norm_pin_name,
+    pin_names_match,
+    to_volts,
+)
 from .export import natural_key
 from .models import CircuitIR, Component
-from .parts import category_of, package_key, values_equal
+from .parts import category_of, package_key, parse_value, values_equal
 
 PinNames = list[tuple[str, str]]
 """[(pin number, pin name)] of the component, from the KiCad library when available."""
@@ -119,6 +128,7 @@ def ratings_check(facts: DatasheetFacts, circuit: CircuitIR, component: Componen
                   package: str | None = None) -> dict:
     nets = _pin_nets(circuit)
     volts = net_voltages(circuit)
+    ranges = net_ranges(circuit)
     power_names = {norm_pin_name(p.name) for p in facts.pins_of(package or "") if p.kind and "전원" in p.kind}
     per_pin: dict[str, dict] = {}
     skipped = 0
@@ -134,10 +144,12 @@ def ratings_check(facts: DatasheetFacts, circuit: CircuitIR, component: Componen
                 for number in numbers:
                     name = dict(pin_names)[number]
                     net = nets.get((component.id, number))
+                    rng = ranges.get(net) if net else None
                     row = per_pin.setdefault(number, {
                         "number": number, "name": name, "net": net,
-                        "voltage": volts.get(net) if net else None, "abs_max": [], "recommended": [],
-                        "power": norm_pin_name(name) in power_names})
+                        "voltage": volts.get(net) if net else None,
+                        "voltage_min": rng[0] if rng else None, "voltage_max": rng[1] if rng else None,
+                        "abs_max": [], "recommended": [], "power": norm_pin_name(name) in power_names})
                     row[group].append({"parameter": rating.parameter, "min": lo, "max": hi,
                                        "condition": rating.condition, "page": rating.page})
     rows = []
@@ -149,9 +161,9 @@ def ratings_check(facts: DatasheetFacts, circuit: CircuitIR, component: Componen
                 skipped += 1
                 continue
             row["status"] = "unconnected" if row["net"] is None else "unknown_voltage"
-        elif any(_outside(v, r) for r in row["abs_max"]):
+        elif any(_outside_range(row, r) for r in row["abs_max"]):
             row["status"] = "over_abs_max"
-        elif any(_outside(v, r) for r in row["recommended"]):
+        elif any(_outside_range(row, r) for r in row["recommended"]):
             row["status"] = "outside_recommended"
         else:
             row["status"] = "ok"
@@ -165,6 +177,91 @@ def ratings_check(facts: DatasheetFacts, circuit: CircuitIR, component: Componen
 
 def _outside(v: float, r: dict) -> bool:
     return (r["max"] is not None and v > r["max"] + 1e-9) or (r["min"] is not None and v < r["min"] - 1e-9)
+
+
+def _outside_range(row: dict, r: dict) -> bool:
+    """Worst case: the highest voltage against the maximum, the lowest against the minimum."""
+    lo = row["voltage_min"] if row.get("voltage_min") is not None else row["voltage"]
+    hi = row["voltage_max"] if row.get("voltage_max") is not None else row["voltage"]
+    return (r["max"] is not None and hi > r["max"] + 1e-9) or (r["min"] is not None and lo < r["min"] - 1e-9)
+
+
+# --- what an external part must be (from the summary's description) ------------------------------------
+
+_CERAMIC = {"C0G", "X7R", "X5R", "X7S", "Y5V", "ceramic"}
+_DIELECTRIC_WORDS = [  # (words in the description, acceptable PartSpecs.dielectric values, label)
+    (("탄탈", "tantalum"), {"tantalum"}, "탄탈"),
+    (("폴리머", "polymer"), {"polymer"}, "폴리머"),
+    (("전해", "electrolytic"), {"electrolytic", "polymer"}, "전해"),
+    (("C0G", "NP0"), {"C0G"}, "C0G"),
+    (("X7R",), {"X7R", "C0G", "X7S"}, "X7R 이상"),
+    (("X5R",), {"X5R", "X7R", "X7S", "C0G"}, "X5R 이상"),
+    (("세라믹", "ceramic", "MLCC"), _CERAMIC, "세라믹"),
+]
+_ESR_RANGE = re.compile(r"ESR\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(m?)\s*Ω?\s*[~∼\-–]\s*(\d+(?:\.\d+)?)\s*(m?)\s*Ω", re.I)
+_ESR_MAX = re.compile(r"ESR\s*(?:≤|<=|<|max\.?|최대)\s*(\d+(?:\.\d+)?)\s*(m?)\s*Ω"
+                      r"|ESR\s*(\d+(?:\.\d+)?)\s*(m?)\s*Ω\s*이하", re.I)
+_AT_LEAST = re.compile(r"최소|이상|minimum|\bmin\b|≥", re.I)
+
+
+def part_requirements(description: str | None) -> dict:
+    """What the datasheet says the part must be, read from the summary's description column:
+    {"dielectric": (set, label) | None, "esr": (lo, hi) | None, "at_least": bool}."""
+    text = description or ""
+    out: dict = {"dielectric": None, "esr": None, "at_least": bool(_AT_LEAST.search(text))}
+    for words, ok, label in _DIELECTRIC_WORDS:
+        if any(w.lower() in text.lower() for w in words):
+            out["dielectric"] = (ok, label)
+            break
+    m = _ESR_RANGE.search(text)
+    if m:
+        lo = float(m.group(1)) * (0.001 if m.group(2) else 1)
+        hi = float(m.group(3)) * (0.001 if m.group(4) else 1)
+        out["esr"] = (lo, hi)
+    else:
+        m = _ESR_MAX.search(text)
+        if m:
+            num, milli = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+            out["esr"] = (None, float(num) * (0.001 if milli else 1))
+    return out
+
+
+def _value_ok(comp: Component, value: str | None, at_least: bool) -> bool:
+    if value is None or values_equal(comp.value, value):
+        return True
+    # "10 µF minimum": a larger value of the same kind satisfies it.
+    want, got = parse_value(value), parse_value(comp.value.split("/")[0])
+    return bool(at_least and want and got and got >= want)
+
+
+def _spec_verdict(comp: Component, req: dict) -> tuple[str, str]:
+    """('ok' | 'differs' | 'unknown' | 'none', why) for one found part against the description's requirements."""
+    if req["dielectric"] is None and req["esr"] is None:
+        return "none", ""
+    specs = comp.specs
+    notes, unknown, differs = [], [], []
+    if req["dielectric"] is not None:
+        ok, label = req["dielectric"]
+        if specs is None or specs.dielectric is None:
+            unknown.append(f"종류({label} 필요)")
+        elif specs.dielectric not in ok:
+            differs.append(f"종류 {specs.dielectric} (데이터시트: {label})")
+        else:
+            notes.append(f"종류 {specs.dielectric}")
+    if req["esr"] is not None:
+        lo, hi = req["esr"]
+        want = f"{lo:g}~{hi:g} Ω" if lo is not None else f"{hi:g} Ω 이하"
+        if specs is None or specs.esr is None:
+            unknown.append(f"ESR({want} 필요)")
+        elif (lo is not None and specs.esr < lo) or specs.esr > hi:
+            differs.append(f"ESR {specs.esr:g} Ω (데이터시트: {want})")
+        else:
+            notes.append(f"ESR {specs.esr:g} Ω")
+    if differs:
+        return "differs", f"{comp.reference}: " + ", ".join(differs)
+    if unknown:
+        return "unknown", f"{comp.reference}: 부품 사양에 " + ", ".join(unknown) + "을 적으면 확인합니다"
+    return "ok", f"{comp.reference}: " + ", ".join(notes)
 
 
 _FAMILY = {"capacitor": {"capacitor", "capacitor_polarized"}, "capacitor_polarized": {"capacitor_polarized"}}
@@ -220,10 +317,26 @@ def external_parts_check(facts: DatasheetFacts, circuit: CircuitIR, component: C
             if any(n in a for n in other_nets) and any(n in b for n in other_nets):
                 candidates.append(other)
         need = part.quantity or 1
-        good = [c for c in candidates if part.value is None or values_equal(c.value, part.value)]
+        req = part_requirements(part.description)
+
+        good = [c for c in candidates if _value_ok(c, part.value, req["at_least"])]
         row["found"] = [f"{c.reference} {c.value}" for c in sorted(candidates, key=lambda c: natural_key(c.reference))]
+        verdicts = [_spec_verdict(c, req) for c in good]
+        if any(v != "none" for v, _ in verdicts):
+            row["spec"] = {"verdicts": [{"status": v, "note": why} for v, why in verdicts],
+                           "required": ", ".join(x for x in (req["dielectric"][1] if req["dielectric"] else None,
+                                                             (f"ESR {req['esr'][0]:g}~{req['esr'][1]:g} Ω" if req["esr"]
+                                                              and req["esr"][0] is not None else
+                                                              f"ESR {req['esr'][1]:g} Ω 이하" if req["esr"] else None))
+                                         if x)}
+            fitting = [c for c, (v, _) in zip(good, verdicts, strict=True) if v != "differs"]
+            if len(good) >= need and len(fitting) < need:
+                row["status"] = "spec_differs"
+                row["reason"] = "; ".join(why for v, why in verdicts if v == "differs")
+                continue
         if len(good) >= need:
             row["status"] = "present"
+            row["reason"] = "; ".join(why for v, why in verdicts if v == "unknown")
         elif good:
             row["status"] = "short"
             row["reason"] = f"{need}개 필요, {len(good)}개 있음"
@@ -232,9 +345,9 @@ def external_parts_check(facts: DatasheetFacts, circuit: CircuitIR, component: C
             row["reason"] = f"값이 {part.value}가 아닙니다."
         else:
             row["status"] = "missing"
-    missing_required = any(r["status"] in ("missing", "short", "value_differs") and r["requirement"] == "required"
-                           for r in rows)
-    missing_any = any(r["status"] in ("missing", "short", "value_differs") for r in rows)
+    bad = ("missing", "short", "value_differs", "spec_differs")
+    missing_required = any(r["status"] in bad and r["requirement"] == "required" for r in rows)
+    missing_any = any(r["status"] in bad for r in rows)
     status = ("warning" if missing_required else "info" if missing_any
               else "ok" if any(r["status"] == "present" for r in rows) else "unchecked")
     return {"status": status, "rows": rows}

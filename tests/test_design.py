@@ -343,3 +343,16 @@ def test_design_uses_a_template_and_marks_where_parts_came_from(library, resolve
     assert ("j1", "1") in nets["+3V3"] and ("can-u", "3") in nets["+3V3"]
     assert [b.ref for b in result.templates] == ["can-sn65hvd230@1"]
     assert generate_schematic(c, library).power_flags == ["+3V3", "GND"]
+
+
+def test_rails_carry_a_consistent_voltage_range():
+    from ai_engine.design import _apply_rails
+
+    nets = [{"name": "VIN"}, {"name": "+5V"}, {"name": "+3V3"}]
+    _apply_rails({"rails": [{"net": "VIN", "voltage": 5, "load_ma": 0, "voltage_min": 4.75, "voltage_max": 5.25},
+                            {"net": "+5V", "voltage": 0, "load_ma": 0, "voltage_min": 4.5, "voltage_max": 5.5},
+                            {"net": "+3V3", "voltage": 0, "load_ma": 30, "voltage_min": 4.0, "voltage_max": 5.0}]}, nets)
+    vin, v5, v33 = nets
+    assert (vin["voltage_min"], vin["voltage_max"]) == (4.75, 5.25)
+    assert (v5["voltage_min"], v5["voltage_max"]) == (4.5, 5.5)  # nominal from the name
+    assert "voltage_min" not in v33 and v33["load_current"] == 0.03  # 4..5 V does not contain 3.3 V: dropped

@@ -276,7 +276,8 @@ def datasheet_evidence(circuit: CircuitIR, datasheets, symbol_dirs: list[Path]) 
                      "external": r["external"]["status"],
                      "external_missing": [f"{x['kind_label']} {x['value'] or ''} ({' ~ '.join(x['endpoints'])})".strip()
                                           for x in r["external"]["rows"] if x["status"] in ("missing", "short",
-                                                                                            "value_differs")],
+                                                                                            "value_differs",
+                                                                                            "spec_differs")],
                      "ratings_problems": [f"{x['name']} {x['net']} {x['voltage']} V: {x['status']}"
                                           for x in r["ratings"]["rows"] if x["status"] in ("over_abs_max",
                                                                                            "outside_recommended")]})

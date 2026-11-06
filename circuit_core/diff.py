@@ -48,6 +48,12 @@ def diff_circuits(before: CircuitIR | None, after: CircuitIR) -> dict:
             elif o.no_connect != n.no_connect:
                 changed.append({"id": k, "reference": new.reference, "field": f"pin {num} no_connect",
                                 "before": str(o.no_connect).lower(), "after": str(n.no_connect).lower()})
+        old_specs = old.specs.model_dump() if old.specs else {}
+        new_specs = new.specs.model_dump() if new.specs else {}
+        for f in sorted(old_specs.keys() | new_specs.keys()):
+            if old_specs.get(f) != new_specs.get(f):
+                changed.append({"id": k, "reference": new.reference, "field": f"specs.{f}",
+                                "before": old_specs.get(f), "after": new_specs.get(f)})
 
     b_nets, a_nets = _pin_nets(before), _pin_nets(after)
     pin_name = {}
@@ -106,7 +112,7 @@ def diff_circuits(before: CircuitIR | None, after: CircuitIR) -> dict:
     net_specs = []
     for net in sorted(after.nets, key=lambda n: natural_key(n.name)):
         old_net = b_spec.get(net.name)
-        for f in ("voltage", "load_current"):
+        for f in ("voltage", "voltage_min", "voltage_max", "load_current"):
             was = getattr(old_net, f) if old_net else None
             if was != getattr(net, f):
                 net_specs.append({"net": net.name, "field": f, "before": was, "after": getattr(net, f)})

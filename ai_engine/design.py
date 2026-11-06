@@ -122,6 +122,8 @@ CONNECT_SCHEMA = {
             "net": _STR,
             "voltage": {"type": "number", "description": "volts; 0 when the net name already says it"},
             "load_ma": {"type": "number", "description": "mA the loads draw from this net; 0 when unknown"},
+            "voltage_min": {"type": "number", "description": "lowest volts (e.g. 4.75 for 5 V -5%); 0 when unknown"},
+            "voltage_max": {"type": "number", "description": "highest volts (e.g. 5.25); 0 when unknown"},
         }, "required": ["net", "voltage", "load_ma"]}},
         "guides_applied": {"type": "array", "items": _STR, "description": "연결에서 따른 설계 지침 id"},
     },
@@ -355,6 +357,8 @@ def connect_prompt(inp: DesignInput, plan: dict, parts: list[ResolvedPart],
 - rails: 전원 Net마다 전압(V)과 부하 전류(mA)를 적으세요. 앱이 레귤레이터 발열, 다이오드 전류 같은 기술 검토를 이 값으로
   계산합니다. Net 이름에 전압이 있으면(+5V) voltage는 0, 이름에 전압이 없는 입력(PWR_IN 등)은 실제 전압을 적으세요.
   부하 전류는 요구사항의 값, 없으면 가정한 값(assumptions에 적은 것과 같게), 모르면 0입니다.
+  입력 전원처럼 전압이 변하는 Net은 voltage_min·voltage_max(예: 5 V ±5% → 4.75, 5.25, 배터리 3.0~4.2)를 적으세요.
+  앱이 드롭아웃은 최저, 정격·발열은 최고 전압으로 계산합니다. 모르면 0입니다.
 {_RULES_COMMON}
 
 [설계 요약]
@@ -560,6 +564,17 @@ def _apply_rails(connections: dict, nets: list[dict]) -> None:
             net["voltage"] = volts
         if 0 < milli <= 100_000:
             net["load_current"] = round(milli / 1000, 6)
+        try:
+            lo, hi = float(raw.get("voltage_min") or 0), float(raw.get("voltage_max") or 0)
+        except (TypeError, ValueError):
+            continue
+        nominal = net.get("voltage")
+        if nominal is None:
+            from circuit_core.datasheets import net_voltage
+            nominal = net_voltage(net["name"])
+        # A range is kept only when it is consistent (min <= nominal <= max); otherwise it is left out.
+        if lo and hi and lo <= hi and (nominal is None or lo <= nominal <= hi):
+            net["voltage_min"], net["voltage_max"] = lo, hi
 
 
 def _schematic_notes(connections: dict, components: list[dict], nets: list[dict],

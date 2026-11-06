@@ -130,6 +130,22 @@ class _Board:
     def v(self, net: str | None) -> float | None:
         return None if net is None else self.volts.get(net)
 
+    def vmin(self, net: str | None) -> float | None:
+        """Lowest voltage of a net: its ``voltage_min`` when written, else the nominal voltage."""
+        spec = self.nets.get(net or "")
+        return spec.voltage_min if spec is not None and spec.voltage_min is not None else self.v(net)
+
+    def vmax(self, net: str | None) -> float | None:
+        spec = self.nets.get(net or "")
+        return spec.voltage_max if spec is not None and spec.voltage_max is not None else self.v(net)
+
+    def vtext(self, net: str | None) -> str:
+        """'5 V' or '5 V (4.75~5.25 V)' when the net has a range."""
+        v, lo, hi = self.v(net), self.vmin(net), self.vmax(net)
+        if v is None:
+            return "?"
+        return f"{v:g} V" if (lo, hi) == (v, v) else f"{v:g} V ({lo:g}~{hi:g} V)"
+
     def feeds(self, net: str) -> list[tuple[Component, str]]:
         """Parts that pass this net's current on to another net: a linear regulator (input here) and a series diode
         (anode here, conducting: anode not below the cathode)."""
@@ -195,8 +211,9 @@ def _capacitors(b: _Board) -> list[Finding]:
         v1, v2 = b.v(n1), b.v(n2)
         if v1 is None or v2 is None:
             continue
-        across = abs(v1 - v2)
-        rated = _rated_volts(comp.value)
+        # Worst case across the part: the highest one side can be against the lowest of the other.
+        across = max(abs(b.vmax(n1) - b.vmin(n2)), abs(b.vmax(n2) - b.vmin(n1)))
+        rated = comp.specs.voltage_rating if comp.specs and comp.specs.voltage_rating else _rated_volts(comp.value)
         name = f"{comp.reference} ({comp.value})"
         if rated is None:
             if across > 0:
@@ -215,6 +232,10 @@ def _capacitors(b: _Board) -> list[Finding]:
             out.append(Finding("cap_voltage", "ok", f"{name}: 정격 전압 여유 충분",
                                f"정격 {rated:g} V, 양단 {across:g} V.", f"{rated:g} / {across:g} = {rated / across:.2f}배",
                                (comp.id,)))
+        if comp.specs and comp.specs.dielectric == "Y5V":
+            out.append(Finding("cap_dielectric", "warn", f"{name}: Y5V 유전체",
+                               "Y5V는 온도와 DC 전압에 따라 용량이 크게 줄어듭니다(정격 전압 근처에서 공칭의 20~30%만 남기도 함). "
+                               "디커플링·레귤레이터용이면 X7R/X5R을 쓰세요.", None, (comp.id,)))
         if kind == "cp":
             plus = b.v(b.net_of.get((comp.id, comp.pins[0].number)))
             minus = b.v(b.net_of.get((comp.id, comp.pins[1].number)))
@@ -227,6 +248,8 @@ def _capacitors(b: _Board) -> list[Finding]:
 
 
 def _vf(comp: Component) -> tuple[tuple[float, float], bool]:
+    if comp.specs and comp.specs.forward_voltage:
+        return (comp.specs.forward_voltage, comp.specs.forward_voltage), True
     text = f"{comp.value} {comp.description or ''}".upper()
     for colour, vf in _LED_VF:
         if colour in text:
@@ -274,6 +297,14 @@ def _leds(b: _Board) -> list[Finding]:
                     continue
                 v_far, bound = max(supplies), f" (구동 IC 전원 {max(supplies):g} V를 출력 최대값으로 가정)"
             v_hi, v_lo = (v_far, other_v) if at_anode else (other_v, v_far)
+            if not bound:  # both ends known: the direction can be judged through the resistor
+                if v_hi < v_lo:
+                    out.append(Finding("led_direction", "fail", f"{name}: 방향 반대",
+                                       f"애노드 쪽 {v_hi:g} V < 캐소드 쪽 {v_lo:g} V ({r.reference} 거쳐).",
+                                       None, (comp.id, r.id)))
+                    break
+                out.append(Finding("led_direction", "ok", f"{name}: 방향 맞음",
+                                   f"애노드 쪽 {v_hi:g} V → 캐소드 쪽 {v_lo:g} V ({r.reference} 거쳐).", None, (comp.id, r.id)))
             (vf_lo, vf_hi), known = _vf(comp)
             i_max = (v_hi - v_lo - vf_lo) / ohms
             i_min = (v_hi - v_lo - vf_hi) / ohms
@@ -282,7 +313,8 @@ def _leds(b: _Board) -> list[Finding]:
                                    f"구동 전압 {v_hi - v_lo:g} V가 Vf {vf_lo:g} V 이하입니다.", None, (comp.id, r.id)))
                 continue
             i_min = max(i_min, 0.0)
-            vf_note = f"Vf {vf_lo:g}~{vf_hi:g} V({'색 기준' if known else '색 미기재, 넓은 범위'})"
+            vf_note = (f"Vf {vf_lo:g} V(부품 사양)" if comp.specs and comp.specs.forward_voltage else
+                       f"Vf {vf_lo:g}~{vf_hi:g} V({'색 기준' if known else '색 미기재, 넓은 범위'})")
             calc = (f"I = ({v_hi:g} V − {v_lo:g} V − Vf) / {_fmt(ohms, 'Ω')} = {_fmt(i_min, 'A')} ~ {_fmt(i_max, 'A')}, "
                     f"{vf_note}{bound}")
             sev = "warn" if i_max > 0.02 else "ok"
@@ -296,7 +328,8 @@ def _leds(b: _Board) -> list[Finding]:
 
 
 def _r_power(r: Component, watts: float, calc: str) -> list[Finding]:
-    rating = _r_rating(r)
+    from_specs = bool(r.specs and r.specs.power_rating)
+    rating = r.specs.power_rating if from_specs else _r_rating(r)
     name = f"{r.reference} ({r.value})"
     if rating is None:
         return [Finding("r_power", "info", f"{name}: 소비 전력 {_fmt(watts, 'W')}", "풋프린트로 정격을 알 수 없어 비교하지 않았습니다.",
@@ -304,7 +337,8 @@ def _r_power(r: Component, watts: float, calc: str) -> list[Finding]:
     sev = "fail" if watts > rating else "warn" if watts > rating / 2 else "ok"
     return [Finding("r_power", sev, f"{name}: 소비 전력 {_fmt(watts, 'W')} / 정격 {rating:g} W",
                     "정격의 50% 이하를 권장합니다." if sev != "ok" else "정격의 50% 이하입니다.",
-                    f"{calc}; 정격은 크기 기준 일반값({rating:g} W), 부품 데이터시트로 확인", (r.id,))]
+                    f"{calc}; " + (f"정격 {rating:g} W(부품 사양)" if from_specs else
+                                   f"정격은 크기 기준 일반값({rating:g} W), 부품 데이터시트로 확인"), (r.id,))]
 
 
 def _resistors_across_rails(b: _Board, seen: set[str]) -> list[Finding]:
@@ -334,15 +368,21 @@ def _regulators(b: _Board) -> list[Finding]:
         name = f"{comp.reference} ({comp.value})"
         if v_in is None or v_out is None:
             continue
-        head = v_in - v_out
+        v_in_lo, v_in_hi = b.vmin(n_in), b.vmax(n_in)
+        worst = v_in_lo != v_in
+        head = v_in_lo - v_out  # dropout matters at the lowest input
         family = next(((d, m) for pat, d, m in _REG_FAMILIES if re.search(pat, comp.value.upper())), None)
         dropout, i_max = family if family else (None, None)
         if dropout is not None:
             sev = "fail" if head < dropout else "warn" if head < dropout + 0.5 else "ok"
-            out.append(Finding("reg_dropout", sev, f"{name}: 입출력 전압 차 {head:g} V",
+            at = f"최저 입력 {v_in_lo:g} V에서 " if worst else ""
+            out.append(Finding("reg_dropout", sev, f"{name}: {at}입출력 전압 차 {head:g} V",
                                f"드롭아웃(일반값 약 {dropout:g} V)보다 {'작아 출력이 유지되지 않을 수 있습니다' if sev == 'fail' else '여유가 적습니다' if sev == 'warn' else '충분히 큽니다'}. "
-                               "정확한 값은 데이터시트의 최대 드롭아웃으로 확인하세요.",
-                               f"{v_in:g} V − {v_out:g} V = {head:g} V", (comp.id,)))
+                               "정확한 값은 데이터시트의 최대 드롭아웃으로 확인하세요."
+                               + ("" if worst else f" 입력 Net({n_in})에 최저 전압을 적으면 최악 조건으로 계산합니다."),
+                               f"{v_in_lo:g} V − {v_out:g} V = {head:g} V" + (" (최저 입력)" if worst else ""), (comp.id,)))
+        v_in = v_in_hi  # heat is worst at the highest input
+        head = v_in - v_out
         to220 = "TO-220" in (comp.footprint_id or "").upper()
         load = b.current(n_out)
         if load is None:
@@ -393,22 +433,30 @@ def _diodes(b: _Board) -> list[Finding]:
         if va is None or vk is None:
             continue
         rating = _diode_rating(comp)
+        sp = comp.specs
+        if sp and (sp.voltage_rating or sp.current_rating):
+            base = rating or ("", 0.0, 0.0, 0.7)
+            rating = ("부품 사양", sp.current_rating or base[1], sp.voltage_rating or base[2], sp.forward_voltage or base[3])
         name = f"{comp.reference} ({comp.value})"
-        part_note = f"{rating[0]} 일반값, 데이터시트로 확인" if rating else "품번으로 정격을 알 수 없음"
+        part_note = ("정격은 부품 사양" if rating and rating[0] == "부품 사양" else
+                     f"{rating[0]} 일반값, 데이터시트로 확인" if rating else "품번으로 정격을 알 수 없음")
         if vk > va + 0.5:  # reverse-biased in normal operation
-            vr = vk - va
+            vr = b.vmax(nk) - b.vmin(na)
             if rating is None:
                 out.append(Finding("diode_reverse", "info", f"{name}: 역전압 {vr:g} V",
                                    "품번으로 정격을 알 수 없어 비교하지 않았습니다. 최대 역전압(VRRM)이 이보다 커야 합니다.",
                                    f"{nk} {vk:g} V − {na} {va:g} V = {vr:g} V", (comp.id,)))
                 continue
             vrrm = rating[2]
+            if not vrrm:
+                continue
             sev = "fail" if vr > vrrm else "warn" if vr > 0.8 * vrrm else "ok"
             out.append(Finding("diode_reverse", sev, f"{name}: 역전압 {vr:g} V / 정격 {vrrm:g} V",
                                {"fail": "최대 역전압을 넘습니다. 더 높은 정격의 다이오드를 고르세요.",
                                 "warn": "최대 역전압의 80%를 넘습니다. 서지를 생각해 여유를 두세요.",
                                 "ok": "최대 역전압 안입니다."}[sev],
-                               f"{nk} {vk:g} V − {na} {va:g} V = {vr:g} V; VRRM {vrrm:g} V({part_note})", (comp.id,)))
+                               f"{nk} {b.vmax(nk):g} V − {na} {b.vmin(na):g} V = {vr:g} V(최악 조건); VRRM {vrrm:g} V({part_note})",
+                               (comp.id,)))
             continue
         if is_ground_name(nk or "") or nk == na:
             continue
@@ -423,6 +471,8 @@ def _diodes(b: _Board) -> list[Finding]:
                                "품번으로 정격을 알 수 없어 비교하지 않았습니다.", f"{how}; P ≈ Vf × I, Vf 0.7 V로 가정", (comp.id,)))
             continue
         i_rated = rating[1]
+        if not i_rated:
+            continue
         sev = "fail" if amps > i_rated else "warn" if amps > 0.7 * i_rated else "ok"
         out.append(Finding("diode_current", sev, f"{name}: 전류 {_fmt(amps, 'A')} / 정격 {_fmt(i_rated, 'A')}",
                            {"fail": "평균 순방향 전류 정격을 넘습니다.",
@@ -445,8 +495,9 @@ def _motor_drivers(b: _Board) -> list[Finding]:
         vm_net = next((b.net_of.get((comp.id, p)) for p in b.pins_named(comp, re.compile(r"^VM$", re.I))), None)
         v = b.v(vm_net)
         if v is not None:
-            sev = "fail" if v < vmin or v > vmax else "warn" if v > 0.9 * vmax or v < vmin * 1.1 else "ok"
-            out.append(Finding("motor_vm", sev, f"{name}: VM {v:g} V / 범위 {vmin:g}~{vmax:g} V",
+            lo, hi = b.vmin(vm_net), b.vmax(vm_net)
+            sev = "fail" if lo < vmin or hi > vmax else "warn" if hi > 0.9 * vmax or lo < vmin * 1.1 else "ok"
+            out.append(Finding("motor_vm", sev, f"{name}: VM {b.vtext(vm_net)} / 범위 {vmin:g}~{vmax:g} V",
                                {"fail": "동작 전압 범위를 벗어납니다.",
                                 "warn": "범위 끝에 가깝습니다. 모터 역기전력·전원 변동으로 넘을 수 있습니다.",
                                 "ok": "동작 전압 범위 안입니다. 모터가 멈출 때 VM이 올라가는 것은 TVS·벌크 콘덴서로 막으세요."}[sev],
@@ -485,6 +536,13 @@ def _motor_drivers(b: _Board) -> list[Finding]:
     return out
 
 
+# I2C (NXP UM10204): a pull-up must not sink more than 3 mA at VOL 0.4 V (standard/fast mode), and the rise time
+# (0.8473 x R x Cb, 30 % to 70 %) must stay under 1000 ns at 100 kHz / 300 ns at 400 kHz. Cb is not in the circuit:
+# 200 pF is assumed (a few devices and some cable); a person checks the real bus.
+_I2C_SINK_A, _I2C_VOL, _I2C_CB = 0.003, 0.4, 200e-12
+_I2C_TR = {"100 kHz": 1000e-9, "400 kHz": 300e-9}
+
+
 def _i2c_pullups(b: _Board) -> list[Finding]:
     out = []
     for net in sorted(b.nodes, key=natural_key):
@@ -496,16 +554,81 @@ def _i2c_pullups(b: _Board) -> list[Finding]:
             if _kind(r) != "r":
                 continue
             far = next((n for n in b.two_nets(r) if n != net), None)
-            v = b.v(far)
-            if far and v is not None and v > 0:
-                pulls.append(f"{r.reference} {r.value} → {far}")
-        if pulls:
-            out.append(Finding("i2c_pullup", "ok", f"{net}: 풀업 있음", ", ".join(pulls) + ". 값은 버스 속도와 배선 용량으로 확인하세요.",
-                               None, tuple(c for c, _ in b.nodes[net] if _kind(b.comps[c]) == "r")))
-        else:
+            v = b.vmax(far)
+            ohms = parse_value(r.value)
+            if far and v is not None and v > 0 and ohms:
+                pulls.append((r, far, v, ohms))
+        if not pulls:
             out.append(Finding("i2c_pullup", "warn", f"{net}: 풀업 저항 없음",
                                "I2C는 오픈 드레인이라 SDA·SCL마다 전원으로 가는 풀업 저항(보통 2.2~10 kΩ)이 필요합니다. "
                                "연결되는 다른 보드에 있으면 무시하세요."))
+            continue
+        r_eff = 1 / sum(1 / p[3] for p in pulls)
+        vbus = max(p[2] for p in pulls)
+        r_min = (vbus - _I2C_VOL) / _I2C_SINK_A
+        r_max = {mode: tr / (0.8473 * _I2C_CB) for mode, tr in _I2C_TR.items()}
+        refs = ", ".join(f"{p[0].reference} {p[0].value} → {p[1]}" for p in pulls)
+        calc = (f"R = {_fmt(r_eff, 'Ω')}{' (병렬)' if len(pulls) > 1 else ''}; 최소 (Vbus − 0.4 V) / 3 mA = "
+                f"({vbus:g} − 0.4) / 3 mA = {_fmt(r_min, 'Ω')}; 최대 tr / (0.8473 × Cb), Cb 200 pF 가정: "
+                f"100 kHz {_fmt(r_max['100 kHz'], 'Ω')}, 400 kHz {_fmt(r_max['400 kHz'], 'Ω')}")
+        parts = tuple(p[0].id for p in pulls)
+        if r_eff < r_min:
+            out.append(Finding("i2c_pullup", "warn", f"{net}: 풀업이 너무 강함 ({_fmt(r_eff, 'Ω')})",
+                               f"로우일 때 3 mA보다 많이 흘려 VOL 0.4 V를 지키지 못할 수 있습니다. {refs}. "
+                               "모듈마다 풀업이 있으면 병렬이 되니 하나만 남기세요.", calc, parts))
+        elif r_eff > r_max["100 kHz"]:
+            out.append(Finding("i2c_pullup", "warn", f"{net}: 풀업이 약함 ({_fmt(r_eff, 'Ω')})",
+                               f"버스 용량 200 pF에서 100 kHz 상승 시간(1 µs)을 넘습니다. {refs}. 값을 줄이거나 버스 용량을 확인하세요.",
+                               calc, parts))
+        else:
+            fast = r_eff <= r_max["400 kHz"]
+            out.append(Finding("i2c_pullup", "ok", f"{net}: 풀업 {_fmt(r_eff, 'Ω')}",
+                               f"{refs}. 100 kHz 조건 안입니다" + (", 400 kHz도 됩니다." if fast else
+                               f". 400 kHz로 쓰려면 {_fmt(r_max['400 kHz'], 'Ω')} 이하가 필요합니다(200 pF 가정)."),
+                               calc, parts))
+    return out
+
+
+# --- fuses ----------------------------------------------------------------------------------------------
+
+def _amps_in(text: str) -> float | None:
+    """'PTC 0.2A hold' -> 0.2, '500mA' -> 0.5, '2.5 A' -> 2.5."""
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(m?)A\b", text)
+    return float(m.group(1)) * (0.001 if m.group(2) else 1.0) if m else None
+
+
+def _fuses(b: _Board) -> list[Finding]:
+    out = []
+    for comp in b.c.components:
+        sym = comp.symbol_id.split(":")[-1].upper()
+        if not (sym.startswith("FUSE") or sym.startswith("POLYFUSE") or (comp.reference.startswith("F") and len(comp.pins) == 2)):
+            continue
+        name = f"{comp.reference} ({comp.value})"
+        n1, n2 = b.two_nets(comp)
+        hold = comp.specs.current_rating if comp.specs and comp.specs.current_rating else _amps_in(comp.value)
+        loads = [x for x in (b.current(n1), b.current(n2)) if x is not None]
+        load = max(loads, key=lambda x: x[0]) if loads else None
+        if hold is None:
+            out.append(Finding("fuse_rating", "info", f"{name}: 정격 전류 미기재",
+                               "유지(정격) 전류를 값(예: 0.5A)이나 부품 사양에 적으면 부하와 비교합니다.", None, (comp.id,)))
+        elif load is None:
+            out.append(Finding("fuse_rating", "info", f"{name}: 유지 전류 {_fmt(hold, 'A')}",
+                               "지나가는 부하 전류를 몰라 비교하지 않았습니다. 「전원 조건」에 부하 전류를 적으세요.", None, (comp.id,)))
+        else:
+            amps, how = load
+            sev = "fail" if hold <= amps else "warn" if hold < 1.25 * amps else "ok"
+            out.append(Finding("fuse_rating", sev, f"{name}: 유지 {_fmt(hold, 'A')} / 부하 {_fmt(amps, 'A')}",
+                               {"fail": "정상 부하에서 끊깁니다. 유지 전류가 더 큰 퓨즈를 고르세요.",
+                                "warn": "여유가 25% 미만입니다. 온도가 오르면 유지 전류가 줄어 끊길 수 있습니다(PTC는 고온에서 감소).",
+                                "ok": "정상 부하에서 끊기지 않습니다. 단락 때 끊기는 전류(트립 전류)와 시간은 데이터시트로 확인하세요."}[sev],
+                               f"유지 {_fmt(hold, 'A')} / {_fmt(amps, 'A')} = {hold / amps:.1f}배; {how}", (comp.id,)))
+        rated_v = comp.specs.voltage_rating if comp.specs and comp.specs.voltage_rating else None
+        vmax = max((x for x in (b.vmax(n1), b.vmax(n2)) if x is not None), default=None)
+        if rated_v is not None and vmax is not None:
+            sev = "fail" if vmax > rated_v else "ok"
+            out.append(Finding("fuse_rating", sev, f"{name}: 최대 전압 {vmax:g} V / 정격 {rated_v:g} V",
+                               "퓨즈 정격 전압보다 높은 회로에서는 단락 때 안전하게 끊지 못합니다." if sev == "fail" else
+                               "정격 전압 안입니다.", None, (comp.id,)))
     return out
 
 
@@ -609,6 +732,7 @@ def supply_nets(circuit: CircuitIR) -> list[dict]:
             continue
         derived = None if spec.load_current is not None else b.current(net)
         out.append({"net": net, "voltage": spec.voltage, "voltage_from_name": net_voltage(net),
+                    "voltage_min": spec.voltage_min, "voltage_max": spec.voltage_max,
                     "load_current": spec.load_current, "derived_current": derived[0] if derived else None})
     return out
 
@@ -619,7 +743,7 @@ def engineering_review(circuit: CircuitIR) -> list[Finding]:
     leds = _leds(b)
     seen = {c for f in leds if f.rule == "r_power" for c in f.components}
     findings = (_capacitors(b) + leds + _resistors_across_rails(b, seen) + _regulators(b) + _diodes(b) + _decoupling(b)
-                + _i2c_pullups(b) + _crystals(b) + _motor_drivers(b) + _unknown_rails(b))
+                + _i2c_pullups(b) + _crystals(b) + _motor_drivers(b) + _fuses(b) + _unknown_rails(b))
     return sorted(findings, key=lambda f: (ORDER[f.severity], f.rule, f.title))
 
 
