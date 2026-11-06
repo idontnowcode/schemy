@@ -211,7 +211,12 @@ def normalize_mpn(mpn: str | None) -> str | None:
 # Checked to exist in the KiCad 10.0.8 footprint libraries.
 _CHIP_FOOTPRINT_LIBS = {"resistor": ("Resistor_SMD", "R"), "capacitor": ("Capacitor_SMD", "C"),
                         "inductor": ("Inductor_SMD", "L"), "led": ("LED_SMD", "LED")}
-_CHIP_METRIC = {"0402": "1005", "0603": "1608", "0805": "2012", "1206": "3216"}
+_CHIP_METRIC = {"0402": "1005", "0603": "1608", "0805": "2012", "1206": "3216", "1210": "3225", "1812": "4532",
+                "2512": "6332"}
+_BASIC_SIZES = ("0402", "0603", "0805", "1206")
+# Chip sizes with a KiCad 10.0.8 footprint, by category (a 2512 current-sense resistor, 1210 bulk ceramics).
+_CHIP_SIZES = {"resistor": (*_BASIC_SIZES, "1210", "2512"), "capacitor": (*_BASIC_SIZES, "1210"),
+               "inductor": _BASIC_SIZES, "led": _BASIC_SIZES}
 
 
 # Package words -> KiCad 10.0.8 footprints (each checked to exist). Matched in order on the package text.
@@ -230,6 +235,10 @@ _PACKAGE_FOOTPRINTS: list[tuple[str, str]] = [
     (r"DIP-?4\b", "Package_DIP:DIP-4_W7.62mm"),
     (r"DIP-?8\b", "Package_DIP:DIP-8_W7.62mm"),
     (r"USB4125", "Connector_USB:USB_C_Receptacle_GCT_USB4125-xx-x_6P_TopMnt_Horizontal"),
+    (r"SRN6045", "Inductor_SMD:L_Bourns_SRN6045TA"),
+    (r"SRP7028", "Inductor_SMD:L_Bourns_SRP7028A_7.3x6.6mm"),
+    (r"SRR1260", "Inductor_SMD:L_Bourns_SRR1260"),
+    (r"TL3342", "Button_Switch_SMD:SW_SPST_TL3342"),
 ]
 _ELEC_SIZES = {"5x5.4": "CP_Elec_5x5.4", "6.3x5.4": "CP_Elec_6.3x5.4", "8x10": "CP_Elec_8x10"}
 
@@ -243,14 +252,20 @@ def package_footprint(category: str | None, package: str | None, pins: int = 0) 
     chip = chip_footprint(category, text)
     if chip is not None:
         return chip
-    if category == "fuse" and re.search(r"(0603|0805|1206)", text):
-        size = re.search(r"(0603|0805|1206)", text).group(1)
-        return f"Fuse:Fuse_{size}_{_CHIP_METRIC[size]}Metric"
+    if category == "fuse" and (m := re.search(r"(0603|0805|1206|1812)", text)):
+        return f"Fuse:Fuse_{m.group(1)}_{_CHIP_METRIC[m.group(1)]}Metric"
+    if category == "crystal":  # the footprint's pad count must match the symbol (a 4-pad 3225 has two GND pads)
+        if re.search(r"3225", text) and pins == 4:
+            return "Crystal:Crystal_SMD_3225-4Pin_3.2x2.5mm"
+        if re.search(r"2012", text) and pins == 2:
+            return "Crystal:Crystal_SMD_2012-2Pin_2.0x1.2mm"
     if category == "capacitor_polarized":
         m = re.search(r"(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)", text)
         if m and f"{m.group(1)}x{m.group(2)}" in _ELEC_SIZES:
             return f"Capacitor_SMD:{_ELEC_SIZES[f'{m.group(1)}x{m.group(2)}']}"
     if category == "connector" and 1 <= pins <= 40:
+        if re.search(r"1[.,]27", text) and pins in (6, 10, 20):  # 2-row 1.27 mm (Cortex debug 2x05)
+            return f"Connector_PinHeader_1.27mm:PinHeader_2x{pins // 2:02d}_P1.27mm_Vertical_SMD"
         if re.search(r"(?i)2[.,]54|header|헤더", text):
             return f"Connector_PinHeader_2.54mm:PinHeader_1x{pins:02d}_P2.54mm_Vertical"
         if re.search(r"(?i)5[.,]0|terminal|단자", text) and pins <= 12:
@@ -264,9 +279,9 @@ def package_footprint(category: str | None, package: str | None, pins: int = 0) 
 
 def chip_footprint(category: str | None, package: str | None) -> str | None:
     """'resistor', '0603' -> 'Resistor_SMD:R_0603_1608Metric'; None when not a standard chip size."""
-    m = re.fullmatch(r"(?:\D*?)(0402|0603|0805|1206)(?:\D.*)?", package or "")
+    m = re.fullmatch(r"(?:\D*?)(0402|0603|0805|1206|1210|2512)(?:\D.*)?", package or "")
     lib = _CHIP_FOOTPRINT_LIBS.get(category or "")
-    if not m or not lib:
+    if not m or not lib or m.group(1) not in _CHIP_SIZES.get(category or "", ()):
         return None
     size = m.group(1)
     return f"{lib[0]}:{lib[1]}_{size}_{_CHIP_METRIC[size]}Metric"

@@ -121,6 +121,16 @@ def _kind(comp: Component) -> str:
     return "other"
 
 
+def _is_power_pin(comp: Component, name: str | None) -> bool:
+    """A supply pin by name. A bare "IN" is a regulator's or load switch's input only when the part also has an output
+    (OUT/VOUT/SW); on a logic part (a protected low-side switch's IN) it is a signal."""
+    if not _POWER_PINS.match(name or ""):
+        return False
+    if (name or "").upper() == "IN":
+        return any(_OUT_PINS.match(p.name or "") or (p.name or "").upper() in ("SW", "LX") for p in comp.pins)
+    return True
+
+
 def _diode_rating(comp: Component) -> tuple[str, float, float, float] | None:
     """(part, average current A, reverse voltage V, typical Vf V) for the common diodes, from the value or part number."""
     for text in (comp.value, comp.manufacturer_part_number or ""):
@@ -142,11 +152,18 @@ class _Board:
         self.nets = {n.name: n for n in circuit.nets}
         # A fuse or a ferrite/inductor in series carries its neighbour's voltage (USB VBUS → PTC → +5V).
         self.same_as: dict[str, str] = {}
+
+        def switch_node(net: str | None) -> bool:  # a buck's SW pin: the inductor's far side is not this voltage
+            return any(re.fullmatch(r"(?i)SW\d?|LX\d?|PH", self.pin_name(self.comps[c], pin))
+                       for c, pin in self.nodes.get(net or "", []))
+
         for _ in range(3):
             for comp in circuit.components:
                 if _kind(comp) not in ("fuse", "l"):
                     continue
                 n1, n2 = self.two_nets(comp)
+                if switch_node(n1) or switch_node(n2):
+                    continue
                 for known, unknown in ((n1, n2), (n2, n1)):
                     if known and unknown and self.v(known) is not None and self.v(unknown) is None \
                             and not is_ground_name(unknown):
@@ -225,6 +242,10 @@ class _Board:
     def pins_named(self, comp: Component, pattern: re.Pattern) -> list[str]:
         return [p.number for p in comp.pins if p.name and pattern.match(p.name)]
 
+    @staticmethod
+    def pin_name(comp: Component, number: str) -> str:
+        return next((p.name or "" for p in comp.pins if p.number == number), "")
+
     def pin_by_name(self, comp: Component, name: str) -> str | None:
         return next((p.number for p in comp.pins if (p.name or "").upper() == name), None)
 
@@ -235,7 +256,7 @@ class _Board:
     def supply_of(self, comp_id: str) -> float | None:
         """Highest named supply voltage on an IC's power pins (an upper bound for its output high level)."""
         comp = self.comps[comp_id]
-        volts = [self.v(self.net_of.get((comp_id, n))) for n in self.pins_named(comp, _POWER_PINS)]
+        volts = [self.v(self.net_of.get((comp_id, p.number))) for p in comp.pins if _is_power_pin(comp, p.name)]
         volts = [x for x in volts if x is not None and x > 0]
         return max(volts) if volts else None
 
@@ -658,14 +679,16 @@ def _amps_in(text: str) -> float | None:
 def _fuses(b: _Board) -> list[Finding]:
     out = []
     for comp in b.c.components:
-        sym = comp.symbol_id.split(":")[-1].upper()
-        if not (sym.startswith("FUSE") or sym.startswith("POLYFUSE") or (comp.reference.startswith("F") and len(comp.pins) == 2)):
+        if not (_kind(comp) == "fuse" or (re.match(r"^F\d", comp.reference) and len(comp.pins) == 2
+                                          and _kind(comp) == "other")):
             continue
         name = f"{comp.reference} ({comp.value})"
         n1, n2 = b.two_nets(comp)
         hold = comp.specs.current_rating if comp.specs and comp.specs.current_rating else _amps_in(comp.value)
         loads = [x for x in (b.current(n1), b.current(n2)) if x is not None]
-        load = max(loads, key=lambda x: x[0]) if loads else None
+        # A net's load is everything it feeds, so with both sides known the side away from the source - the smaller
+        # total - is what flows through the fuse (24 V bus 1.2 A -> PTC -> output supply 1 A: 1 A).
+        load = min(loads, key=lambda x: x[0]) if loads else None
         if hold is None:
             out.append(Finding("fuse_rating", "info", f"{name}: 정격 전류 미기재",
                                "유지(정격) 전류를 값(예: 0.5A)이나 부품 사양에 적으면 부하와 비교합니다.", None, (comp.id,)))
@@ -696,7 +719,8 @@ def _crystals(b: _Board) -> list[Finding]:
         if _kind(comp) != "crystal":
             continue
         name = f"{comp.reference} ({comp.value})"
-        ends = [p.number for p in comp.pins if (p.name or p.number).upper() not in ("GND", "2_GND", "4_GND")][:2]
+        # A 4-pad crystal (Crystal_GND24) names its case pads "G": they are not crystal ends.
+        ends = [p.number for p in comp.pins if (p.name or p.number).upper() not in ("G", "GND", "2_GND", "4_GND")][:2]
         caps, missing = [], []
         for pin in ends:
             net = b.net_of.get((comp.id, pin))
@@ -729,7 +753,7 @@ def _decoupling(b: _Board) -> list[Finding]:
         if len(comp.pins) < 3 or comp.reference.startswith(("J", "P", "CN", "X")):
             continue
         kind = _kind(comp)
-        pins = b.pins_named(comp, _IN_PINS if kind == "linreg" else _POWER_PINS)
+        pins = b.pins_named(comp, _IN_PINS) if kind == "linreg" else [p.number for p in comp.pins if _is_power_pin(comp, p.name)]
         if kind == "linreg":
             pins += b.pins_named(comp, _OUT_PINS)
         rails = sorted({n for p in pins if (n := b.net_of.get((comp.id, p))) and not is_ground_name(n)})
@@ -765,7 +789,7 @@ def _power_pins_open(b: _Board) -> list[Finding]:
     for comp in b.c.components:
         if len(comp.pins) < 3 or comp.reference.startswith(("J", "P", "CN", "X")):
             continue
-        power = [p for p in comp.pins if _POWER_PINS.match(p.name or "") or _GROUND_PINS.match(p.name or "")]
+        power = [p for p in comp.pins if _is_power_pin(comp, p.name) or _GROUND_PINS.match(p.name or "")]
         open_pins = [p for p in power if not p.no_connect and (comp.id, p.number) not in b.net_of]
         if not open_pins:
             if power:
@@ -799,7 +823,7 @@ def _is_supply(b: _Board, net: str) -> bool:
 
     for comp, pin in nodes:  # 1. an IC power pin or a regulator output decides it
         name = pname(comp, pin)
-        if is_ic(comp) and (_POWER_PINS.match(name) or (_kind(comp) == "linreg" and _OUT_PINS.match(name))):
+        if is_ic(comp) and (_is_power_pin(comp, name) or (_kind(comp) == "linreg" and _OUT_PINS.match(name))):
             return True
     for comp, pin in nodes:  # 2. an IC signal pin makes it a signal line
         name = pname(comp, pin)

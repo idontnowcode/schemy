@@ -30,6 +30,7 @@ from circuit_core.models import Pin
 
 from . import sexpr
 from .drawing import (
+    CHAR,
     NOTE_FONT,
     NOTE_LINE,
     OUTWARD,
@@ -465,6 +466,9 @@ def _units(components, symbols: dict[str, LibSymbol], page_of: dict[str, str], n
 _FEEDS_GROUND = re.compile(r"^(Connector\w*:.*|Device:Battery\w*)$")
 _FEEDS_SUPPLY = re.compile(r"^(Connector\w*:.*|Device:Battery\w*|Device:(L|FerriteBead|Fuse|Polyfuse|R|D)(_\w*)?"
                            r"|Device:Q_\w+|Diode:.*|Switch:.*|Jumper:.*|Transistor_\w+:.*|Inductor\w*:.*|Fuse:.*)$")
+# An IC's internal regulator output that only needs a capacitor (LAN8742A VDDCR, an MCU's VCAP). Libraries often type
+# it as a power input, so the IC itself is what drives the net.
+_INTERNAL_REGULATOR_PINS = re.compile(r"^(VDDCR|VCAP\d?|VREG(OUT)?|VREGO|VDD_?CORE_?OUT|DECOUPLE)$", re.I)
 
 
 def _power_nets(circuit: CircuitIR, symbols: dict[str, LibSymbol], library: SymbolLibrary) -> dict[str, LibSymbol]:
@@ -501,6 +505,8 @@ def _power_flags(circuit: CircuitIR, symbols: dict[str, LibSymbol], library: Sym
             lib_pin = sym.pin(node.pin)
             types.append(lib_pin.electrical_type if lib_pin else "")
             if feeder is None and feeds.match(sym.lib_id):
+                feeder = node.component_id
+            elif feeder is None and lib_pin and _INTERNAL_REGULATOR_PINS.match(lib_pin.name or ""):
                 feeder = node.component_id
         if ("power_in" in types or net.name in power) and "power_out" not in types and feeder:
             needed.append((net.name, feeder))
@@ -615,8 +621,10 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
             (f"group:{g.key}", (g.extent[0], g.extent[1] - NOTE_LINE * lines[g.key], g.extent[2], g.extent[3]))
             for g in groups]
         if index == 0 and multi:
-            auto += [(f"sheet:{sh.id}", (0.0, -2 * GRID, sheet_sizes[sh.id][0], _SHEET_SYMBOL_H + 2 * GRID))
-                     for sh in sheets[1:]]
+            # The box plus the "File: ..." line under it, which is usually wider than the box: neighbours keep clear.
+            auto += [(f"sheet:{sh.id}", (0.0, -2 * GRID, max(sheet_sizes[sh.id][0], _snap_up(
+                len(f"File: {_page_filename(project_name, sh, number)}") * CHAR + GRID)),
+                _SHEET_SYMBOL_H + 2 * GRID)) for number, sh in enumerate(sheets[1:], start=2)]
         origins, paper, overflow = _layout_page(fixed, auto)
         papers[sheet.id] = paper
         if overflow:

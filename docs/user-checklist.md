@@ -140,6 +140,7 @@ AI 설계·검토·Agent는 지금까지 각본대로 답하는 가짜 AI로만 
 | AO3400A (릴레이 예제) | Vgs(th) 최대, Rds(on)이 규정된 가장 낮은 Vgs, Vds | 1.45 V, 2.5 V, 30 V(대표값 표) |
 | MCP6001, BAT54S (0~10 V 입력 예제) | OP앰프 입력 최대 정격(VDD + ?), BAT54S VRRM | 데이터시트 요약 없음 |
 | SMAJ5.0A + AP2112K, SM712 + MAX3485 | TVS 클램프 전압 vs 보호하는 IC 핀의 최대 정격 | 데이터시트 요약 없음 |
+| CT SCU 메인보드 (scu-main-board) | TPS54360 보상·UVLO, TPS3430 SET/CWD 표, MCP130 임계값, LAN8742A 마그네틱 연결, STM32 핀 대체 기능(CubeMX), BSP75N 3.3 V 구동 | `examples/scu-main-board/README.md` 「확인할 것」 |
 
 실무 회로 다섯 개는 폴더의 `research-note.md` 「열린 질문」에 확인할 것이 정리되어 있습니다. 예제마다 `rationale.md`의 「출처」 줄에 "원문 확인 필요"가 붙은 항목도 같은 방법으로 확인합니다.
 

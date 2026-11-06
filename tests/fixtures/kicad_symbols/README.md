@@ -5,25 +5,28 @@ the generator tests run without a KiCad installation.
 
 | File | Symbols | Source |
 |---|---|---|
-| `Device.kicad_sym` | `R`, `LED`, `C`, `C_Polarized`, `L`, `Crystal`, `Polyfuse`, `D` | KiCad 10.0.8 `/usr/share/kicad/symbols/Device.kicad_sym` (Docker image `kicad/kicad:10.0.8`) |
-| `Connector_Generic.kicad_sym` | `Conn_01x02`, `Conn_01x03`, `Conn_01x04`, `Conn_01x05` | KiCad 10.0.8 `/usr/share/kicad/symbols/Connector_Generic.kicad_sym` |
-| `Interface_CAN_LIN.kicad_sym` | `SN65HVD230` | KiCad 10.0.8 `/usr/share/kicad/symbols/Interface_CAN_LIN.kicad_sym` (an IC with a datasheet link, for datasheet tests) |
+| `Device.kicad_sym` | `R`, `LED`, `C`, `C_Polarized`, `L`, `Crystal`, `Polyfuse`, `D`, `Crystal_GND24`, `FerriteBead`, `Fuse` | KiCad 10.0.8 `/usr/share/kicad/symbols/Device.kicad_sym` (Docker image `kicad/kicad:10.0.8`) |
+| `Connector_Generic.kicad_sym` | `Conn_01x02`, `Conn_01x03`, `Conn_01x04`, `Conn_01x05`, `Conn_01x10` | KiCad 10.0.8 `/usr/share/kicad/symbols/Connector_Generic.kicad_sym` |
+| `Interface_CAN_LIN.kicad_sym` | `SN65HVD230`, `TCAN332` | KiCad 10.0.8 `/usr/share/kicad/symbols/Interface_CAN_LIN.kicad_sym` (an IC with a datasheet link, for datasheet tests) |
 | `Regulator_Linear.kicad_sym` | `AP1117-15`, `AMS1117-3.3`, `L7805`, `LM1117MP-3.3`, `AP2204K-1.5`, `AP2112K-3.3` | KiCad 10.0.8 `/usr/share/kicad/symbols/Regulator_Linear.kicad_sym` (`AMS1117-3.3` and `AP2112K-3.3` are derived; `LM1117MP-3.3` is the I2C sensor sample board's regulator, `AP2112K-3.3` the USB-C board's) |
 | `Amplifier_Operational.kicad_sym` | `LM2904`, `LM358`, `MCP6L91T-EOT`, `MCP6001-OT` | KiCad 10.0.8 (a multi-unit symbol: two op-amps and a power unit; `LM358` and `MCP6001-OT` are derived) |
 | `MCU_Microchip_ATmega.kicad_sym` | `ATmega48PV-10A`, `ATmega328P-A` | KiCad 10.0.8 (stacked GND/VCC pins; `ATmega328P-A` is derived) |
-| `Diode.kicad_sym` | `1N5820`, `1N5822`, `1N4001`, `1N4007`, `SB120`, `SS34`, `SM6T6V8A`, `SMAJ24A`, `1N4148W`, `SMAJ5.0A`, `SM712_SOT23`, `BAT54S` | KiCad 10.0.8 (`1N5822`, `1N4007`, `SS34`, `SMAJ24A` and `SMAJ5.0A` are derived; `SM712_SOT23` and `BAT54S` are three-pin parts) |
-| `Connector.kicad_sym` | `USB_C_Receptacle_PowerOnly_6P` | KiCad 10.0.8 (the USB-C power board) |
+| `Diode.kicad_sym` | `1N5820`, `1N5822`, `1N4001`, `1N4007`, `SB120`, `SS34`, `SM6T6V8A`, `SMAJ24A`, `1N4148W`, `SMAJ5.0A`, `SM712_SOT23`, `BAT54S`, `B320`, `B360`, `SMAJ33A` | KiCad 10.0.8 (`1N5822`, `1N4007`, `SS34`, `SMAJ24A` and `SMAJ5.0A` are derived; `SM712_SOT23` and `BAT54S` are three-pin parts) |
+| `Connector.kicad_sym` | `USB_C_Receptacle_PowerOnly_6P`, `Conn_ARM_JTAG_SWD_10`, `RJ45_Hanrun_HR911105A_Horizontal` | KiCad 10.0.8 (the USB-C power board; the SCU board's debug and Ethernet connectors) |
+| `MCU_ST_STM32H7.kicad_sym` | `STM32H743ZITx` | KiCad 10.0.8 (the CT SCU main board, examples/scu-main-board; the rest of this block is that board's parts) |
+| `Interface_Ethernet.kicad_sym`, `Amplifier_Current.kicad_sym`, `Power_Protection.kicad_sym`, `Jumper.kicad_sym`, `Transistor_FET_Other.kicad_sym` | `LAN8742A`, `INA240A1D`, `NUP2105L`, `Jumper_2_Open`, `BSP75N` | KiCad 10.0.8 |
+| `Memory_NVRAM.kicad_sym`, `Memory_Flash.kicad_sym`, `Reference_Voltage.kicad_sym`, `Power_Supervisor.kicad_sym` | `MB85RS16`, `MB85RS2MT`; `W25Q32JVSS`, `W25Q128JVS`; `REF3012`, `REF3030`; `MCP120-xxxxTT`, `MCP130-xxxxTT`, `TPS3430WDRC` | KiCad 10.0.8 (each derived symbol with its parent) |
 | `Isolator.kicad_sym` | `PC817` | KiCad 10.0.8 (pins have no names: the checks use a pin-role table) |
 | `Relay.kicad_sym` | `SANYOU_SRD_Form_C` | KiCad 10.0.8 (pins have no names) |
-| `Transistor_FET.kicad_sym` | `Q_NMOS_GSD`, `AO3400A` | KiCad 10.0.8 (`AO3400A` is derived) |
-| `Interface_UART.kicad_sym` | `LTC2850xS8`, `MAX3485` | KiCad 10.0.8 (`MAX3485` is derived, with an empty footprint the parent supplies) |
+| `Transistor_FET.kicad_sym` | `Q_NMOS_GSD`, `AO3400A`, `BSS138` | KiCad 10.0.8 (`AO3400A` is derived) |
+| `Interface_UART.kicad_sym` | `LTC2850xS8`, `MAX3485`, `THVD1451D` | KiCad 10.0.8 (`MAX3485` is derived, with an empty footprint the parent supplies) |
 | `Driver_Motor.kicad_sym` | `DRV8871DDA` | KiCad 10.0.8 (the motor driver sample board) |
-| `Regulator_Switching.kicad_sym` | `LM2596S-12`, `LM2596S-5` | KiCad 10.0.8 (`LM2596S-5` is derived) |
+| `Regulator_Switching.kicad_sym` | `LM2596S-12`, `LM2596S-5`, `TPS54360DDA` | KiCad 10.0.8 (`LM2596S-5` is derived) |
 | `Switch.kicad_sym` | `SW_Push` | KiCad 10.0.8 (the sample board's reset button) |
 | `Timer.kicad_sym` | `NE555D`, `NE555P` | KiCad 10.0.8 (the NE555 sample board; `NE555P` is derived) |
 | `power.kicad_sym` | `PWR_FLAG`, `GND`, `VCC`, `+5V`, `+3V3`, `+12V`, `+24V` | KiCad 10.0.8 `/usr/share/kicad/symbols/power.kicad_sym` (rails are drawn with power symbols; the generator adds `PWR_FLAG` where power enters through a connector) |
 
-The symbols are unmodified. They were copied with:
+The symbols are unmodified. They were copied with the commands below; the SCU board's additions were extracted the same way (existing names first, then a derived symbol's parent, then the new names), see `examples/scu-main-board/README.md`:
 
 ```bash
 python scripts/extract_symbol_subset.py <KiCad>/symbols/Device.kicad_sym tests/fixtures/kicad_symbols/Device.kicad_sym R LED C C_Polarized L Crystal Polyfuse D

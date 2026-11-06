@@ -91,7 +91,15 @@ def test_normalize_mpn():
      ("capacitor_polarized", "6.3x5.4", 2, "Capacitor_SMD:CP_Elec_6.3x5.4"),
      ("connector", "2.54mm 헤더", 3, "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"),
      ("connector", "5.0mm 단자대", 3, "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-3_1x03_P5.00mm_Horizontal"),
-     ("resistor", "0603", 2, "Resistor_SMD:R_0603_1608Metric"), ("ic", "QFN-48", 48, None), ("connector", "", 3, None)],
+     ("resistor", "0603", 2, "Resistor_SMD:R_0603_1608Metric"), ("ic", "QFN-48", 48, None), ("connector", "", 3, None),
+     ("resistor", "2512", 2, "Resistor_SMD:R_2512_6332Metric"),
+     ("capacitor", "1210", 2, "Capacitor_SMD:C_1210_3225Metric"),
+     ("led", "1210", 2, None), ("fuse", "1812", 2, "Fuse:Fuse_1812_4532Metric"),
+     ("crystal", "3225", 4, "Crystal:Crystal_SMD_3225-4Pin_3.2x2.5mm"), ("crystal", "3225", 2, None),
+     ("crystal", "2012", 2, "Crystal:Crystal_SMD_2012-2Pin_2.0x1.2mm"),
+     ("inductor", "SRN6045TA", 2, "Inductor_SMD:L_Bourns_SRN6045TA"),
+     ("connector", "1.27mm 2x05", 10, "Connector_PinHeader_1.27mm:PinHeader_2x05_P1.27mm_Vertical_SMD"),
+     ("switch", "TL3342", 2, "Button_Switch_SMD:SW_SPST_TL3342")],
 )
 def test_package_footprint(category, package, pins, footprint):
     """The package a designer names becomes a KiCad footprint (every name here exists in KiCad 10.0.8's libraries)."""

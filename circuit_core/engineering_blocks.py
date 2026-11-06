@@ -212,6 +212,8 @@ def _walk(b: _Board, net: str | None, came_from: str, forward: bool,
             return parts, None
         if is_ground_name(net) or b.vmax(net) is not None:
             return parts, net
+        if forward and b.switched_low(net):  # a low-side MOSFET pulls this end to 0 V when it is on
+            return parts, net
         nodes = [(c, p) for c, p in b.nodes.get(net, []) if c != came_from and c not in skip]
         if len(nodes) != 1:
             return parts, None
@@ -233,6 +235,9 @@ def _optocouplers(b: _Board) -> list[Finding]:
             continue
         na, nk, ne, nc = (b.net_of.get((comp.id, r[k][0])) for k in ("A", "K", "E", "C"))
         name = f"{comp.reference} ({comp.value})"
+        switch = b.switched_low(nk)
+        if switch:
+            name += f" ({switch} 켜짐 기준)"
         # A resistor straight across the LED (anode to cathode) takes current first and raises the turn-on voltage.
         shunts = [x for x in b.c.components if _kind(x) == "r" and na and nk and set(b.two_nets(x)) == {na, nk}]
         r_sh = _ohms(shunts[0]) if shunts else None

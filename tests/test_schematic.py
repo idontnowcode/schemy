@@ -66,15 +66,19 @@ def error_codes(exc_info):
 
 
 def check_golden(circuit, library, workdir, name, folder):
+    """Every page file (the root and, on a multi-page board, each sub-sheet) is compared byte for byte."""
     generate_schematic(circuit, library, project_name=name).write(workdir)
-    sch, pro = (f"{name}{suffix}" for suffix in (".kicad_sch", ".kicad_pro"))
+    pages = sorted(f.name for f in workdir.glob(f"{name}*.kicad_sch"))
+    pro = f"{name}.kicad_pro"
     if os.environ.get("AICS_UPDATE_GOLDEN"):
-        for file in (sch, pro):
+        for file in (*pages, pro):
             (folder / file).write_text((workdir / file).read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
-    assert (workdir / sch).read_text(encoding="utf-8") == (folder / sch).read_text(encoding="utf-8"), (
-        f"{sch} differs from the generator output. If it was saved from KiCad, restore it with "
-        "`git checkout -- examples/`; if the generator changed on purpose, rerun with AICS_UPDATE_GOLDEN=1."
-    )
+    assert pages == sorted(f.name for f in folder.glob(f"{name}*.kicad_sch")), "page files differ"
+    for sch in pages:
+        assert (workdir / sch).read_text(encoding="utf-8") == (folder / sch).read_text(encoding="utf-8"), (
+            f"{sch} differs from the generator output. If it was saved from KiCad, restore it with "
+            "`git checkout -- examples/`; if the generator changed on purpose, rerun with AICS_UPDATE_GOLDEN=1."
+        )
     meta = json.loads((folder / pro).read_text(encoding="utf-8"))["meta"]
     assert meta["filename"] == pro
 
@@ -133,6 +137,27 @@ def test_notes_stay_on_the_page(name, library):
         at = (float(child(t, "at")[1]), float(child(t, "at")[2]))
         rect = note_rect(at, unquote(t[1]))
         assert rect[0] >= PAGE_EDGE and rect[1] >= PAGE_EDGE, unquote(t[1])
+
+
+def test_internal_regulator_pins_and_sheet_boxes(library):
+    """examples/scu-main-board: LAN8742A's VDDCR is its own regulator's output though the library types it as a power
+    input, so its net gets a PWR_FLAG; the sub-sheet boxes on page 1 keep their "File: ..." text clear of each other."""
+    from kicad_adapter.drawing import CHAR
+
+    folder = EXAMPLE_DIR.parent / "scu-main-board"
+    board = CircuitIR.model_validate_json((folder / "circuit.json").read_text(encoding="utf-8"))
+    g = generate_schematic(board, library, project_name="scu-main-board")
+    assert "PHY_VDDCR" in g.power_flags
+    boxes = []
+    for node in children(sexpr.parse(g.text), "sheet"):
+        x, y = (float(v) for v in child(node, "at")[1:3])
+        w = float(child(node, "size")[1])
+        file = next(unquote(p[2]) for p in children(node, "property") if unquote(p[1]) == "Sheetfile")
+        boxes.append((x, y, x + max(w, len(f"File: {file}") * CHAR)))
+    assert len(boxes) == 6
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1:]:
+            assert a[1] != b[1] or a[2] <= b[0] or b[2] <= a[0], (a, b)
 
 
 def test_mixed_host_connector_is_the_power_input(library):

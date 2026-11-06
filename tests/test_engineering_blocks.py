@@ -195,3 +195,38 @@ def test_voltage_carries_through_a_fuse_and_supply_nets_are_not_guessed_from_sig
     assert not _is_supply(a, "AIN")  # a connector pin with only a 10 nF filter: a signal, not a supply
     r = _Board(CircuitIR.model_validate(board("rs485-3v3")))
     assert not any(_is_supply(r, n.name) for n in r.c.nets if n.name in ("DE_RE", "RO", "DI"))
+
+
+# --- found while designing the CT SCU main board (examples/scu-main-board) ------------------------------------------
+
+def scu_findings():
+    return engineering_review(CircuitIR.model_validate(board("scu-main-board")))
+
+
+def test_fuse_carries_the_downstream_load_and_ferrites_are_not_fuses():
+    fuses = {f.title for f in scu_findings() if f.rule == "fuse_rating"}
+    # +24V carries 1.2 A in total, of which the PTC feeds the 1 A DO supply: the PTC is rated against 1 A.
+    assert "F102 (PTC 1.5A): 유지 1.5 A / 부하 1 A" in fuses and "F101 (2A T): 유지 2 A / 부하 1.2 A" in fuses
+    assert not any(t.startswith("FB") for t in fuses)
+
+
+def test_a_logic_in_pin_is_not_a_supply():
+    findings = scu_findings()
+    # BSP75N's IN is a logic input (no output pin on the part): no decoupling demand, no "unknown supply" DO1..DO4.
+    assert not [f for f in findings if f.rule == "decoupling" and f.title.startswith("Q5")]
+    assert not [f for f in findings if f.rule == "unknown_voltage"]
+    usb = _Board(CircuitIR.model_validate(board("usbc-5v-3v3")))
+    from circuit_core.engineering import _is_supply
+    assert _is_supply(usb, "+5V")  # an LDO's IN next to its OUT still is
+
+
+def test_no_voltage_across_a_buck_inductor_and_four_pad_crystals():
+    b = _Board(CircuitIR.model_validate(board("scu-main-board")))
+    assert b.v("SW_BUCK") is None and b.v("+3V3") == 3.3  # the switch node is not 3.3 V
+    crystals = {f.title for f in scu_findings() if f.rule == "crystal_caps"}
+    assert "Y201 (25MHz): 부하 콘덴서 있음 (C218, C219)" in crystals  # pads 1 and 3, not the case pad "G"
+
+
+def test_opto_led_switched_by_a_low_side_mosfet():
+    u705 = next(f for f in scu_findings() if f.rule == "opto_input" and f.title.startswith("U705"))
+    assert u705.severity == "ok" and "(Q701 켜짐 기준)" in u705.title and "1.9 mA ~ 2.3 mA" in u705.title
