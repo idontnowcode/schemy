@@ -153,7 +153,7 @@ export function EvalPage({ onError }: { onError(message: string | null): void })
             충족(예: SCL·SDA 풀업이 3.3 V로)
           </li>
           <li>
-            <b>검토</b>: 예제 회로에 결함을 심고(LED 방향, 풀업 누락, 콘덴서 정격, 디커플링 누락, IC 접지 미연결) AI 검토가 찾는지, 결함 없는 회로에서
+            <b>검토</b>: 예제 회로에 결함을 심고(LED 방향, 풀업 누락, 콘덴서 정격, 디커플링 누락, IC 접지 미연결, 플라이백 다이오드 누락, USB-C CC 공유, RS-485 DE/RE 풀업, 절연 GND 연결, ADC 클램프 누락) AI 검토가 찾는지, 결함 없는 회로에서
             오류를 얼마나 잘못 지적하는지. 같은 회로에 앱의 계산 검토도 돌려 비교
           </li>
           <li>

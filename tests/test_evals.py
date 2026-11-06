@@ -123,22 +123,22 @@ def test_a_run_end_to_end(tmp_path, monkeypatch):
     client, created = ai_client(tmp_path, reply=reply)
     cases = client.get("/api/evals/cases").json()
     assert [c["id"] for c in cases["design"]] == [c.id for c in DESIGN_CASES] and not cases["kicad"]
-    assert cases["calls_per_repeat"] == {"design": 15, "review": 10, "notes": 2}
+    assert cases["calls_per_repeat"] == {"design": 30, "review": 20, "notes": 2}
     assert client.post("/api/evals/runs", json={}).json()["error_code"] == "AI_DISABLED"
     enable(client)
     assert client.post("/api/evals/runs", json={"suites": ["nope"]}).json()["error_code"] == "UNKNOWN_SUITE"
 
     job = wait(client, client.post("/api/evals/runs", json={"repeats": 1}).json())
     assert job["status"] == "succeeded", job
-    assert client.get(f"/api/evals/progress/{job['id']}").json()["done"] == 17  # 5 designs, 10 reviews, 2 notes
+    assert client.get(f"/api/evals/progress/{job['id']}").json()["done"] == 32  # 10 designs, 20 reviews, 2 notes
     run = client.get(f"/api/evals/runs/{job['result']['run_id']}").json()
     s = run["run"]["summary"]
     assert s["design"]["completed"] == 1.0 and s["design"]["requirements_met"] == 1.0  # reference designs
     assert s["design"]["kicad_checked"] == 0  # no KiCad here: not counted as passed or failed
-    assert s["review"]["found"] == 0.2 and s["review"]["found_by_code"] == 1.0  # only the LED defect
+    assert s["review"]["found"] == 0.1 and s["review"]["found_by_code"] == 1.0  # only the LED defect
     assert s["review"]["false_errors"] == 1.0  # one error on every clean board
     assert s["notes"]["bad_ids"] == 2 and s["notes"]["cited"] == pytest.approx(0.75)  # E99 twice; 3 of 4 lines cite
-    assert s["cost"]["calls"] == 5 + 10 + 2 and s["cost"]["failed"] == 0
+    assert s["cost"]["calls"] == 10 + 20 + 2 and s["cost"]["failed"] == 0
     assert run["previous_id"] is None and "## 연구노트" in run["markdown"]
     # Nothing in the user's projects: the run only reads the examples.
     assert client.get("/api/projects").json() == []

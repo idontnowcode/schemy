@@ -281,7 +281,10 @@ def plan_prompt(inp: DesignInput) -> str:
 {_RULES_COMMON}
 - 부품마다 ref(R1, C1, U1, J1, D1 …), 역할, 종류(category), 값을 정하세요. 저항·콘덴서 값은 계산 근거를 summary에 적으세요.
 - IC·트랜지스터는 제조사 품번(mpn)과, 알면 KiCad 10 심볼(kicad_symbol, 예: Regulator_Linear:AMS1117-3.3)을 적으세요. search_terms에는 심볼을 찾을 검색어(품번, 기능)를 넣으세요.
-- 칩 저항·콘덴서·LED의 package는 0402/0603/0805/1206 중에서 쓰세요. 커넥터는 pin_count를 적으세요.
+- 칩 저항·콘덴서·LED의 package는 0402/0603/0805/1206 중에서 쓰세요. 커넥터는 pin_count와 package(2.54mm 헤더, 5.0mm 단자대)를,
+  다이오드·IC·트랜지스터는 package(SOD-123, SMA, SOT-23, SOT-23-5, SOIC-8 …)를, 전해 콘덴서는 크기(예: 6.3x5.4)를 적으세요(풋프린트가 됩니다).
+- TVS·쇼트키·2소자 다이오드(BAT54S, SM712 등), USB-C 같은 특수 커넥터, PTC 퓨즈는 KiCad 심볼(kicad_symbol)을 적으세요.
+  적지 않으면 2핀 일반 심볼로 바뀌어 핀이 맞지 않습니다.
 - 데이터시트가 요구하는 주변 부품(디커플링 콘덴서, 풀업 저항 등)을 빠뜨리지 마세요.
 - 부품은 {MAX_PARTS}개 이하로 하세요.
 - 사람이 검토할 수 있게 부품마다 선택의 근거를 남기세요: reason(왜 이 부품·값인지), basis(requirement = 요구사항에 있는 그대로,
@@ -572,9 +575,14 @@ def _apply_rails(connections: dict, nets: list[dict]) -> None:
         if nominal is None:
             from circuit_core.datasheets import net_voltage
             nominal = net_voltage(net["name"])
-        # A range is kept only when it is consistent (min <= nominal <= max); otherwise it is left out.
+        # A range is kept only when it is consistent (min <= nominal <= max); otherwise it is left out. One side alone
+        # is kept too (a 0-10 V input that may see 24 V by mistake has only a maximum worth writing).
         if lo and hi and lo <= hi and (nominal is None or lo <= nominal <= hi):
             net["voltage_min"], net["voltage_max"] = lo, hi
+        elif hi and not lo and (nominal is None or hi >= nominal):
+            net["voltage_max"] = hi
+        elif lo and not hi and (nominal is None or lo <= nominal):
+            net["voltage_min"] = lo
 
 
 def _schematic_notes(connections: dict, components: list[dict], nets: list[dict],

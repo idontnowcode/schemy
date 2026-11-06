@@ -1,0 +1,652 @@
+{
+  "schema_version": "0.9.0",
+  "project_id": "analog-0-10v",
+  "title": "0~10V → 0~3V 버퍼 (MCP6001)",
+  "components": [
+    {
+      "id": "r1",
+      "reference": "R1",
+      "value": "24k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "분압 상단",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r2",
+      "reference": "R2",
+      "value": "10k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "분압 하단",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "d1",
+      "reference": "D1",
+      "value": "BAT54S",
+      "symbol_id": "Diode:BAT54S",
+      "footprint_id": "Package_TO_SOT_SMD:SOT-23",
+      "manufacturer": null,
+      "manufacturer_part_number": "BAT54S",
+      "pins": [
+        {
+          "number": "1",
+          "name": "A",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "K",
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": "COM",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Diode:BAT54S (AI가 제안한 심볼, 라이브러리에서 확인)",
+        "notes": null
+      },
+      "description": "입력 클램프",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "c1",
+      "reference": "C1",
+      "value": "10nF",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:C (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "입력 필터",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "u1",
+      "reference": "U1",
+      "value": "MCP6001",
+      "symbol_id": "Amplifier_Operational:MCP6001-OT",
+      "footprint_id": "Package_TO_SOT_SMD:SOT-23-5",
+      "manufacturer": "Microchip",
+      "manufacturer_part_number": "MCP6001T-I/OT",
+      "pins": [
+        {
+          "number": "2",
+          "name": "V-",
+          "no_connect": false
+        },
+        {
+          "number": "5",
+          "name": "V+",
+          "no_connect": false
+        },
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": "+",
+          "no_connect": false
+        },
+        {
+          "number": "4",
+          "name": "-",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Amplifier_Operational:MCP6001-OT (AI가 제안한 심볼, 라이브러리에서 확인)",
+        "notes": null
+      },
+      "description": "버퍼 OP앰프",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "c3",
+      "reference": "C3",
+      "value": "100nF",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:C (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "OP앰프 디커플링",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r3",
+      "reference": "R3",
+      "value": "100",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "ADC 직렬 저항",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "c2",
+      "reference": "C2",
+      "value": "10nF",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:C (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "ADC 콘덴서",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "j1",
+      "reference": "J1",
+      "value": "AIN",
+      "symbol_id": "Connector_Generic:Conn_01x02",
+      "footprint_id": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "Pin_2",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Connector_Generic:Conn_01x02 (2핀 일반 커넥터)",
+        "notes": null
+      },
+      "description": "입력 단자",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "j2",
+      "reference": "J2",
+      "value": "MCU",
+      "symbol_id": "Connector_Generic:Conn_01x03",
+      "footprint_id": "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "Pin_2",
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": "Pin_3",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Connector_Generic:Conn_01x03 (3핀 일반 커넥터)",
+        "notes": null
+      },
+      "description": "MCU 헤더",
+      "origin": "ai",
+      "specs": null
+    }
+  ],
+  "nets": [
+    {
+      "id": "net-001",
+      "name": "AIN",
+      "nodes": [
+        {
+          "component_id": "j1",
+          "pin": "1"
+        },
+        {
+          "component_id": "r1",
+          "pin": "1"
+        }
+      ],
+      "voltage": 10.0,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": 24.0
+    },
+    {
+      "id": "net-002",
+      "name": "AIN_DIV",
+      "nodes": [
+        {
+          "component_id": "r1",
+          "pin": "2"
+        },
+        {
+          "component_id": "r2",
+          "pin": "1"
+        },
+        {
+          "component_id": "d1",
+          "pin": "3"
+        },
+        {
+          "component_id": "c1",
+          "pin": "1"
+        },
+        {
+          "component_id": "u1",
+          "pin": "3"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-003",
+      "name": "GND",
+      "nodes": [
+        {
+          "component_id": "j1",
+          "pin": "2"
+        },
+        {
+          "component_id": "r2",
+          "pin": "2"
+        },
+        {
+          "component_id": "d1",
+          "pin": "1"
+        },
+        {
+          "component_id": "c1",
+          "pin": "2"
+        },
+        {
+          "component_id": "u1",
+          "pin": "2"
+        },
+        {
+          "component_id": "c2",
+          "pin": "2"
+        },
+        {
+          "component_id": "c3",
+          "pin": "2"
+        },
+        {
+          "component_id": "j2",
+          "pin": "3"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-004",
+      "name": "+3V3",
+      "nodes": [
+        {
+          "component_id": "d1",
+          "pin": "2"
+        },
+        {
+          "component_id": "u1",
+          "pin": "5"
+        },
+        {
+          "component_id": "c3",
+          "pin": "1"
+        },
+        {
+          "component_id": "j2",
+          "pin": "1"
+        }
+      ],
+      "voltage": 3.3,
+      "load_current": 0.001,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-005",
+      "name": "BUF",
+      "nodes": [
+        {
+          "component_id": "u1",
+          "pin": "1"
+        },
+        {
+          "component_id": "u1",
+          "pin": "4"
+        },
+        {
+          "component_id": "r3",
+          "pin": "1"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-006",
+      "name": "ADC",
+      "nodes": [
+        {
+          "component_id": "r3",
+          "pin": "2"
+        },
+        {
+          "component_id": "c2",
+          "pin": "1"
+        },
+        {
+          "component_id": "j2",
+          "pin": "2"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    }
+  ],
+  "sheets": [],
+  "layout": {},
+  "notes": [
+    {
+      "id": "note-001",
+      "text": "0-10V -> 0-2.94V, clamp to 3V3",
+      "components": [
+        "r1",
+        "r2",
+        "d1"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-002",
+      "text": "Unity-gain buffer",
+      "components": [
+        "u1"
+      ],
+      "net": null
+    }
+  ],
+  "decisions": [
+    {
+      "id": "dec-r1",
+      "topic": "R1 분압 상단",
+      "choice": "24k",
+      "by": "ai",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": null,
+      "calc": "10 V × 10k / (24k + 10k) = 2.94 V",
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r2",
+      "topic": "R2 분압 하단",
+      "choice": "10k",
+      "by": "ai",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": null,
+      "calc": null,
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r2"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-d1",
+      "topic": "D1 입력 클램프",
+      "choice": "BAT54S",
+      "by": "requirement",
+      "reason": "24 V 입력 시 (24 − 3.6) / 24 kΩ ≈ 0.85 mA를 3.3 V로 흘림",
+      "request": "실수로 24V가 들어와도 망가지지 않게 보호",
+      "calc": null,
+      "source": "KiCad 심볼 Diode:BAT54S (AI가 제안한 심볼, 라이브러리에서 확인)",
+      "components": [
+        "d1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-c1",
+      "topic": "C1 입력 필터",
+      "choice": "10nF",
+      "by": "ai",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": null,
+      "calc": "fc = 1 / (2π × 7.06 kΩ × 10 nF) ≈ 2.3 kHz",
+      "source": "KiCad 심볼 Device:C (일반 부품 심볼)",
+      "components": [
+        "c1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-u1",
+      "topic": "U1 버퍼 OP앰프",
+      "choice": "MCP6001 (MCP6001T-I/OT)",
+      "by": "requirement",
+      "reason": "1.8~6 V 단전원, 입출력 레일투레일",
+      "request": "단전원 3.3V 레일투레일 OP앰프 버퍼",
+      "calc": null,
+      "source": "KiCad 심볼 Amplifier_Operational:MCP6001-OT (AI가 제안한 심볼, 라이브러리에서 확인)",
+      "components": [
+        "u1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-c3",
+      "topic": "C3 OP앰프 디커플링",
+      "choice": "100nF",
+      "by": "ai",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": null,
+      "calc": null,
+      "source": "KiCad 심볼 Device:C (일반 부품 심볼)",
+      "components": [
+        "c3"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r3",
+      "topic": "R3 ADC 직렬 저항",
+      "choice": "100",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "ADC 앞 RC 필터",
+      "calc": null,
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r3"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-c2",
+      "topic": "C2 ADC 콘덴서",
+      "choice": "10nF",
+      "by": "requirement",
+      "reason": "ADC 샘플링 커패시터에 전하 공급",
+      "request": "ADC 앞 RC 필터",
+      "calc": null,
+      "source": "KiCad 심볼 Device:C (일반 부품 심볼)",
+      "components": [
+        "c2"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-j1",
+      "topic": "J1 입력 단자",
+      "choice": "AIN",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "입력 단자 2핀(AIN, GND)",
+      "calc": null,
+      "source": "KiCad 심볼 Connector_Generic:Conn_01x02 (2핀 일반 커넥터)",
+      "components": [
+        "j1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-j2",
+      "topic": "J2 MCU 헤더",
+      "choice": "MCU",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "MCU 헤더 3핀(3.3V, ADC, GND)",
+      "calc": null,
+      "source": "KiCad 심볼 Connector_Generic:Conn_01x03 (3핀 일반 커넥터)",
+      "components": [
+        "j2"
+      ],
+      "waives": []
+    }
+  ],
+  "validation": {
+    "status": "unverified",
+    "notes": "AI 설계안 (engineer). 사람 검토 전."
+  }
+}

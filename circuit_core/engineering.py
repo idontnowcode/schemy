@@ -35,10 +35,14 @@ _IN_PINS = re.compile(r"^(IN|VI|VIN)$", re.I)
 _OUT_PINS = re.compile(r"^(OUT|VO|VOUT)$", re.I)
 DECOUPLING_MAX_F = 1e-6
 """Largest capacitor counted as an IC's decoupling capacitor (a 100 nF-1 µF ceramic); bigger ones are bulk."""
+LED_DIM_A = 0.5e-3
+"""An indicator LED whose worst-case (highest Vf) current is below this may be too dim to read."""
 
 
 def _farad(comp: Component) -> float | None:
     return parse_value(comp.value)
+
+
 _SUPPLY_NAME = re.compile(r"PWR|POWER|SUPPLY|VIN|VCC|VDD|VBAT|VBUS|V\+|^\+", re.I)
 _I2C = re.compile(r"(^|_)(I2C\d?_)?(SDA|SCL)\d?($|_)", re.I)
 # Regulator families: (pattern on the value, typical dropout V, maximum output current A). Series values.
@@ -110,6 +114,10 @@ def _kind(comp: Component) -> str:
         return "zener" if "ZENER" in sym or "TVS" in sym else "diode"
     if lib == "Device" and sym.startswith("CRYSTAL"):
         return "crystal"
+    if lib == "Device" and (sym.startswith("FUSE") or sym.startswith("POLYFUSE")):
+        return "fuse"
+    if lib == "Device" and (sym == "L" or sym.startswith(("L_", "FERRITE"))):
+        return "l"
     return "other"
 
 
@@ -132,18 +140,43 @@ class _Board:
         self.comps = {c.id: c for c in circuit.components}
         self.volts = net_voltages(circuit)
         self.nets = {n.name: n for n in circuit.nets}
+        # A fuse or a ferrite/inductor in series carries its neighbour's voltage (USB VBUS → PTC → +5V).
+        self.same_as: dict[str, str] = {}
+        for _ in range(3):
+            for comp in circuit.components:
+                if _kind(comp) not in ("fuse", "l"):
+                    continue
+                n1, n2 = self.two_nets(comp)
+                for known, unknown in ((n1, n2), (n2, n1)):
+                    if known and unknown and self.v(known) is not None and self.v(unknown) is None \
+                            and not is_ground_name(unknown):
+                        self.same_as[unknown] = self.same_as.get(known, known)
+                        self.volts[unknown] = self.v(known)
 
     def v(self, net: str | None) -> float | None:
         return None if net is None else self.volts.get(net)
 
+    def _spec(self, net: str | None):
+        return self.nets.get(self.same_as.get(net or "", net or ""))
+
     def vmin(self, net: str | None) -> float | None:
         """Lowest voltage of a net: its ``voltage_min`` when written, else the nominal voltage."""
-        spec = self.nets.get(net or "")
+        spec = self._spec(net)
         return spec.voltage_min if spec is not None and spec.voltage_min is not None else self.v(net)
 
     def vmax(self, net: str | None) -> float | None:
-        spec = self.nets.get(net or "")
+        spec = self._spec(net)
         return spec.voltage_max if spec is not None and spec.voltage_max is not None else self.v(net)
+
+    def switched_low(self, net: str | None) -> str | None:
+        """The low-side switch (an N-MOSFET drain with its source on ground) that pulls this net to 0 V when on."""
+        for cid, pin in self.nodes.get(net or "", []):
+            comp = self.comps[cid]
+            if pin == self.pin_by_name(comp, "D"):
+                source = self.net_of.get((cid, self.pin_by_name(comp, "S") or ""))
+                if source and is_ground_name(source):
+                    return comp.reference
+        return None
 
     def vtext(self, net: str | None) -> str:
         """'5 V' or '5 V (4.75~5.25 V)' when the net has a range."""
@@ -274,6 +307,10 @@ def _leds(b: _Board) -> list[Finding]:
         na, nk = b.net_of.get((comp.id, a)), b.net_of.get((comp.id, k))
         va, vk = b.v(na), b.v(nk)
         name = f"{comp.reference} ({comp.value})"
+        switch = b.switched_low(nk) if vk is None else None
+        if switch:  # cathode on a low-side switch: lit while the switch is on, the cathode then near 0 V
+            vk = 0.0
+            name += f" ({switch} 켜짐 기준)"
         if va is not None and vk is not None:
             if va < vk:
                 out.append(Finding("led_direction", "fail", f"{name}: 방향 반대", f"애노드 {va:g} V < 캐소드 {vk:g} V.",
@@ -335,11 +372,14 @@ def _leds(b: _Board) -> list[Finding]:
                        f"Vf {vf_lo:g}~{vf_hi:g} V({'색 기준' if known else '색 미기재, 넓은 범위'})")
             calc = (f"I = ({v_hi:g} V − {v_lo:g} V − Vf) / {_fmt(ohms, 'Ω')} = {_fmt(i_min, 'A')} ~ {_fmt(i_max, 'A')}, "
                     f"{vf_note}{bound}")
-            sev = "warn" if i_max > 0.02 else "ok"
-            out.append(Finding("led_current", sev, f"{name}: 전류 {_fmt(i_min, 'A')} ~ {_fmt(i_max, 'A')}",
-                               "표시용 LED는 보통 20 mA 이하로 씁니다. 실제 값은 LED·구동 IC 데이터시트로 확인하세요."
-                               if sev == "warn" else "표시용 LED 범위(20 mA 이하)입니다. Vf는 LED 데이터시트로 확인하세요.",
-                               calc, (comp.id, r.id)))
+            dim = i_min < LED_DIM_A <= i_max and not (comp.specs and comp.specs.forward_voltage)
+            sev = "warn" if i_max > 0.02 else "info" if dim else "ok"
+            detail = ("표시용 LED는 보통 20 mA 이하로 씁니다. 실제 값은 LED·구동 IC 데이터시트로 확인하세요." if sev == "warn" else
+                      f"Vf가 높은 LED(예: 3 V급 녹색)면 {_fmt(i_min, 'A')}로 거의 안 보일 수 있습니다. 쓸 LED의 Vf를 부품 사양에 "
+                      "적거나, 구동 전압 대비 Vf가 낮은 색(빨강 등)·더 높은 전원을 검토하세요." if dim else
+                      "표시용 LED 범위(20 mA 이하)입니다. Vf는 LED 데이터시트로 확인하세요.")
+            out.append(Finding("led_current", sev, f"{name}: 전류 {_fmt(i_min, 'A')} ~ {_fmt(i_max, 'A')}"
+                               + (" (최악 조건에서 어두움)" if dim else ""), detail, calc, (comp.id, r.id)))
             out += _r_power(r, i_max * i_max * ohms, f"P = I² × R = ({_fmt(i_max, 'A')})² × {_fmt(ohms, 'Ω')}")
             break
     return out
@@ -721,13 +761,15 @@ _GROUND_PINS = re.compile(r"^(GND|AGND|DGND|PGND|VSS|VEE|V-|EP|PAD|EPAD|THERMAL)
 
 def _power_pins_open(b: _Board) -> list[Finding]:
     """An IC supply or ground pin on no net (and not marked no-connect): the part cannot work."""
-    out = []
+    out, checked = [], []
     for comp in b.c.components:
         if len(comp.pins) < 3 or comp.reference.startswith(("J", "P", "CN", "X")):
             continue
-        open_pins = [p for p in comp.pins if not p.no_connect and (comp.id, p.number) not in b.net_of
-                     and (_POWER_PINS.match(p.name or "") or _GROUND_PINS.match(p.name or ""))]
+        power = [p for p in comp.pins if _POWER_PINS.match(p.name or "") or _GROUND_PINS.match(p.name or "")]
+        open_pins = [p for p in power if not p.no_connect and (comp.id, p.number) not in b.net_of]
         if not open_pins:
+            if power:
+                checked.append(comp.reference)
             continue
         ground = [p for p in open_pins if _GROUND_PINS.match(p.name or "")]
         what = "접지 핀" if len(ground) == len(open_pins) else "전원·접지 핀"
@@ -735,26 +777,41 @@ def _power_pins_open(b: _Board) -> list[Finding]:
         out.append(Finding("power_pin_open", "fail", f"{comp.reference} ({comp.value}): {what} 연결 안 됨",
                            f"핀 {pins}이 어느 Net에도 없습니다. 노출 패드·여러 GND 핀은 모두 연결해야 하는 경우가 많습니다. "
                            f"데이터시트 핀 설명을 확인하세요.", None, (comp.id,)))
+    if checked and not out:
+        out.append(Finding("power_pin_open", "ok", f"IC 전원·접지 핀 모두 연결 ({', '.join(sorted(checked, key=natural_key))})",
+                           "이름이 VCC·GND 같은 핀만 보았습니다. 이름 없는 핀은 데이터시트로 확인하세요."))
     return out
 
 
 def _is_supply(b: _Board, net: str) -> bool:
     """A supply net: on an IC power pin or a regulator, or a connector net that looks like power (a supply-like
-    name, or a diode or a capacitor to ground on it). Connector signals (TXD, SDA) are not supplies."""
+    name, or a diode or a bulk capacitor to ground on it). Connector signals (TXD, SDA) are not supplies, and
+    neither is a net on an IC's signal pin (RS-485 A/B with a TVS on it) or one with only a small filter capacitor."""
     if is_ground_name(net):
         return False
-    on_connector = False
-    for cid, pin in b.nodes.get(net, []):
-        comp = b.comps[cid]
-        kind = _kind(comp)
-        pname = next((p.name for p in comp.pins if p.number == pin), None) or ""
-        if len(comp.pins) >= 3 and (_POWER_PINS.match(pname) or (kind == "linreg" and _OUT_PINS.match(pname))):
+    nodes = [(b.comps[cid], pin) for cid, pin in b.nodes.get(net, [])]
+
+    def pname(comp: Component, pin: str) -> str:
+        return next((p.name for p in comp.pins if p.number == pin), None) or ""
+
+    def is_ic(comp: Component) -> bool:
+        return len(comp.pins) >= 3 and not comp.reference.startswith(("J", "P", "CN", "X"))
+
+    for comp, pin in nodes:  # 1. an IC power pin or a regulator output decides it
+        name = pname(comp, pin)
+        if is_ic(comp) and (_POWER_PINS.match(name) or (_kind(comp) == "linreg" and _OUT_PINS.match(name))):
             return True
-        if comp.reference.startswith("J"):
-            on_connector = True
-        elif kind in ("diode", "zener") or (kind in ("c", "cp") and any(is_ground_name(n or "") for n in b.two_nets(comp))):
-            if on_connector or any(b.comps[c].reference.startswith("J") for c, _ in b.nodes[net]):
-                return True
+    for comp, pin in nodes:  # 2. an IC signal pin makes it a signal line
+        name = pname(comp, pin)
+        if is_ic(comp) and _kind(comp) not in ("diode", "zener") and name and not _OUT_PINS.match(name) \
+                and not _IN_PINS.match(name) and not re.fullmatch(r"(?i)EN|ENABLE|SHDN|~\{SHDN\}|CE", name):
+            return False
+    on_connector = any(comp.reference.startswith("J") for comp, _ in nodes)
+    for comp, _ in nodes:  # 3. a connector net with a diode or a bulk capacitor to ground
+        kind = _kind(comp)
+        bulk = kind == "cp" or (kind == "c" and (_farad(comp) or 0) >= DECOUPLING_MAX_F)
+        if on_connector and (kind in ("diode", "zener") or bulk) and any(is_ground_name(n or "") for n in b.two_nets(comp)):
+            return True
     return on_connector and bool(_SUPPLY_NAME.search(net))
 
 
@@ -787,14 +844,26 @@ def supply_nets(circuit: CircuitIR) -> list[dict]:
     return out
 
 
+def _footprints(b: _Board) -> list[Finding]:
+    missing = sorted((c.reference for c in b.c.components if not c.footprint_id), key=natural_key)
+    if not missing:
+        return [Finding("footprint_missing", "ok", f"모든 부품에 풋프린트 ({len(b.c.components)}개)",
+                        "패키지가 맞는지는 BOM·데이터시트로 확인하세요.")] if b.c.components else []
+    return [Finding("footprint_missing", "info", f"풋프린트 없음: {', '.join(missing)}",
+                    "PCB와 BOM에 필요합니다. 부품 패키지(0603, SOD-123, SOIC-8, 2.54mm 헤더 …)를 정해 풋프린트를 넣으세요.",
+                    None, tuple(c.id for c in b.c.components if not c.footprint_id))]
+
+
 def engineering_review(circuit: CircuitIR) -> list[Finding]:
     """All calculated checks, most severe first."""
+    from .engineering_blocks import block_rules  # the rules for common blocks (relays, optocouplers, RS-485 ...)
+
     b = _Board(circuit)
     leds = _leds(b)
     seen = {c for f in leds if f.rule == "r_power" for c in f.components}
     findings = (_capacitors(b) + leds + _resistors_across_rails(b, seen) + _regulators(b) + _diodes(b) + _decoupling(b)
                 + _i2c_pullups(b) + _crystals(b) + _motor_drivers(b) + _fuses(b) + _power_pins_open(b)
-                + _unknown_rails(b))
+                + block_rules(b) + _footprints(b) + _unknown_rails(b))
     return sorted(findings, key=lambda f: (ORDER[f.severity], f.rule, f.title))
 
 

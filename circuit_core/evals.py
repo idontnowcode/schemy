@@ -33,7 +33,7 @@ class Check:
     """One thing the requirements ask for, checked on the circuit the AI designed."""
 
     label: str
-    kind: str  # part | category | rail | pullup | cap_on | drives
+    kind: str  # part | category | rail | pullup | cap_on | drives | calc_ok (a rule of the calculated review passes)
     args: dict = field(default_factory=dict)
 
 
@@ -89,6 +89,10 @@ def run_check(check: Check, circuit: CircuitIR) -> bool:
             if any(rail.search(n) for n in on) and any(_is_ground(n) for n in on) and farad >= need - 1e-12:
                 return True
         return False
+    if check.kind == "calc_ok":  # the app's calculated review ran this rule and found nothing wrong
+        hits = [f for f in engineering_review(circuit) if f.rule == a["rule"]]
+        return bool(hits) and not any(f.severity in ("fail", "warn") for f in hits) and \
+            (not a.get("ok", True) or any(f.severity == "ok" for f in hits))
     if check.kind == "drives":  # a part (by symbol/value) with a pin on a net (e.g. a regulator on +3V3)
         rx, net = re.compile(a["match"], re.I), re.compile(a["net"], re.I)
         return any(rx.search(_text(c)) and any(net.search(n) for n in nets.get(c.id, set())) for c in comps)
@@ -143,6 +147,44 @@ DESIGN_CASES: tuple[DesignCase, ...] = (
         Check("LED 2개", "category", {"category": "led", "min": 2}),
         Check("리셋 버튼", "category", {"category": "switch"}),
     )),
+    # Practical blocks: what the requirements ask for is checked with the app's own calculations where it can be
+    # (a CC pull-down of the right value, a bias that holds with both bus ends terminated, a flyback the right way).
+    DesignCase("usbc-power", "usbc-5v-3v3", "USB-C 5V 입력 3.3V 전원 보드", (
+        Check("USB-C 리셉터클", "part", {"match": r"USB_C|USB-C|TYPE-C|USB4"}),
+        Check("CC1·CC2 각각 5.1 kΩ 풀다운 (계산 검토)", "calc_ok", {"rule": "usb_cc"}),
+        Check("VBUS 콘덴서 합 10 µF 이하 (계산 검토)", "calc_ok", {"rule": "usb_vbus_cap"}),
+        Check("3.3 V 레귤레이터가 3.3 V 레일에 있다", "drives", {"match": r"regulator|ldo|1117|ap2112|mcp1700|xc6206", "net": V33}),
+        Check("PTC 퓨즈", "category", {"category": "fuse"}),
+        Check("TVS 다이오드", "category", {"category": "diode"}),
+    )),
+    DesignCase("iso-input", "iso-24v-input", "24V 절연 디지털 입력 2채널", (
+        Check("포토커플러 2개", "part", {"match": r"PC817|LTV|EL817|TLP|Isolator:", "min": 2}),
+        Check("15~30 V 입력 전류 범위 (계산 검토)", "calc_ok", {"rule": "opto_input"}),
+        Check("CTR·풀업 여유 (계산 검토)", "calc_ok", {"rule": "opto_ctr"}),
+        Check("현장 0 V와 MCU GND 분리 (계산 검토)", "calc_ok", {"rule": "opto_isolation"}),
+        Check("입력 표시 LED 2개", "category", {"category": "led", "min": 2}),
+    )),
+    DesignCase("relay-driver", "relay-driver-12v", "12V 릴레이 구동 보드", (
+        Check("릴레이", "part", {"match": r"Relay:|SRD|relay"}),
+        Check("MOSFET", "part", {"match": r"Transistor_FET|AO3400|2N7002|IRLML|MOSFET"}),
+        Check("플라이백 다이오드 방향 (계산 검토)", "calc_ok", {"rule": "relay_flyback"}),
+        Check("게이트 풀다운 (계산 검토)", "calc_ok", {"rule": "mosfet_gate"}),
+        Check("3.3 V로 완전히 켜지는 MOSFET (계산 검토)", "calc_ok", {"rule": "mosfet_drive"}),
+        Check("동작 표시 LED", "category", {"category": "led"}),
+    )),
+    DesignCase("rs485", "rs485-3v3", "RS-485 인터페이스 보드 (3.3V)", (
+        Check("RS-485 트랜시버", "part", {"match": r"485|THVD"}),
+        Check("120 Ω 종단 (계산 검토)", "calc_ok", {"rule": "rs485_term"}),
+        Check("페일세이프 바이어스: 양 끝 종단에서 200 mV 이상 (계산 검토)", "calc_ok", {"rule": "rs485_bias"}),
+        Check("리셋 중 수신 모드 (계산 검토)", "calc_ok", {"rule": "rs485_dir"}),
+        Check("버스 TVS", "category", {"category": "diode"}),
+    )),
+    DesignCase("analog-0-10v", "analog-0-10v", "0~10V 아날로그 입력 보드", (
+        Check("OP앰프 버퍼", "part", {"match": r"Amplifier_Operational|MCP6|OPA|TLV|LM358"}),
+        Check("10 V가 ADC 범위 안 (계산 검토)", "calc_ok", {"rule": "adc_divider"}),
+        Check("24 V 오입력 클램프 (계산 검토)", "calc_ok", {"rule": "adc_clamp", "ok": False}),
+        Check("디커플링·RC 콘덴서 2개 이상", "category", {"category": "capacitor", "min": 2}),
+    )),
 )
 
 
@@ -174,6 +216,19 @@ REVIEW_CASES: tuple[Defect, ...] = (
     Defect("ic-gnd-open", "dc-motor-drv8871", "모터 드라이버 U1의 GND 핀을 GND에서 뺌", ("U1",),
            (("U1", "DRV8871"), ("GND", "접지", "그라운드", "ground"),
             ("연결", "미접속", "open", "떠 ", "floating", "빠져", "없"))),
+    Defect("relay-no-flyback", "relay-driver-12v", "릴레이 코일의 플라이백 다이오드 D1을 뺌", ("K1", "D1"),
+           (("K1", "코일", "릴레이", "relay", "coil"), ("플라이백", "환류", "프리휠", "flyback", "freewheel", "역기전력",
+                                                     "back-emf", "back emf", "다이오드"))),
+    Defect("usb-cc-shared", "usbc-5v-3v3", "USB-C CC1·CC2를 저항 하나(R1)에 묶음(R2 뺌)", ("R1", "R2", "J1"),
+           (("CC",), ("5.1", "풀다운", "pull-down", "pulldown", "Rd", "묶", "공유", "shared", "하나", "각각", "separate"))),
+    Defect("rs485-de-pullup", "rs485-3v3", "RS-485 DE/RE 풀다운 R4를 3.3 V 풀업으로 바꿈", ("R4", "U1"),
+           (("DE/RE", "DE·RE", "R4", "DE 핀", "DE핀", "/RE"), ("풀업", "pull-up", "pullup", "송신", "transmit", "리셋",
+                                                           "reset", "점유", "드라이버 활성", "driver enable"))),
+    Defect("opto-shared-ground", "iso-24v-input", "현장 0 V(GND_24V)를 MCU GND에 이음", ("U1", "U2"),
+           (("GND", "접지", "0V", "0 V", "ground"), ("절연", "isolat", "분리", "같은", "이어", "공통"))),
+    Defect("adc-no-clamp", "analog-0-10v", "ADC 입력 클램프 다이오드 D1을 뺌", ("D1", "U1"),
+           (("U1", "AIN", "ADC", "입력", "input"), ("클램프", "clamp", "과전압", "overvoltage", "24 V", "24V", "보호",
+                                                  "protect"))),
 )
 
 
@@ -194,6 +249,14 @@ def plant(defect: Defect, circuit: CircuitIR) -> CircuitIR:
             note["components"] = [x for x in note.get("components") or [] if x != cid]
         data["layout"] = {k: v for k, v in (data.get("layout") or {}).items() if k != cid}
 
+    def merge_nets(src: str, dst: str) -> None:
+        moved = next(n for n in data["nets"] if n["name"] == src)
+        next(n for n in data["nets"] if n["name"] == dst)["nodes"] += moved["nodes"]
+        data["nets"].remove(moved)
+        for note in data.get("notes", []):
+            if note.get("net") == src:
+                note["net"] = dst
+
     if defect.id == "led-reversed":
         cid = ids["D2"]
         for net in data["nets"]:
@@ -211,6 +274,21 @@ def plant(defect: Defect, circuit: CircuitIR) -> CircuitIR:
         for ref in [c["reference"] for c in data["components"]
                     if c["reference"].startswith("C") and abs((parse_value(c["value"]) or 0) - 1e-7) < 1e-12]:
             drop_component(ref)
+    elif defect.id in ("relay-no-flyback", "adc-no-clamp"):
+        drop_component("D1")
+    elif defect.id == "usb-cc-shared":
+        drop_component("R2")
+        merge_nets("CC2", "CC1")
+    elif defect.id == "rs485-de-pullup":
+        r4 = ids["R4"]
+        node = next(n for net in data["nets"] if _is_ground(net["name"]) for n in net["nodes"] if n["component_id"] == r4)
+        for net in data["nets"]:
+            if _is_ground(net["name"]):
+                net["nodes"].remove(node)
+            elif net["name"] == "+3V3":
+                net["nodes"].append(node)
+    elif defect.id == "opto-shared-ground":
+        merge_nets("GND_24V", "GND")
     elif defect.id == "ic-gnd-open":
         cid = ids["U1"]
         gnd_pins = {p["number"] for c in data["components"] if c["id"] == cid for p in c["pins"]

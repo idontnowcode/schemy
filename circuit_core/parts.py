@@ -214,6 +214,54 @@ _CHIP_FOOTPRINT_LIBS = {"resistor": ("Resistor_SMD", "R"), "capacitor": ("Capaci
 _CHIP_METRIC = {"0402": "1005", "0603": "1608", "0805": "2012", "1206": "3216"}
 
 
+# Package words -> KiCad 10.0.8 footprints (each checked to exist). Matched in order on the package text.
+_PACKAGE_FOOTPRINTS: list[tuple[str, str]] = [
+    (r"SOD-?123F?\b", "Diode_SMD:D_SOD-123"),
+    (r"SOD-?323\b", "Diode_SMD:D_SOD-323"),
+    (r"\bSMA\b|DO-?214AC", "Diode_SMD:D_SMA"),
+    (r"\bSMB\b|DO-?214AA", "Diode_SMD:D_SMB"),
+    (r"\bSMC\b|DO-?214AB", "Diode_SMD:D_SMC"),
+    (r"MINIMELF|SOD-?80", "Diode_SMD:D_MiniMELF"),
+    (r"SOIC-?8\b|\bSO-?8\b", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"),
+    (r"SOT-?23-?6\b", "Package_TO_SOT_SMD:SOT-23-6"),
+    (r"SOT-?23-?5\b", "Package_TO_SOT_SMD:SOT-23-5"),
+    (r"SOT-?23\b", "Package_TO_SOT_SMD:SOT-23"),
+    (r"SOT-?223\b", "Package_TO_SOT_SMD:SOT-223-3_TabPin2"),
+    (r"DIP-?4\b", "Package_DIP:DIP-4_W7.62mm"),
+    (r"DIP-?8\b", "Package_DIP:DIP-8_W7.62mm"),
+    (r"USB4125", "Connector_USB:USB_C_Receptacle_GCT_USB4125-xx-x_6P_TopMnt_Horizontal"),
+]
+_ELEC_SIZES = {"5x5.4": "CP_Elec_5x5.4", "6.3x5.4": "CP_Elec_6.3x5.4", "8x10": "CP_Elec_8x10"}
+
+
+def package_footprint(category: str | None, package: str | None, pins: int = 0) -> str | None:
+    """A footprint from the package the designer named: chip sizes, diode and IC packages, SMD electrolytic sizes,
+    2.54 mm headers and 5 mm terminal blocks (by pin count). None when the package says nothing we know."""
+    text = (package or "").strip()
+    if not text:
+        return None
+    chip = chip_footprint(category, text)
+    if chip is not None:
+        return chip
+    if category == "fuse" and re.search(r"(0603|0805|1206)", text):
+        size = re.search(r"(0603|0805|1206)", text).group(1)
+        return f"Fuse:Fuse_{size}_{_CHIP_METRIC[size]}Metric"
+    if category == "capacitor_polarized":
+        m = re.search(r"(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)", text)
+        if m and f"{m.group(1)}x{m.group(2)}" in _ELEC_SIZES:
+            return f"Capacitor_SMD:{_ELEC_SIZES[f'{m.group(1)}x{m.group(2)}']}"
+    if category == "connector" and 1 <= pins <= 40:
+        if re.search(r"(?i)2[.,]54|header|헤더", text):
+            return f"Connector_PinHeader_2.54mm:PinHeader_1x{pins:02d}_P2.54mm_Vertical"
+        if re.search(r"(?i)5[.,]0|terminal|단자", text) and pins <= 12:
+            return f"TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-{pins}_1x{pins:02d}_P5.00mm_Horizontal"
+    upper = text.upper()
+    for pattern, footprint in _PACKAGE_FOOTPRINTS:
+        if re.search(pattern, upper):
+            return footprint
+    return None
+
+
 def chip_footprint(category: str | None, package: str | None) -> str | None:
     """'resistor', '0603' -> 'Resistor_SMD:R_0603_1608Metric'; None when not a standard chip size."""
     m = re.fullmatch(r"(?:\D*?)(0402|0603|0805|1206)(?:\D.*)?", package or "")

@@ -356,3 +356,35 @@ def test_rails_carry_a_consistent_voltage_range():
     assert (vin["voltage_min"], vin["voltage_max"]) == (4.75, 5.25)
     assert (v5["voltage_min"], v5["voltage_max"]) == (4.5, 5.5)  # nominal from the name
     assert "voltage_min" not in v33 and v33["load_current"] == 0.03  # 4..5 V does not contain 3.3 V: dropped
+
+
+def test_resolver_uses_named_symbols_for_diodes_connectors_and_fuses(resolver):
+    """Practical parts the generic symbols cannot draw: a TVS named by part number, a three-pin dual diode, a USB-C
+    receptacle without a pin count, a PTC fuse; each gets a footprint from its package."""
+    tvs, _ = resolver({"ref": "D1", "category": "diode", "value": "SMAJ5.0A", "mpn": "SMAJ5.0A", "package": "SMA"})
+    assert (tvs.symbol_id, tvs.footprint_id) == ("Diode:SMAJ5.0A", "Diode_SMD:D_SMA")
+    dual, _ = resolver({"ref": "D2", "category": "diode", "value": "BAT54S", "kicad_symbol": "Diode:BAT54S"})
+    assert dual.symbol_id == "Diode:BAT54S" and len(dual.pins) == 3
+    usb, why = resolver({"ref": "J1", "category": "connector", "value": "USB_C", "package": "GCT USB4125 6P",
+                         "kicad_symbol": "Connector:USB_C_Receptacle_PowerOnly_6P"})
+    assert usb.symbol_id == "Connector:USB_C_Receptacle_PowerOnly_6P", why
+    assert usb.footprint_id.startswith("Connector_USB:USB_C_Receptacle_GCT_USB4125")
+    ptc, _ = resolver({"ref": "F1", "category": "fuse", "value": "PTC 500mA", "package": "1206"})
+    assert (ptc.symbol_id, ptc.footprint_id) == ("Device:Polyfuse", "Fuse:Fuse_1206_3216Metric")
+    header, _ = resolver({"ref": "J2", "category": "connector", "value": "OUT", "pin_count": 3, "package": "2.54mm 헤더"})
+    assert header.footprint_id == "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"
+    nothing, why = resolver({"ref": "J3", "category": "connector", "value": "X"})
+    assert nothing is None and "pin_count" in why
+    plain, _ = resolver({"ref": "R1", "category": "resistor", "value": "10k"})
+    assert plain.footprint_id is None  # no package: no guess from the generic symbol
+
+
+def test_one_sided_rail_ranges_are_kept():
+    """An input that is 10 V normally but must survive 24 V has only a maximum; it is not dropped."""
+    from ai_engine.design import _apply_rails
+
+    nets = [{"name": "AIN"}, {"name": "X"}]
+    _apply_rails({"rails": [{"net": "AIN", "voltage": 10, "load_ma": 0, "voltage_max": 24},
+                            {"net": "X", "voltage": 5, "load_ma": 0, "voltage_min": 4.5}]}, nets)
+    assert nets[0] == {"name": "AIN", "voltage": 10.0, "voltage_max": 24.0}
+    assert nets[1] == {"name": "X", "voltage": 5.0, "voltage_min": 4.5}

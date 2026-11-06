@@ -186,7 +186,13 @@ def _flatten(table: dict[str, list], name: str, path: Path, depth: int = 0) -> l
         kind = head(item) if isinstance(item, list) else None
         if kind == "property":
             pname = unquote(item[1])
-            flat.append(sexpr.deepcopy(own_props.get(pname, item)))
+            prop = sexpr.deepcopy(own_props.get(pname, item))
+            # KiCad keeps the parent's footprint when the derived symbol leaves it empty (MAX3485 extends
+            # LTC2850xS8 with Footprint ""): without this, KiCad ERC reports the cached symbol as differing
+            # from the library. Checked with KiCad 10.0.8; only the footprint is known to inherit this way.
+            if pname == "Footprint" and pname in own_props and not unquote(prop[2]) and unquote(item[2]):
+                prop[2] = item[2]
+            flat.append(prop)
             used_props.add(pname)
         elif kind == "symbol":
             sub = sexpr.deepcopy(item)

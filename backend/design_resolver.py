@@ -16,7 +16,7 @@ from ai_engine.design import ResolvedPart
 from circuit_core.datasheets import DatasheetFacts
 from circuit_core.inventory import Inventory
 from circuit_core.models import Component
-from circuit_core.parts import chip_footprint
+from circuit_core.parts import package_footprint
 from kicad_adapter import SymbolLibrary, SymbolLibraryError
 from kicad_adapter.symbol_index import SymbolIndex
 
@@ -83,16 +83,28 @@ class PartResolver:
                 how.append(f"보유 자재 {stocked.mpn or stocked.value}")
 
         candidates: list[tuple[str, str]] = []
-        if category in GENERIC_SYMBOLS:
-            candidates.append((GENERIC_SYMBOLS[category], "일반 부품 심볼"))
-        elif category == "connector":
-            count = int(part.get("pin_count") or 0)
-            if not 1 <= count <= 40:
-                return None, "커넥터 핀 수(pin_count)가 없습니다."
-            candidates.append((f"Connector_Generic:Conn_01x{count:02d}", f"{count}핀 일반 커넥터"))
+        guess = str(part.get("kicad_symbol") or "").strip()
+        named = bool(re.fullmatch(r"[A-Za-z0-9_.\-]+:[^:\s]+", guess))
+        count = int(part.get("pin_count") or 0)
+        if category in GENERIC_SYMBOLS or category == "connector":
+            # A symbol the AI names (a TVS, a dual diode, a USB-C receptacle, a polyfuse) is tried first; then, for
+            # diodes and fuses, a library symbol named exactly like the part number; the generic symbol last.
+            if named:
+                candidates.append((guess, "AI가 제안한 심볼, 라이브러리에서 확인"))
+            if category in ("diode", "fuse") and (mpn or value):
+                for score, sym in self.index.search([t for t in (mpn, value) if t], limit=4):
+                    if sym.lib_id.split(":")[-1].upper() in {(mpn or "").upper(), value.upper()}:
+                        candidates.append((sym.lib_id, f"품번과 같은 이름의 라이브러리 심볼 (점수 {score})"))
+            if category == "fuse" and re.search(r"(?i)PTC|poly|리셋|resettable", f"{value} {part.get('role') or ''}"):
+                candidates.append(("Device:Polyfuse", "일반 부품 심볼 (PTC 퓨즈)"))
+            if category in GENERIC_SYMBOLS:
+                candidates.append((GENERIC_SYMBOLS[category], "일반 부품 심볼"))
+            elif 1 <= count <= 40:
+                candidates.append((f"Connector_Generic:Conn_01x{count:02d}", f"{count}핀 일반 커넥터"))
+            elif not named:
+                return None, "커넥터 핀 수(pin_count)나 KiCad 심볼 이름이 없습니다."
         else:
-            guess = str(part.get("kicad_symbol") or "").strip()
-            if re.fullmatch(r"[A-Za-z0-9_.\-]+:[^:\s]+", guess):
+            if named:
                 candidates.append((guess, "AI가 제안한 심볼, 라이브러리에서 확인"))
             terms = [t for t in (mpn, value, guess.split(":")[-1] if guess else None,
                                  *[str(s) for s in part.get("search_terms") or []]) if t]
@@ -106,9 +118,9 @@ class PartResolver:
                 continue
             sym = self.library.get(lib_id)
             if footprint is None:
-                footprint = chip_footprint(category, package)
-            if footprint is None and category not in GENERIC_SYMBOLS:
-                default_fp = sym.field("Footprint")
+                footprint = package_footprint(category, package, len(sym.pins))
+            if footprint is None and not lib_id.startswith(("Device:", "Connector_Generic:")):
+                default_fp = sym.field("Footprint")  # a specific part's symbol usually names its package
                 footprint = default_fp.value if default_fp and default_fp.value else None
             notes = None
             if self.datasheets is not None:

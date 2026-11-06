@@ -4,6 +4,7 @@ from circuit_core.parts import (
     category_from_text,
     category_of,
     normalize_mpn,
+    package_footprint,
     package_key,
     packages_match,
     parse_value,
@@ -79,3 +80,19 @@ def test_packages_match():
 def test_normalize_mpn():
     assert normalize_mpn(" rc0603fr-07330rl ") == normalize_mpn("RC0603FR07330RL")
     assert normalize_mpn("") is None
+
+
+@pytest.mark.parametrize(
+    "category, package, pins, footprint",
+    [("diode", "SOD-123", 2, "Diode_SMD:D_SOD-123"), ("diode", "SMA", 2, "Diode_SMD:D_SMA"),
+     ("ic", "SOIC-8", 8, "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"), ("ic", "SOT-23-5", 5, "Package_TO_SOT_SMD:SOT-23-5"),
+     ("connector", "GCT USB4125 6P", 7, "Connector_USB:USB_C_Receptacle_GCT_USB4125-xx-x_6P_TopMnt_Horizontal"),
+     ("fuse", "1206", 2, "Fuse:Fuse_1206_3216Metric"),
+     ("capacitor_polarized", "6.3x5.4", 2, "Capacitor_SMD:CP_Elec_6.3x5.4"),
+     ("connector", "2.54mm 헤더", 3, "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"),
+     ("connector", "5.0mm 단자대", 3, "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-3_1x03_P5.00mm_Horizontal"),
+     ("resistor", "0603", 2, "Resistor_SMD:R_0603_1608Metric"), ("ic", "QFN-48", 48, None), ("connector", "", 3, None)],
+)
+def test_package_footprint(category, package, pins, footprint):
+    """The package a designer names becomes a KiCad footprint (every name here exists in KiCad 10.0.8's libraries)."""
+    assert package_footprint(category, package, pins) == footprint

@@ -1,0 +1,716 @@
+{
+  "schema_version": "0.9.0",
+  "project_id": "rs485-3v3",
+  "title": "RS-485 3.3V (MAX3485)",
+  "components": [
+    {
+      "id": "u1",
+      "reference": "U1",
+      "value": "MAX3485",
+      "symbol_id": "Interface_UART:MAX3485",
+      "footprint_id": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+      "manufacturer": "Analog Devices",
+      "manufacturer_part_number": "MAX3485ESA+",
+      "pins": [
+        {
+          "number": "1",
+          "name": "RO",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "~{RE}",
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": "DE",
+          "no_connect": false
+        },
+        {
+          "number": "4",
+          "name": "DI",
+          "no_connect": false
+        },
+        {
+          "number": "5",
+          "name": "GND",
+          "no_connect": false
+        },
+        {
+          "number": "6",
+          "name": "A",
+          "no_connect": false
+        },
+        {
+          "number": "7",
+          "name": "B",
+          "no_connect": false
+        },
+        {
+          "number": "8",
+          "name": "VCC",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Interface_UART:MAX3485 (AI가 제안한 심볼, 라이브러리에서 확인)",
+        "notes": null
+      },
+      "description": "RS-485 트랜시버",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "c1",
+      "reference": "C1",
+      "value": "100nF",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:C (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "디커플링",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r1",
+      "reference": "R1",
+      "value": "120",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0805_2012Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "종단 저항",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r2",
+      "reference": "R2",
+      "value": "330",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "A 페일세이프 풀업",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r3",
+      "reference": "R3",
+      "value": "330",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "B 페일세이프 풀다운",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "d1",
+      "reference": "D1",
+      "value": "SM712",
+      "symbol_id": "Diode:SM712_SOT23",
+      "footprint_id": "Package_TO_SOT_SMD:SOT-23",
+      "manufacturer": "Semtech",
+      "manufacturer_part_number": "SM712.TCT",
+      "pins": [
+        {
+          "number": "1",
+          "name": "A1",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "A2",
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": "common",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Diode:SM712_SOT23 (AI가 제안한 심볼, 라이브러리에서 확인)",
+        "notes": null
+      },
+      "description": "버스 TVS",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r4",
+      "reference": "R4",
+      "value": "10k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "DE/RE 풀다운",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r5",
+      "reference": "R5",
+      "value": "10k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "RO 풀업",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "j1",
+      "reference": "J1",
+      "value": "RS485",
+      "symbol_id": "Connector_Generic:Conn_01x03",
+      "footprint_id": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-3_1x03_P5.00mm_Horizontal",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "Pin_2",
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": "Pin_3",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Connector_Generic:Conn_01x03 (3핀 일반 커넥터)",
+        "notes": null
+      },
+      "description": "버스 단자",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "j2",
+      "reference": "J2",
+      "value": "MCU",
+      "symbol_id": "Connector_Generic:Conn_01x05",
+      "footprint_id": "Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "Pin_2",
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": "Pin_3",
+          "no_connect": false
+        },
+        {
+          "number": "4",
+          "name": "Pin_4",
+          "no_connect": false
+        },
+        {
+          "number": "5",
+          "name": "Pin_5",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Connector_Generic:Conn_01x05 (5핀 일반 커넥터)",
+        "notes": null
+      },
+      "description": "MCU 헤더",
+      "origin": "ai",
+      "specs": null
+    }
+  ],
+  "nets": [
+    {
+      "id": "net-001",
+      "name": "+3V3",
+      "nodes": [
+        {
+          "component_id": "u1",
+          "pin": "8"
+        },
+        {
+          "component_id": "c1",
+          "pin": "1"
+        },
+        {
+          "component_id": "r2",
+          "pin": "1"
+        },
+        {
+          "component_id": "r5",
+          "pin": "1"
+        },
+        {
+          "component_id": "j2",
+          "pin": "1"
+        }
+      ],
+      "voltage": 3.3,
+      "load_current": 0.02,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-002",
+      "name": "GND",
+      "nodes": [
+        {
+          "component_id": "u1",
+          "pin": "5"
+        },
+        {
+          "component_id": "c1",
+          "pin": "2"
+        },
+        {
+          "component_id": "r3",
+          "pin": "2"
+        },
+        {
+          "component_id": "r4",
+          "pin": "2"
+        },
+        {
+          "component_id": "d1",
+          "pin": "3"
+        },
+        {
+          "component_id": "j1",
+          "pin": "3"
+        },
+        {
+          "component_id": "j2",
+          "pin": "2"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-003",
+      "name": "RS485_A",
+      "nodes": [
+        {
+          "component_id": "u1",
+          "pin": "6"
+        },
+        {
+          "component_id": "r1",
+          "pin": "1"
+        },
+        {
+          "component_id": "r2",
+          "pin": "2"
+        },
+        {
+          "component_id": "d1",
+          "pin": "1"
+        },
+        {
+          "component_id": "j1",
+          "pin": "1"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-004",
+      "name": "RS485_B",
+      "nodes": [
+        {
+          "component_id": "u1",
+          "pin": "7"
+        },
+        {
+          "component_id": "r1",
+          "pin": "2"
+        },
+        {
+          "component_id": "r3",
+          "pin": "1"
+        },
+        {
+          "component_id": "d1",
+          "pin": "2"
+        },
+        {
+          "component_id": "j1",
+          "pin": "2"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-005",
+      "name": "RO",
+      "nodes": [
+        {
+          "component_id": "u1",
+          "pin": "1"
+        },
+        {
+          "component_id": "r5",
+          "pin": "2"
+        },
+        {
+          "component_id": "j2",
+          "pin": "3"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-006",
+      "name": "DI",
+      "nodes": [
+        {
+          "component_id": "u1",
+          "pin": "4"
+        },
+        {
+          "component_id": "j2",
+          "pin": "4"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-007",
+      "name": "DIR",
+      "nodes": [
+        {
+          "component_id": "u1",
+          "pin": "2"
+        },
+        {
+          "component_id": "u1",
+          "pin": "3"
+        },
+        {
+          "component_id": "r4",
+          "pin": "1"
+        },
+        {
+          "component_id": "j2",
+          "pin": "5"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    }
+  ],
+  "sheets": [],
+  "layout": {},
+  "notes": [
+    {
+      "id": "note-001",
+      "text": "120R termination, 330R fail-safe bias",
+      "components": [
+        "r1",
+        "r2",
+        "r3"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-002",
+      "text": "DE/RE low = receive at reset",
+      "components": [
+        "r4"
+      ],
+      "net": null
+    }
+  ],
+  "decisions": [
+    {
+      "id": "dec-u1",
+      "topic": "U1 RS-485 트랜시버",
+      "choice": "MAX3485 (MAX3485ESA+)",
+      "by": "ai",
+      "reason": "3.3 V 단전원, 10 Mbps, 반이중",
+      "request": null,
+      "calc": null,
+      "source": "KiCad 심볼 Interface_UART:MAX3485 (AI가 제안한 심볼, 라이브러리에서 확인)",
+      "components": [
+        "u1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-c1",
+      "topic": "C1 디커플링",
+      "choice": "100nF",
+      "by": "ai",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": null,
+      "calc": null,
+      "source": "KiCad 심볼 Device:C (일반 부품 심볼)",
+      "components": [
+        "c1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r1",
+      "topic": "R1 종단 저항",
+      "choice": "120",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "120Ω 종단",
+      "calc": null,
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r2",
+      "topic": "R2 A 페일세이프 풀업",
+      "choice": "330",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "페일세이프 바이어스",
+      "calc": "양 끝 종단(60 Ω): 3.3 V × 60 / (330 + 60 + 330) = 275 mV ≥ 200 mV",
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r2"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r3",
+      "topic": "R3 B 페일세이프 풀다운",
+      "choice": "330",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "페일세이프 바이어스",
+      "calc": null,
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r3"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-d1",
+      "topic": "D1 버스 TVS",
+      "choice": "SM712 (SM712.TCT)",
+      "by": "requirement",
+      "reason": "RS-485 공통 모드 −7~12 V에 맞춘 비대칭 TVS",
+      "request": "서지·ESD 보호(TVS)",
+      "calc": null,
+      "source": "KiCad 심볼 Diode:SM712_SOT23 (AI가 제안한 심볼, 라이브러리에서 확인)",
+      "components": [
+        "d1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r4",
+      "topic": "R4 DE/RE 풀다운",
+      "choice": "10k",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "MCU 리셋 중에는 수신 모드",
+      "calc": null,
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r4"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r5",
+      "topic": "R5 RO 풀업",
+      "choice": "10k",
+      "by": "ai",
+      "reason": "송신 중 RO가 고임피던스일 때 UART RX를 High로",
+      "request": null,
+      "calc": null,
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r5"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-j1",
+      "topic": "J1 버스 단자",
+      "choice": "RS485",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "버스 단자 3핀(A, B, GND)",
+      "calc": null,
+      "source": "KiCad 심볼 Connector_Generic:Conn_01x03 (3핀 일반 커넥터)",
+      "components": [
+        "j1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-j2",
+      "topic": "J2 MCU 헤더",
+      "choice": "MCU",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "MCU 헤더 5핀(3.3V, GND, RO, DI, DE/RE)",
+      "calc": null,
+      "source": "KiCad 심볼 Connector_Generic:Conn_01x05 (5핀 일반 커넥터)",
+      "components": [
+        "j2"
+      ],
+      "waives": []
+    }
+  ],
+  "validation": {
+    "status": "unverified",
+    "notes": "AI 설계안 (engineer). 사람 검토 전."
+  }
+}

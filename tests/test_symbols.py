@@ -40,3 +40,10 @@ def test_missing_library_and_symbol(library):
         library.get("Device:R_Small_Imaginary")
     with pytest.raises(SymbolLibraryError, match="invalid lib_id"):
         SymbolLibrary([]).get("NoColon")
+
+
+def test_derived_symbol_with_an_empty_footprint_takes_the_parents(library):
+    """MAX3485 extends LTC2850xS8 with Footprint "": KiCad itself fills it from the parent, and so must the copy in
+    the schematic's lib_symbols, or KiCad ERC reports the symbol as differing from the library."""
+    child = library.get("Interface_UART:MAX3485").field("Footprint").value
+    assert child and child == library.get("Interface_UART:LTC2850xS8").field("Footprint").value

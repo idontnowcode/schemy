@@ -1,0 +1,941 @@
+{
+  "schema_version": "0.9.0",
+  "project_id": "iso-24v-input",
+  "title": "24V 절연 입력 2채널 (PC817)",
+  "components": [
+    {
+      "id": "d3",
+      "reference": "D3",
+      "value": "1N4148W",
+      "symbol_id": "Diode:1N4148W",
+      "footprint_id": "Diode_SMD:D_SOD-123",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "K",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "A",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Diode:1N4148W (품번과 같은 이름의 라이브러리 심볼 (점수 104))",
+        "notes": null
+      },
+      "description": "입력 1 역접속 보호",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r1",
+      "reference": "R1",
+      "value": "6.2k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_1206_3216Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "입력 1 전류 제한",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r5",
+      "reference": "R5",
+      "value": "3.3k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "입력 1 켜짐 문턱(분로)",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "d1",
+      "reference": "D1",
+      "value": "GREEN",
+      "symbol_id": "Device:LED",
+      "footprint_id": "LED_SMD:LED_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "K",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "A",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:LED (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "입력 1 표시 LED",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "u1",
+      "reference": "U1",
+      "value": "PC817",
+      "symbol_id": "Isolator:PC817",
+      "footprint_id": "Package_DIP:DIP-4_W7.62mm",
+      "manufacturer": "Sharp",
+      "manufacturer_part_number": "PC817C",
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "4",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Isolator:PC817 (AI가 제안한 심볼, 라이브러리에서 확인)",
+        "notes": null
+      },
+      "description": "입력 1 포토커플러",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r3",
+      "reference": "R3",
+      "value": "10k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "출력 1 풀업",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "d4",
+      "reference": "D4",
+      "value": "1N4148W",
+      "symbol_id": "Diode:1N4148W",
+      "footprint_id": "Diode_SMD:D_SOD-123",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "K",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "A",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Diode:1N4148W (품번과 같은 이름의 라이브러리 심볼 (점수 104))",
+        "notes": null
+      },
+      "description": "입력 2 역접속 보호",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r2",
+      "reference": "R2",
+      "value": "6.2k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_1206_3216Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "입력 2 전류 제한",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r6",
+      "reference": "R6",
+      "value": "3.3k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "입력 2 켜짐 문턱(분로)",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "d2",
+      "reference": "D2",
+      "value": "GREEN",
+      "symbol_id": "Device:LED",
+      "footprint_id": "LED_SMD:LED_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "K",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "A",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:LED (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "입력 2 표시 LED",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "u2",
+      "reference": "U2",
+      "value": "PC817",
+      "symbol_id": "Isolator:PC817",
+      "footprint_id": "Package_DIP:DIP-4_W7.62mm",
+      "manufacturer": "Sharp",
+      "manufacturer_part_number": "PC817C",
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "4",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Isolator:PC817 (AI가 제안한 심볼, 라이브러리에서 확인)",
+        "notes": null
+      },
+      "description": "입력 2 포토커플러",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r4",
+      "reference": "R4",
+      "value": "10k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "출력 2 풀업",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "j1",
+      "reference": "J1",
+      "value": "FIELD_24V",
+      "symbol_id": "Connector_Generic:Conn_01x03",
+      "footprint_id": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-3_1x03_P5.00mm_Horizontal",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "Pin_2",
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": "Pin_3",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Connector_Generic:Conn_01x03 (3핀 일반 커넥터)",
+        "notes": null
+      },
+      "description": "현장 단자",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "j2",
+      "reference": "J2",
+      "value": "MCU",
+      "symbol_id": "Connector_Generic:Conn_01x04",
+      "footprint_id": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "Pin_2",
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": "Pin_3",
+          "no_connect": false
+        },
+        {
+          "number": "4",
+          "name": "Pin_4",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Connector_Generic:Conn_01x04 (4핀 일반 커넥터)",
+        "notes": null
+      },
+      "description": "MCU 헤더",
+      "origin": "ai",
+      "specs": null
+    }
+  ],
+  "nets": [
+    {
+      "id": "net-001",
+      "name": "IN1",
+      "nodes": [
+        {
+          "component_id": "j1",
+          "pin": "1"
+        },
+        {
+          "component_id": "d3",
+          "pin": "2"
+        }
+      ],
+      "voltage": 24.0,
+      "load_current": 0.005,
+      "voltage_min": 15.0,
+      "voltage_max": 30.0
+    },
+    {
+      "id": "net-002",
+      "name": "IN1_D",
+      "nodes": [
+        {
+          "component_id": "d3",
+          "pin": "1"
+        },
+        {
+          "component_id": "r1",
+          "pin": "1"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-003",
+      "name": "IN1_R",
+      "nodes": [
+        {
+          "component_id": "r1",
+          "pin": "2"
+        },
+        {
+          "component_id": "d1",
+          "pin": "2"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-004",
+      "name": "IN1_O",
+      "nodes": [
+        {
+          "component_id": "d1",
+          "pin": "1"
+        },
+        {
+          "component_id": "u1",
+          "pin": "1"
+        },
+        {
+          "component_id": "r5",
+          "pin": "1"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-005",
+      "name": "IN2",
+      "nodes": [
+        {
+          "component_id": "j1",
+          "pin": "2"
+        },
+        {
+          "component_id": "d4",
+          "pin": "2"
+        }
+      ],
+      "voltage": 24.0,
+      "load_current": 0.005,
+      "voltage_min": 15.0,
+      "voltage_max": 30.0
+    },
+    {
+      "id": "net-006",
+      "name": "IN2_D",
+      "nodes": [
+        {
+          "component_id": "d4",
+          "pin": "1"
+        },
+        {
+          "component_id": "r2",
+          "pin": "1"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-007",
+      "name": "IN2_R",
+      "nodes": [
+        {
+          "component_id": "r2",
+          "pin": "2"
+        },
+        {
+          "component_id": "d2",
+          "pin": "2"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-008",
+      "name": "IN2_O",
+      "nodes": [
+        {
+          "component_id": "d2",
+          "pin": "1"
+        },
+        {
+          "component_id": "u2",
+          "pin": "1"
+        },
+        {
+          "component_id": "r6",
+          "pin": "1"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-009",
+      "name": "GND_24V",
+      "nodes": [
+        {
+          "component_id": "j1",
+          "pin": "3"
+        },
+        {
+          "component_id": "u1",
+          "pin": "2"
+        },
+        {
+          "component_id": "u2",
+          "pin": "2"
+        },
+        {
+          "component_id": "r5",
+          "pin": "2"
+        },
+        {
+          "component_id": "r6",
+          "pin": "2"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-010",
+      "name": "OUT1",
+      "nodes": [
+        {
+          "component_id": "u1",
+          "pin": "4"
+        },
+        {
+          "component_id": "r3",
+          "pin": "2"
+        },
+        {
+          "component_id": "j2",
+          "pin": "2"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-011",
+      "name": "OUT2",
+      "nodes": [
+        {
+          "component_id": "u2",
+          "pin": "4"
+        },
+        {
+          "component_id": "r4",
+          "pin": "2"
+        },
+        {
+          "component_id": "j2",
+          "pin": "3"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-012",
+      "name": "+3V3",
+      "nodes": [
+        {
+          "component_id": "r3",
+          "pin": "1"
+        },
+        {
+          "component_id": "r4",
+          "pin": "1"
+        },
+        {
+          "component_id": "j2",
+          "pin": "1"
+        }
+      ],
+      "voltage": 3.3,
+      "load_current": 0.001,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-013",
+      "name": "GND",
+      "nodes": [
+        {
+          "component_id": "u1",
+          "pin": "3"
+        },
+        {
+          "component_id": "u2",
+          "pin": "3"
+        },
+        {
+          "component_id": "j2",
+          "pin": "4"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    }
+  ],
+  "sheets": [],
+  "layout": {},
+  "notes": [
+    {
+      "id": "note-001",
+      "text": "24V input, isolated by PC817",
+      "components": [
+        "u1",
+        "u2"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-002",
+      "text": "Field 0V isolated from MCU GND",
+      "components": [],
+      "net": "GND_24V"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "dec-d3",
+      "topic": "D3 입력 1 역접속 보호",
+      "choice": "1N4148W",
+      "by": "requirement",
+      "reason": "역전압 차단(PC817 LED 역내압 6 V)",
+      "request": "역접속 보호",
+      "calc": null,
+      "source": "KiCad 심볼 Diode:1N4148W (품번과 같은 이름의 라이브러리 심볼 (점수 104))",
+      "components": [
+        "d3"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r1",
+      "topic": "R1 입력 1 전류 제한",
+      "choice": "6.2k",
+      "by": "ai",
+      "reason": "분로 저항을 둔 뒤에도 15 V에서 LED 1 mA 이상, 30 V에서 0.11 W(1206 정격 0.25 W의 45 %)",
+      "request": null,
+      "calc": "15 V: (15 − 5.6) / 6.2k = 1.52 mA − 분로 1.4 V / 3.3k = LED 1.09 mA, 30 V: (30 − 3.7) / 6.2k = 4.24 mA → 0.11 W",
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r5",
+      "topic": "R5 입력 1 켜짐 문턱(분로)",
+      "choice": "3.3k",
+      "by": "requirement",
+      "reason": "직렬 Vf만으로는 CTR 400 % 부품이 4.2 V에서 출력을 켠다. LED 양단 분로로 문턱을 6 V 위로 올림",
+      "request": "5V 이하에서 OFF",
+      "calc": "5 V 입력: 최대 (5 − 3.7) / 6.2k = 0.21 mA × 3.3k = 0.69 V < LED Vf 1.0 V → 꺼짐; 켜짐 시작 ≈ 3.7 + 6.2k × (0.31 mA / 400 % + 1.0 V / 3.3k) = 6.1 V",
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r5"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-d1",
+      "topic": "D1 입력 1 표시 LED",
+      "choice": "GREEN",
+      "by": "ai",
+      "reason": "입력 상태를 현장에서 확인",
+      "request": null,
+      "calc": null,
+      "source": "KiCad 심볼 Device:LED (일반 부품 심볼)",
+      "components": [
+        "d1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-u1",
+      "topic": "U1 입력 1 포토커플러",
+      "choice": "PC817 (PC817C)",
+      "by": "ai",
+      "reason": "CTR 200~400%(C 등급)으로 4 mA 입력에 출력 8 mA 이상",
+      "request": null,
+      "calc": null,
+      "source": "KiCad 심볼 Isolator:PC817 (AI가 제안한 심볼, 라이브러리에서 확인)",
+      "components": [
+        "u1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r3",
+      "topic": "R3 출력 1 풀업",
+      "choice": "10k",
+      "by": "ai",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": null,
+      "calc": "3.3 V / 10 kΩ = 0.33 mA (CTR 여유 충분)",
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r3"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-d4",
+      "topic": "D4 입력 2 역접속 보호",
+      "choice": "1N4148W",
+      "by": "requirement",
+      "reason": "역전압 차단(PC817 LED 역내압 6 V)",
+      "request": "역접속 보호",
+      "calc": null,
+      "source": "KiCad 심볼 Diode:1N4148W (품번과 같은 이름의 라이브러리 심볼 (점수 104))",
+      "components": [
+        "d4"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r2",
+      "topic": "R2 입력 2 전류 제한",
+      "choice": "6.2k",
+      "by": "ai",
+      "reason": "분로 저항을 둔 뒤에도 15 V에서 LED 1 mA 이상, 30 V에서 0.11 W(1206 정격 0.25 W의 45 %)",
+      "request": null,
+      "calc": "15 V: (15 − 5.6) / 6.2k = 1.52 mA − 분로 1.4 V / 3.3k = LED 1.09 mA, 30 V: (30 − 3.7) / 6.2k = 4.24 mA → 0.11 W",
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r2"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r6",
+      "topic": "R6 입력 2 켜짐 문턱(분로)",
+      "choice": "3.3k",
+      "by": "requirement",
+      "reason": "직렬 Vf만으로는 CTR 400 % 부품이 4.2 V에서 출력을 켠다. LED 양단 분로로 문턱을 6 V 위로 올림",
+      "request": "5V 이하에서 OFF",
+      "calc": "5 V 입력: 최대 (5 − 3.7) / 6.2k = 0.21 mA × 3.3k = 0.69 V < LED Vf 1.0 V → 꺼짐; 켜짐 시작 ≈ 3.7 + 6.2k × (0.31 mA / 400 % + 1.0 V / 3.3k) = 6.1 V",
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r6"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-d2",
+      "topic": "D2 입력 2 표시 LED",
+      "choice": "GREEN",
+      "by": "ai",
+      "reason": "입력 상태를 현장에서 확인",
+      "request": null,
+      "calc": null,
+      "source": "KiCad 심볼 Device:LED (일반 부품 심볼)",
+      "components": [
+        "d2"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-u2",
+      "topic": "U2 입력 2 포토커플러",
+      "choice": "PC817 (PC817C)",
+      "by": "ai",
+      "reason": "CTR 200~400%(C 등급)으로 4 mA 입력에 출력 8 mA 이상",
+      "request": null,
+      "calc": null,
+      "source": "KiCad 심볼 Isolator:PC817 (AI가 제안한 심볼, 라이브러리에서 확인)",
+      "components": [
+        "u2"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r4",
+      "topic": "R4 출력 2 풀업",
+      "choice": "10k",
+      "by": "ai",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": null,
+      "calc": "3.3 V / 10 kΩ = 0.33 mA (CTR 여유 충분)",
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r4"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-j1",
+      "topic": "J1 현장 단자",
+      "choice": "FIELD_24V",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "현장 단자 3핀(IN1, IN2, 0V)",
+      "calc": null,
+      "source": "KiCad 심볼 Connector_Generic:Conn_01x03 (3핀 일반 커넥터)",
+      "components": [
+        "j1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-j2",
+      "topic": "J2 MCU 헤더",
+      "choice": "MCU",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "MCU 헤더 4핀(3.3V, OUT1, OUT2, GND)",
+      "calc": null,
+      "source": "KiCad 심볼 Connector_Generic:Conn_01x04 (4핀 일반 커넥터)",
+      "components": [
+        "j2"
+      ],
+      "waives": []
+    }
+  ],
+  "validation": {
+    "status": "unverified",
+    "notes": "AI 설계안 (engineer). 사람 검토 전."
+  }
+}

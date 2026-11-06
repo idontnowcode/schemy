@@ -806,6 +806,8 @@ def flag_port(router: Router, flag: LibSymbol, port: Port, taken: list[Rect]) ->
 # --- notes -----------------------------------------------------------------------------------
 
 NOTE_FONT = FONT
+PAGE_EDGE = 2.54
+"""A note must start at least this far inside the page's top-left corner."""
 NOTE_LINE = 3.81
 """Height kept free for one line of note text."""
 
@@ -858,6 +860,8 @@ def place_note(text: str, targets: list[Rect], obstacles: list[Rect], wires: lis
                                                                                        for k in (1, 2)]
 
     def free(rect: Rect) -> bool:
+        if rect[0] < PAGE_EDGE or rect[1] < PAGE_EDGE:  # left of or above the page: KiCad would cut it off
+            return False
         box = grow(rect, 0.5)
         if any(overlaps(box, b) for b in obstacles):
             return False

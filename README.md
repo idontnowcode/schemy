@@ -34,7 +34,7 @@
 - **근거 리포트.** 「문서 · BOM → 근거 리포트」에서 요구사항 원문, 결정과 근거(누가 정했는지별), 부품별 근거(근거가 없는 부품 표시), 기술 검토, 제안·승인 이력, 리뷰 체크리스트를 한 문서로 봅니다. 생성 결과물에 `rationale.md`로도 저장됩니다.
 - **엔지니어 검토 기록.** 「검토」 탭에 검토자, 확인한 데이터시트(개정·쪽), 체크 항목 결과를 남깁니다. 이 기록만 헤더의 「엔지니어링 검토」 상태를 바꾸고, 회로가 바뀌면 다시 「검토 필요」가 됩니다.
 - **설계 가이드(쌓이는 설계 지침).** 사이드바 **설계 가이드**에 회로를 그릴 때 공통으로 지킬 지침이 모입니다([ADR-013](docs/adr/ADR-013-design-guide.md)).
-  - 앱 기본 지침 30개(전원 예산, 레귤레이터 발열·드롭아웃, 디커플링, 역극성·과전류 보호, 리셋·부트 핀, I2C 풀업, 모터 드라이버 등)에서 시작합니다.
+  - 앱 기본 지침 46개(전원 예산, 레귤레이터 발열·드롭아웃, 디커플링, 역극성·과전류 보호, 리셋·부트 핀, I2C 풀업, 모터 드라이버, 릴레이·MOSFET 구동, 포토커플러 절연, RS-485, ADC 입력 보호, USB-C 등)에서 시작합니다.
   - 쌓이는 길: 직접 작성, 「검토」 탭·제안 화면의 **다음 설계에 반영할 점 남기기**(그대로 정리하거나 **AI로 지침 문장 만들기**), AI 검토 의견의 **지침 후보로**, 제안 거부 이유, AI 수정 요청의 **다음 설계에도 반영**.
   - AI가 쓴 문장은 항상 **후보**로 들어오고, 사람이 **채택**해야 쓰입니다. 채택·폐기·고침은 누가 언제 했는지 이력에 남습니다.
   - 쓰이는 곳: 채택된 지침 중 그 회로·요구사항에 해당하는 것이 AI 설계·수정·검토·Agent에 주어지고(AI는 따른 지침 id를 답함), 제안과 「검토」 탭의 **설계 지침 확인** 체크리스트(자동 검사가 연결된 지침은 위반·충족 표시), 엔지니어 검토 체크리스트에 나옵니다.
@@ -45,7 +45,7 @@
   - 노트는 요약·배경·확인한 것(방법과 결과)·배운 점·다음에 적용할 것·열린 질문으로 나뉩니다. AI는 앱이 계산·확인한 근거(기술 검토, 데이터시트 대조와 쪽 번호, 설계 지침, 설계 결정, KiCad 검사, AI 검토)에 번호를 붙여 인용하고, 근거 없는 문장은 「일반 지식, 확인 필요」로 표시됩니다.
   - 사람이 읽고 **검토함으로 표시**하거나 고칩니다(고친 줄은 사람 표시, 버전 이력). 다음에 적용할 것은 **지침 후보로** 설계 가이드에 넘깁니다. 사람이 직접 쓸 수도 있고, 사이드바 **연구노트**에서 모든 프로젝트의 노트를 검색하고 Markdown으로 내려받습니다.
 - **AI 성능 평가.** 사이드바 **AI 성능 평가**에서 지금 고른 AI(공급자·모델)를 같은 시험으로 잽니다([ADR-016](docs/adr/ADR-016-ai-evaluation.md)).
-  - 설계: 예제 요구사항으로 설계 → 완성률, 요구 충족률(사례별 검사), IR 오류, KiCad 검사, 기술 검토 실패, 근거 기록률. 검토: 예제에 심은 결함 5개 탐지율과 깨끗한 회로의 잘못된 오류 지적(앱 계산 검토와 비교). 연구노트: 근거 인용률, 없는 근거 번호, 근거 없는 쪽 번호.
+  - 설계: 예제 요구사항으로 설계 → 완성률, 요구 충족률(사례별 검사), IR 오류, KiCad 검사, 기술 검토 실패, 근거 기록률. 검토: 예제에 심은 결함 10개 탐지율과 깨끗한 회로의 잘못된 오류 지적(앱 계산 검토와 비교). 연구노트: 근거 인용률, 없는 근거 번호, 근거 없는 쪽 번호.
   - 채점은 모두 코드가 하고, 예제 보드만 보냅니다. 호출 수·토큰·시간도 기록하고, 이전 평가와 지표별로 비교한 보고서를 내려받을 수 있습니다.
 - **제한된 AI Agent.** 「Agent」 탭에 변경을 요청하면 AI가 먼저 계획과 변경 범위(연산·대상)만 제안합니다. 범위를 승인하면 허용된 EDA 도구(회로 읽기·검증·patch·회로도 생성·ERC·Netlist 비교)만으로 격리된 폴더에서 실행하고, 앱이 코드로 다시 검증한 뒤 결과를 제안으로 올립니다. 호출 수·토큰·시간 상한이 있고 모든 단계가 기록됩니다.
 - **프로젝트 → 보드(A, B, …) → 페이지.** 보드 하나가 회로 하나, revision 이력 하나, KiCad 프로젝트 하나입니다. 보드 안의 회로는 여러 페이지로 나눌 수 있고, 페이지를 오가는 Net은 자동으로 연결됩니다.
@@ -86,7 +86,7 @@ npm start                                 # 빌드 후 Electron 실행 (백엔�
 
 - 프로젝트는 `문서/AI Circuit Studio/projects/<id>/`에 저장됩니다. 위치를 바꾸려면 `AICS_WORKSPACE`를 설정하세요.
 - 앱을 처음 쓸 때는 **회로 (IR)** 탭의 **예제 불러오기**에서 LED 예제를 저장하고, **회로도 · 검증** 탭에서 생성해 보세요. **회로도 MD 가져오기**로 [`examples/led-resistor-connector/schematic.md`](examples/led-resistor-connector/schematic.md)를 넣어 봐도 됩니다.
-- 조금 더 큰 예제로 **ATmega328P 상태 LED 보드**([`examples/atmega328p-led-board/`](examples/atmega328p-led-board/))와 MCU 없는 **NE555 LED 점멸 보드**([`examples/ne555-led-board/`](examples/ne555-led-board/)), **24V → 5V 레귤레이터 (7805)**([`examples/lm7805-24v-to-5v/`](examples/lm7805-24v-to-5v/)), **12V DC 모터 드라이버 (DRV8871)**([`examples/dc-motor-drv8871/`](examples/dc-motor-drv8871/), 설계 검토 리포트 포함), **3.3V I2C 센서 연결 보드 (LM1117)**([`examples/i2c-sensor-3v3/`](examples/i2c-sensor-3v3/), 앱으로 처음부터 끝까지 돌린 결과와 실제 TI 데이터시트 요약 포함)가 있습니다. 임의로 정한 요구사항으로 제안을 거쳐 만든 샘플 보드이고, 회로도에 영문 주석(블록 설명·사양·Net 설명)이 들어 있고, 폴더마다 근거 리포트(`rationale.md`)가 있습니다. 같은 **예제 불러오기**에서 고를 수 있습니다.
+- 조금 더 큰 예제로 **ATmega328P 상태 LED 보드**([`examples/atmega328p-led-board/`](examples/atmega328p-led-board/))와 MCU 없는 **NE555 LED 점멸 보드**([`examples/ne555-led-board/`](examples/ne555-led-board/)), **24V → 5V 레귤레이터 (7805)**([`examples/lm7805-24v-to-5v/`](examples/lm7805-24v-to-5v/)), **12V DC 모터 드라이버 (DRV8871)**([`examples/dc-motor-drv8871/`](examples/dc-motor-drv8871/), 설계 검토 리포트 포함), **3.3V I2C 센서 연결 보드 (LM1117)**([`examples/i2c-sensor-3v3/`](examples/i2c-sensor-3v3/), 앱으로 처음부터 끝까지 돌린 결과와 실제 TI 데이터시트 요약 포함)가 있습니다. 실무에서 자주 쓰는 블록으로 **USB-C 5V→3.3V 전원**([`examples/usbc-5v-3v3/`](examples/usbc-5v-3v3/)), **24V 절연 디지털 입력**([`examples/iso-24v-input/`](examples/iso-24v-input/)), **12V 릴레이 구동**([`examples/relay-driver-12v/`](examples/relay-driver-12v/)), **RS-485 인터페이스**([`examples/rs485-3v3/`](examples/rs485-3v3/)), **0~10V 아날로그 입력**([`examples/analog-0-10v/`](examples/analog-0-10v/))도 있습니다. 앱의 설계 경로로 만들고 모든 검사를 돌린 뒤, 점검하며 고친 것과 엔지니어 연구노트(`research-note.md`)를 남겼습니다(점검 보고: [`docs/practical-circuits-report.md`](docs/practical-circuits-report.md)). 앞의 다섯은 임의로 정한 요구사항으로 제안을 거쳐 만든 샘플 보드이고, 회로도에 영문 주석(블록 설명·사양·Net 설명)이 들어 있고, 폴더마다 근거 리포트(`rationale.md`)가 있습니다. 같은 **예제 불러오기**에서 고를 수 있습니다.
 - 생성 결과는 **KiCad에서 열기** 버튼이나 보드 폴더의 `outputs/<프로젝트>-<보드>.kicad_pro`로 엽니다.
 - KiCad에서 회로도를 고치고 저장했다면 **회로도 · 검증** 탭의 **고친 것 모두 가져오기**를 누르세요. 바꾼 연결, 값·풋프린트, 추가·삭제한 부품, 옮긴 부품의 위치가 제안으로 만들어지고, 승인하면 회로에 들어갑니다(연결은 kicad-cli로 읽음, ADR-012).
 - 배치만 가져오려면 **KiCad 배치 가져오기**를 누르세요. 모든 부품의 위치·회전·반전을 고정하고, 다음 생성부터 그 배치를 유지합니다(배선은 다시 그림, ADR-010). **자동 배치로 되돌리기**로 언제든 되돌릴 수 있습니다.
@@ -137,7 +137,7 @@ cd desktop && npm run dev                          # 터미널 2: http://localho
 
 ## KiCad에서 열기
 
-바로 열어 볼 수 있는 예제 프로젝트가 [`examples/led-resistor-connector/`](examples/led-resistor-connector/), [`examples/atmega328p-led-board/`](examples/atmega328p-led-board/), [`examples/ne555-led-board/`](examples/ne555-led-board/), [`examples/lm7805-24v-to-5v/`](examples/lm7805-24v-to-5v/), [`examples/dc-motor-drv8871/`](examples/dc-motor-drv8871/), [`examples/i2c-sensor-3v3/`](examples/i2c-sensor-3v3/)에 있습니다.
+바로 열어 볼 수 있는 예제 프로젝트가 [`examples/led-resistor-connector/`](examples/led-resistor-connector/), [`examples/atmega328p-led-board/`](examples/atmega328p-led-board/), [`examples/ne555-led-board/`](examples/ne555-led-board/), [`examples/lm7805-24v-to-5v/`](examples/lm7805-24v-to-5v/), [`examples/dc-motor-drv8871/`](examples/dc-motor-drv8871/), [`examples/i2c-sensor-3v3/`](examples/i2c-sensor-3v3/)와 실무 회로 다섯 개(`usbc-5v-3v3`, `iso-24v-input`, `relay-driver-12v`, `rs485-3v3`, `analog-0-10v`)에 있습니다.
 
 1. KiCad 10에서 **파일 → 프로젝트 열기**로 `led-resistor-connector.kicad_pro`를 엽니다.
 2. 프로젝트 관리자에서 회로도를 엽니다.

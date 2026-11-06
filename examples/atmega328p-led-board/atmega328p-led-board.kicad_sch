@@ -2256,7 +2256,7 @@
 	)
 	(text "5V input (USB adapter), < 100 mA"
 		(exclude_from_sim no)
-		(at -22.86 36.83 0)
+		(at 17.78 21.59 0)
 		(effects
 			(font
 				(size 1.27 1.27)

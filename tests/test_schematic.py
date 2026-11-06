@@ -17,6 +17,7 @@ from .conftest import (
     I2C_NAME,
     MOTOR_DIR,
     MOTOR_NAME,
+    PRACTICAL_NAMES,
     REGULATOR_DIR,
     REGULATOR_NAME,
     SAMPLE_DIR,
@@ -109,6 +110,29 @@ def test_i2c_sensor_board_matches_generator(library, workdir):
     (KiCad ERC 0/0, real LM1117 datasheet) - a golden too."""
     board = CircuitIR.model_validate_json((I2C_DIR / "circuit.json").read_text(encoding="utf-8"))
     check_golden(board, library, workdir, I2C_NAME, I2C_DIR)
+
+
+@pytest.mark.parametrize("name", PRACTICAL_NAMES)
+def test_practical_boards_match_generator(name, library, workdir):
+    """The practical example boards are goldens too: each has a block the older examples lack (a USB-C receptacle,
+    optocouplers, a relay, an RS-485 transceiver, an op-amp input), so their layout changes show up here."""
+    folder = EXAMPLE_DIR.parent / name
+    board = CircuitIR.model_validate_json((folder / "circuit.json").read_text(encoding="utf-8"))
+    check_golden(board, library, workdir, name, folder)
+
+
+@pytest.mark.parametrize("name", ["atmega328p-led-board", "rs485-3v3", *PRACTICAL_NAMES])
+def test_notes_stay_on_the_page(name, library):
+    """A note is never placed left of or above the page edge, where KiCad cuts it off (the ATmega board's
+    power note used to sit at x = -22.86 mm)."""
+    from kicad_adapter.drawing import PAGE_EDGE, note_rect
+
+    board = CircuitIR.model_validate_json((EXAMPLE_DIR.parent / name / "circuit.json").read_text(encoding="utf-8"))
+    doc = sexpr.parse(generate_schematic(board, library).text)
+    for t in children(doc, "text"):
+        at = (float(child(t, "at")[1]), float(child(t, "at")[2]))
+        rect = note_rect(at, unquote(t[1]))
+        assert rect[0] >= PAGE_EDGE and rect[1] >= PAGE_EDGE, unquote(t[1])
 
 
 def test_mixed_host_connector_is_the_power_input(library):

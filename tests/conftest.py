@@ -25,6 +25,9 @@ MOTOR_NAME = "dc-motor-drv8871"
 MOTOR_DIR = ROOT.parent / "examples" / MOTOR_NAME
 I2C_NAME = "i2c-sensor-3v3"
 I2C_DIR = ROOT.parent / "examples" / I2C_NAME
+PRACTICAL_NAMES = ["usbc-5v-3v3", "iso-24v-input", "relay-driver-12v", "rs485-3v3", "analog-0-10v"]
+"""examples/<name>: practical boards (USB-C power, isolated input, relay, RS-485, 0-10 V input) designed through
+the app's design pipeline, each with an engineer's research note."""
 
 
 @pytest.fixture

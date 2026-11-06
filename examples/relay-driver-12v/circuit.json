@@ -1,0 +1,783 @@
+{
+  "schema_version": "0.9.0",
+  "project_id": "relay-driver-12v",
+  "title": "12V 릴레이 드라이버 (AO3400A)",
+  "components": [
+    {
+      "id": "k1",
+      "reference": "K1",
+      "value": "SRD-12VDC-SL-C",
+      "symbol_id": "Relay:SANYOU_SRD_Form_C",
+      "footprint_id": "Relay_THT:Relay_SPDT_SANYOU_SRD_Series_Form_C",
+      "manufacturer": null,
+      "manufacturer_part_number": "SRD-12VDC-SL-C",
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "4",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "5",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Relay:SANYOU_SRD_Form_C (AI가 제안한 심볼, 라이브러리에서 확인)",
+        "notes": null
+      },
+      "description": "릴레이",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "q1",
+      "reference": "Q1",
+      "value": "AO3400A",
+      "symbol_id": "Transistor_FET:AO3400A",
+      "footprint_id": "Package_TO_SOT_SMD:SOT-23",
+      "manufacturer": "Alpha & Omega",
+      "manufacturer_part_number": "AO3400A",
+      "pins": [
+        {
+          "number": "1",
+          "name": "G",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "S",
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": "D",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Transistor_FET:AO3400A (AI가 제안한 심볼, 라이브러리에서 확인)",
+        "notes": null
+      },
+      "description": "코일 스위치",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r1",
+      "reference": "R1",
+      "value": "100",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "게이트 직렬 저항",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r2",
+      "reference": "R2",
+      "value": "100k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "게이트 풀다운",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "d1",
+      "reference": "D1",
+      "value": "1N4007",
+      "symbol_id": "Diode:1N4007",
+      "footprint_id": "Diode_THT:D_DO-41_SOD81_P10.16mm_Horizontal",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "K",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "A",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Diode:1N4007 (AI가 제안한 심볼, 라이브러리에서 확인)",
+        "notes": null
+      },
+      "description": "플라이백 다이오드",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "r3",
+      "reference": "R3",
+      "value": "2.2k",
+      "symbol_id": "Device:R",
+      "footprint_id": "Resistor_SMD:R_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:R (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "표시 LED 저항",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "d2",
+      "reference": "D2",
+      "value": "RED",
+      "symbol_id": "Device:LED",
+      "footprint_id": "LED_SMD:LED_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "K",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "A",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:LED (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "동작 표시 LED",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "c1",
+      "reference": "C1",
+      "value": "47uF/25V",
+      "symbol_id": "Device:C_Polarized",
+      "footprint_id": "Capacitor_SMD:CP_Elec_6.3x5.4",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:C_Polarized (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "12V 벌크",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "c2",
+      "reference": "C2",
+      "value": "100nF/50V",
+      "symbol_id": "Device:C",
+      "footprint_id": "Capacitor_SMD:C_0603_1608Metric",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": null,
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": null,
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Device:C (일반 부품 심볼)",
+        "notes": null
+      },
+      "description": "12V 바이패스",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "j1",
+      "reference": "J1",
+      "value": "12V_IN",
+      "symbol_id": "Connector_Generic:Conn_01x02",
+      "footprint_id": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "Pin_2",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Connector_Generic:Conn_01x02 (2핀 일반 커넥터)",
+        "notes": null
+      },
+      "description": "12V 입력",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "j2",
+      "reference": "J2",
+      "value": "CTRL",
+      "symbol_id": "Connector_Generic:Conn_01x02",
+      "footprint_id": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "Pin_2",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Connector_Generic:Conn_01x02 (2핀 일반 커넥터)",
+        "notes": null
+      },
+      "description": "제어 입력",
+      "origin": "ai",
+      "specs": null
+    },
+    {
+      "id": "j3",
+      "reference": "J3",
+      "value": "CONTACT",
+      "symbol_id": "Connector_Generic:Conn_01x03",
+      "footprint_id": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-3_1x03_P5.00mm_Horizontal",
+      "manufacturer": null,
+      "manufacturer_part_number": null,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1",
+          "no_connect": false
+        },
+        {
+          "number": "2",
+          "name": "Pin_2",
+          "no_connect": false
+        },
+        {
+          "number": "3",
+          "name": "Pin_3",
+          "no_connect": false
+        }
+      ],
+      "pin_map_evidence": {
+        "status": "unverified",
+        "source": "KiCad 라이브러리 Connector_Generic:Conn_01x03 (3핀 일반 커넥터)",
+        "notes": null
+      },
+      "description": "접점 단자",
+      "origin": "ai",
+      "specs": null
+    }
+  ],
+  "nets": [
+    {
+      "id": "net-001",
+      "name": "+12V",
+      "nodes": [
+        {
+          "component_id": "j1",
+          "pin": "1"
+        },
+        {
+          "component_id": "k1",
+          "pin": "5"
+        },
+        {
+          "component_id": "d1",
+          "pin": "1"
+        },
+        {
+          "component_id": "r3",
+          "pin": "1"
+        },
+        {
+          "component_id": "c1",
+          "pin": "1"
+        },
+        {
+          "component_id": "c2",
+          "pin": "1"
+        }
+      ],
+      "voltage": 12.0,
+      "load_current": 0.035,
+      "voltage_min": 11.4,
+      "voltage_max": 12.6
+    },
+    {
+      "id": "net-002",
+      "name": "GND",
+      "nodes": [
+        {
+          "component_id": "j1",
+          "pin": "2"
+        },
+        {
+          "component_id": "j2",
+          "pin": "2"
+        },
+        {
+          "component_id": "q1",
+          "pin": "2"
+        },
+        {
+          "component_id": "r2",
+          "pin": "2"
+        },
+        {
+          "component_id": "c1",
+          "pin": "2"
+        },
+        {
+          "component_id": "c2",
+          "pin": "2"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-003",
+      "name": "COIL_LO",
+      "nodes": [
+        {
+          "component_id": "k1",
+          "pin": "2"
+        },
+        {
+          "component_id": "q1",
+          "pin": "3"
+        },
+        {
+          "component_id": "d1",
+          "pin": "2"
+        },
+        {
+          "component_id": "d2",
+          "pin": "1"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-004",
+      "name": "LED_A",
+      "nodes": [
+        {
+          "component_id": "r3",
+          "pin": "2"
+        },
+        {
+          "component_id": "d2",
+          "pin": "2"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-005",
+      "name": "RLY_IN",
+      "nodes": [
+        {
+          "component_id": "j2",
+          "pin": "1"
+        },
+        {
+          "component_id": "r1",
+          "pin": "1"
+        }
+      ],
+      "voltage": 3.3,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-006",
+      "name": "GATE",
+      "nodes": [
+        {
+          "component_id": "r1",
+          "pin": "2"
+        },
+        {
+          "component_id": "q1",
+          "pin": "1"
+        },
+        {
+          "component_id": "r2",
+          "pin": "1"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-007",
+      "name": "RLY_COM",
+      "nodes": [
+        {
+          "component_id": "k1",
+          "pin": "1"
+        },
+        {
+          "component_id": "j3",
+          "pin": "1"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-008",
+      "name": "RLY_NO",
+      "nodes": [
+        {
+          "component_id": "k1",
+          "pin": "4"
+        },
+        {
+          "component_id": "j3",
+          "pin": "2"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    },
+    {
+      "id": "net-009",
+      "name": "RLY_NC",
+      "nodes": [
+        {
+          "component_id": "k1",
+          "pin": "3"
+        },
+        {
+          "component_id": "j3",
+          "pin": "3"
+        }
+      ],
+      "voltage": null,
+      "load_current": null,
+      "voltage_min": null,
+      "voltage_max": null
+    }
+  ],
+  "sheets": [],
+  "layout": {},
+  "notes": [
+    {
+      "id": "note-001",
+      "text": "Low-side driver, flyback D1",
+      "components": [
+        "q1",
+        "d1"
+      ],
+      "net": null
+    },
+    {
+      "id": "note-002",
+      "text": "Check NO/NC pins in SRD datasheet",
+      "components": [
+        "k1"
+      ],
+      "net": null
+    }
+  ],
+  "decisions": [
+    {
+      "id": "dec-k1",
+      "topic": "K1 릴레이",
+      "choice": "SRD-12VDC-SL-C",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "12V 릴레이(SRD-12VDC, 1c 접점)",
+      "calc": null,
+      "source": "KiCad 심볼 Relay:SANYOU_SRD_Form_C (AI가 제안한 심볼, 라이브러리에서 확인)",
+      "components": [
+        "k1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-q1",
+      "topic": "Q1 코일 스위치",
+      "choice": "AO3400A",
+      "by": "ai",
+      "reason": "Vgs(th) 최대 1.45 V, 2.5 V 구동 Rds(on) 규정 → 3.3 V GPIO로 완전히 켜짐, Vds 30 V",
+      "request": null,
+      "calc": null,
+      "source": "KiCad 심볼 Transistor_FET:AO3400A (AI가 제안한 심볼, 라이브러리에서 확인)",
+      "components": [
+        "q1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r1",
+      "topic": "R1 게이트 직렬 저항",
+      "choice": "100",
+      "by": "ai",
+      "reason": "GPIO 돌입 전류와 링잉 제한",
+      "request": null,
+      "calc": null,
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r2",
+      "topic": "R2 게이트 풀다운",
+      "choice": "100k",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "MCU 리셋 중에는 꺼져 있도록 게이트 풀다운",
+      "calc": null,
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r2"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-d1",
+      "topic": "D1 플라이백 다이오드",
+      "choice": "1N4007",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "코일 역기전력 보호(플라이백 다이오드)",
+      "calc": null,
+      "source": "KiCad 심볼 Diode:1N4007 (AI가 제안한 심볼, 라이브러리에서 확인)",
+      "components": [
+        "d1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-r3",
+      "topic": "R3 표시 LED 저항",
+      "choice": "2.2k",
+      "by": "ai",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": null,
+      "calc": "(12 V − 2.0 V) / 2.2 kΩ ≈ 4.5 mA",
+      "source": "KiCad 심볼 Device:R (일반 부품 심볼)",
+      "components": [
+        "r3"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-d2",
+      "topic": "D2 동작 표시 LED",
+      "choice": "RED",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "동작 표시 LED",
+      "calc": null,
+      "source": "KiCad 심볼 Device:LED (일반 부품 심볼)",
+      "components": [
+        "d2"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-c1",
+      "topic": "C1 12V 벌크",
+      "choice": "47uF/25V",
+      "by": "ai",
+      "reason": "코일 돌입 전류 완충",
+      "request": null,
+      "calc": null,
+      "source": "KiCad 심볼 Device:C_Polarized (일반 부품 심볼)",
+      "components": [
+        "c1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-c2",
+      "topic": "C2 12V 바이패스",
+      "choice": "100nF/50V",
+      "by": "ai",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": null,
+      "calc": null,
+      "source": "KiCad 심볼 Device:C (일반 부품 심볼)",
+      "components": [
+        "c2"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-j1",
+      "topic": "J1 12V 입력",
+      "choice": "12V_IN",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "12V 입력 단자 2핀",
+      "calc": null,
+      "source": "KiCad 심볼 Connector_Generic:Conn_01x02 (2핀 일반 커넥터)",
+      "components": [
+        "j1"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-j2",
+      "topic": "J2 제어 입력",
+      "choice": "CTRL",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "제어 헤더 2핀(IN, GND)",
+      "calc": null,
+      "source": "KiCad 심볼 Connector_Generic:Conn_01x02 (2핀 일반 커넥터)",
+      "components": [
+        "j2"
+      ],
+      "waives": []
+    },
+    {
+      "id": "dec-j3",
+      "topic": "J3 접점 단자",
+      "choice": "CONTACT",
+      "by": "requirement",
+      "reason": "AI가 이 선택의 이유를 남기지 않았습니다.",
+      "request": "접점 단자 3핀(COM, NO, NC)",
+      "calc": null,
+      "source": "KiCad 심볼 Connector_Generic:Conn_01x03 (3핀 일반 커넥터)",
+      "components": [
+        "j3"
+      ],
+      "waives": []
+    }
+  ],
+  "validation": {
+    "status": "unverified",
+    "notes": "AI 설계안 (engineer). 사람 검토 전."
+  }
+}

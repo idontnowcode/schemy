@@ -47,6 +47,8 @@ TOPICS: dict[str, str] = {
     "connector": "커넥터·배선",
     "analog": "아날로그",
     "schematic": "회로도 작성",
+    "load": "부하 구동(릴레이·MOSFET)",
+    "isolation": "절연(포토커플러)",
 }
 STRENGTH_LABEL = {"must": "필수", "should": "권장", "consider": "검토"}
 CHECKS: dict[str, str] = {
@@ -58,7 +60,12 @@ CHECKS: dict[str, str] = {
     "i2c_pullup": "I2C 풀업", "crystal_caps": "크리스탈 부하 콘덴서", "motor_vm": "모터 드라이버 VM",
     "motor_ilim": "모터 드라이버 전류 제한", "motor_heat": "모터 드라이버 발열", "unknown_voltage": "전압 모르는 전원 Net",
     "fuse_rating": "퓨즈 정격", "cap_dielectric": "콘덴서 유전체",
-    "floating_input": "떠 있는 입력 핀",
+    "floating_input": "떠 있는 입력 핀", "power_pin_open": "IC 전원·접지 핀 미연결", "footprint_missing": "풋프린트 없음",
+    "relay_flyback": "릴레이 플라이백 다이오드", "relay_coil": "릴레이 코일 전압", "mosfet_gate": "MOSFET 게이트 풀다운",
+    "mosfet_drive": "MOSFET 게이트 구동 전압", "mosfet_vds": "MOSFET Vds 여유", "opto_input": "포토커플러 입력 전류",
+    "opto_ctr": "포토커플러 CTR·풀업", "opto_threshold": "포토커플러 켜짐 문턱", "opto_isolation": "포토커플러 절연", "rs485_term": "RS-485 종단",
+    "rs485_bias": "RS-485 페일세이프 바이어스", "rs485_dir": "RS-485 DE/RE 기본 상태", "adc_divider": "ADC 입력 분압",
+    "adc_clamp": "ADC 입력 클램프", "usb_cc": "USB-C CC 풀다운", "usb_vbus_cap": "USB VBUS 입력 용량",
 }
 
 
@@ -103,7 +110,7 @@ class GuideEntry(GuideDraft):
 
 # --- built-in baseline ---------------------------------------------------------------------------------
 
-SEED_VERSION = 3
+SEED_VERSION = 4
 """2: an entry applies by its first topic; LDO entries lead with "ldo". 3: G-PRT-02 checked by the fuse rule."""
 _P = "일반 설계 관행 (앱 기본 지침)"
 
@@ -215,6 +222,71 @@ SEED: list[dict] = [
     _seed("G-SCH-02", ["schematic", "general"], "should", "부품·값을 고른 근거를 남긴다",
           "부품과 값마다 왜 골랐는지(요구사항, 계산, 데이터시트 절)를 설계 결정으로 남긴다.",
           "나중에 바꿀 때 무엇을 지켜야 하는지 알 수 있다."),
+    _seed("G-SCH-03", ["schematic", "general"], "should", "부품마다 패키지와 풋프린트를 정한다",
+          "칩 부품은 크기(0603 등), 다이오드·IC는 패키지(SOD-123, SOIC-8 …), 커넥터는 핀 간격(2.54 mm 헤더, 5.0 mm 단자대)을 "
+          "정해 풋프린트를 넣는다.", "풋프린트가 없으면 PCB로 넘어갈 수 없고 BOM도 주문할 수 없다.", "footprint_missing"),
+    _seed("G-PWR-08", ["power", "general"], "must", "IC 전원·접지 핀은 모두 연결한다",
+          "IC의 모든 VCC·GND 핀과 노출 패드(EP)를 데이터시트대로 연결한다. 같은 이름의 핀이 여러 개면 모두 잇는다.",
+          "하나라도 빠지면 동작하지 않거나, 다른 핀으로 전류가 몰려 손상된다. 노출 패드는 접지·방열을 겸하는 경우가 많다.",
+          "power_pin_open"),
+    _seed("G-LOAD-01", ["load", "protection"], "must", "릴레이·솔레노이드 코일에 플라이백 다이오드",
+          "코일 양단에 다이오드를 두고 캐소드를 전원 쪽, 애노드를 스위치 쪽으로 단다. 빨리 꺼야 하면 다이오드에 제너(또는 TVS)를 "
+          "직렬로 넣는다. 코일 정격 전압과 전원 전압이 같은지 본다.",
+          "코일을 끄는 순간 역기전력(수십~수백 V)이 스위칭 트랜지스터·MOSFET의 정격을 넘어 망가뜨린다.", "relay_flyback",
+          keywords=["릴레이", "relay", "솔레노이드", "solenoid", "코일"]),
+    _seed("G-LOAD-02", ["load", "mcu"], "should", "MOSFET 게이트에 풀다운과 직렬 저항",
+          "게이트–소스 사이에 10~100 kΩ 풀다운, MCU 핀과 게이트 사이에 22~100 Ω 직렬 저항을 둔다.",
+          "MCU 리셋 중이나 커넥터가 빠지면 게이트가 떠서 MOSFET이 반쯤 켜져 발열·오동작한다. 직렬 저항은 돌입 전류와 링잉을 줄인다.",
+          "mosfet_gate", keywords=["MOSFET", "릴레이", "relay", "솔레노이드", "부하"]),
+    _seed("G-LOAD-03", ["load"], "must", "MOSFET은 구동 전압에서 Rds(on)이 규정된 것을 쓴다",
+          "3.3 V로 구동하면 데이터시트에 Vgs 2.5 V(이하)에서 Rds(on)이 정해진 로직 레벨 MOSFET을 고른다. Vds 정격은 부하 전원의 "
+          "1.25배 이상.", "Vgs(th)는 켜지기 시작하는 전압일 뿐이다. 그 근처에서는 저항이 커서 발열하고 부하 전류를 못 흘린다.",
+          "mosfet_drive", keywords=["MOSFET"]),
+    _seed("G-ISO-01", ["isolation"], "should", "포토커플러 입력 전류는 최저~최고 입력 모두 동작 범위로",
+          "입력 전압 범위의 최저에서도 LED 전류가 1~2 mA 이상(CTR 조건), 최고에서 20 mA 이하가 되게 직렬 저항을 고르고, 최고 "
+          "입력에서 저항 소비 전력(정격의 50 % 이하)을 본다.",
+          "산업용 입력(15~30 V)은 범위가 넓다. 최저에서 안 켜지거나 최고에서 저항이 타는 실수가 흔하다.", "opto_input",
+          keywords=["포토커플러", "옵토", "절연", "isolation"]),
+    _seed("G-ISO-02", ["isolation"], "should", "포토커플러 풀업은 CTR 최소값과 수명 저하로 정한다",
+          "CTR 최소값(등급별) × 최저 입력 전류 ≥ 2 × 풀업 전류(Vcc / R)가 되게 풀업 저항을 고른다.",
+          "CTR은 개체 편차가 크고 LED가 늙으면 줄어든다. 여유가 없으면 몇 년 뒤 출력이 Low로 내려가지 않는다.", "opto_ctr"),
+    _seed("G-ISO-04", ["isolation"], "should", "「몇 V 이하 OFF」 요구는 CTR 최대 부품으로 확인한다",
+          "입력이 OFF여야 하는 가장 높은 전압(예: 24 V 입력의 5 V)에서 CTR이 가장 큰 부품도 출력을 켜지 않는지 계산한다. "
+          "모자라면 LED 양단에 분로 저항(수 kΩ)을 두어 문턱을 올리고, 최저 ON 전압에서 LED 전류를 다시 본다.",
+          "직렬 Vf 합만으로는 문턱이 3~4 V라 OFF 전압에서도 CTR 높은 부품은 출력이 켜진다. 누설 전류가 있는 센서도 OFF로 "
+          "읽혀야 한다.", "opto_threshold", keywords=["포토커플러", "옵토", "절연", "isolation"]),
+    _seed("G-ISO-03", ["isolation", "schematic"], "must", "절연 양쪽 GND는 다른 Net으로",
+          "현장 쪽 0 V와 MCU 쪽 GND를 잇지 않고 이름을 따로 붙인다(GND_24V 등). PCB에서는 두 영역 사이 연면거리를 둔다.",
+          "이으면 포토커플러를 써도 절연이 되지 않아 지락·노이즈가 MCU로 들어온다.", "opto_isolation"),
+    _seed("G-IF-03", ["interface"], "should", "RS-485는 버스 양 끝에만 120 Ω 종단",
+          "버스의 물리적 양 끝 노드에만 120 Ω 종단을 둔다(중간 노드는 점퍼로 끔).",
+          "종단이 없으면 반사로, 많으면 부하가 커져 통신이 깨진다.", "rs485_term", parts=["485", "THVD1"],
+          keywords=["RS485", "RS-485", "Modbus"]),
+    _seed("G-IF-04", ["interface"], "should", "RS-485 페일세이프 바이어스는 양 끝 종단 기준으로 계산",
+          "A를 전원으로, B를 GND로 당기는 바이어스는 양 끝 120 Ω 종단(60 Ω)일 때 유휴 차동 전압이 200 mV 이상 되게 한다"
+          "(3.3 V면 각 약 360 Ω 이하). 또는 버스 유휴 페일세이프가 있는 트랜시버를 쓴다.",
+          "아무도 송신하지 않을 때 수신기 출력이 정해지지 않으면 UART가 잡음을 문자로 받는다. 680 Ω은 3.3 V 양 끝 종단에서 부족하다.",
+          "rs485_bias", parts=["485", "THVD1"], keywords=["RS485", "RS-485", "Modbus"]),
+    _seed("G-IF-05", ["interface", "mcu"], "should", "RS-485 DE/RE는 기본 수신(풀다운)",
+          "DE와 /RE를 묶었다면 10 kΩ 풀다운으로 MCU 리셋 중에도 수신 모드가 되게 한다.",
+          "리셋 중 송신 모드가 되면 이 노드가 버스를 잡아 다른 노드의 통신을 막는다.", "rs485_dir",
+          parts=["485", "THVD1"]),
+    _seed("G-ANA-02", ["analog", "protection"], "must", "ADC 입력은 최대(오입력) 전압에서 클램프와 전류 제한",
+          "분압 노드가 최대 입력에서 전원 + 0.3 V를 넘으면 클램프 다이오드를 두고, 클램프 전류(보통 수 mA 이하)와 그 전류를 받아 줄 "
+          "레일 부하가 있는지 본다(레귤레이터는 전류를 받아 주지 못함).",
+          "24 V 오배선이 흔하다. 클램프가 없으면 OP앰프·ADC가 망가지고, 레일 부하가 작으면 클램프 전류가 레일 전압을 올린다.",
+          "adc_clamp", keywords=["ADC", "0-10V", "0~10V", "4-20mA", "아날로그 입력"]),
+    _seed("G-ANA-03", ["analog"], "consider", "ADC 분압은 정상 최대 입력이 기준 전압의 90 % 안",
+          "정상 입력 최대에서 분압 결과가 ADC 기준 전압의 약 90 % 이하가 되게 하고, 분압 저항 공차가 정확도에 미치는 영향을 계산한다.",
+          "기준 전압을 넘으면 값이 잘리고, 너무 낮으면 분해능을 버린다.", "adc_divider"),
+    _seed("G-USB-01", ["connector", "power"], "must", "USB-C 싱크는 CC1·CC2 각각 5.1 kΩ 풀다운",
+          "전원을 받는 USB-C 기기는 CC1과 CC2에 각각 5.1 kΩ을 GND로 단다(한 저항에 묶지 않음).",
+          "없거나 묶으면 USB-C 충전기·호스트가 VBUS를 켜지 않거나 케이블 방향에 따라 안 된다.", "usb_cc",
+          parts=["USB_C"], keywords=["USB-C", "USB C", "Type-C", "타입C"]),
+    _seed("G-USB-02", ["connector", "power"], "should", "USB VBUS 입력 용량은 10 µF 이하",
+          "VBUS에서 레귤레이터 입력까지 보이는 콘덴서 합을 10 µF 이하로 하거나, 돌입 전류 제한(로드 스위치)을 둔다.",
+          "USB 2.0 규격의 돌입 전류 제한이다. 넘으면 일부 호스트가 포트를 끄거나 전압이 순간 떨어진다.", "usb_vbus_cap",
+          parts=["USB"], keywords=["USB"]),
 ]
 
 
@@ -232,6 +304,8 @@ _REQ_TOPICS: list[tuple[str, tuple[str, ...]]] = [
     ("led", ("LED", "표시등", "램프")),
     ("clock", ("크리스탈", "crystal", "클럭", "clock", "발진")),
     ("analog", ("OP앰프", "opamp", "op-amp", "센서", "sensor", "ADC", "증폭")),
+    ("load", ("릴레이", "relay", "솔레노이드", "solenoid", "MOSFET", "부하 구동")),
+    ("isolation", ("포토커플러", "옵토", "절연", "isolation", "isolated")),
 ]
 
 
@@ -283,6 +357,12 @@ def topics_of_circuit(circuit: CircuitIR | None) -> set[str]:
             found.add("connector")
         if cat in ("fuse",) or (cat == "diode" and "TVS" in comp.symbol_id.upper()):
             found.add("protection")
+        if lib == "Relay" or lib.startswith("Relay_") or lib == "Transistor_FET":
+            found.add("load")
+        if lib == "Isolator":
+            found.add("isolation")
+        if lib == "Connector" and "USB" in comp.symbol_id.upper():
+            found |= {"connector", "power"}
     connectors = {c.id for c in circuit.components if category_of(c.symbol_id, c.reference) == "connector"}
     for net in circuit.nets:
         if re.search(r"(^|_)(SDA|SCL|CAN|TX|RX|MOSI|MISO|USB)", net.name, re.I):
@@ -377,8 +457,10 @@ def checklist(entries: list[GuideEntry], findings: list[dict], floating: list[di
         elif e.check and e.check in by_rule:
             hits = by_rule[e.check]
             worst = min(hits, key=lambda f: {"fail": 0, "warn": 1, "info": 2, "ok": 3}[f["severity"]])["severity"]
-            status = {"fail": "fail", "warn": "warn"}.get(worst, "ok")
-            notes = [f["title"] for f in hits if f["severity"] in ("fail", "warn")][:6] or [hits[0]["title"]]
+            # info: the check computed something but cannot judge it alone (a missing rating, a threshold to compare
+            # with a requirement), so a person still has to look.
+            status = {"fail": "fail", "warn": "warn", "info": "manual"}.get(worst, "ok")
+            notes = [f["title"] for f in hits if f["severity"] == worst][:6] or [hits[0]["title"]]
         rows.append({"id": e.id, "title": e.title, "rule": e.rule, "strength": e.strength, "topics": e.topics,
                      "check": e.check, "status": status, "notes": notes, "origin": e.origin})
     return rows
