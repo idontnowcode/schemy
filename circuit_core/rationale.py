@@ -117,6 +117,8 @@ def rationale_markdown(circuit: CircuitIR, *, revision: int | None = None, requi
                 w(f"- 계산: {d.calc}")
             if d.source:
                 w(f"- 출처: {d.source}")
+            if d.waives:
+                w(f"- 따르지 않은 설계 지침: {', '.join(d.waives)} (이 결정의 근거가 예외 사유)")
             w("")
 
     w("## 4. 부품별 근거")

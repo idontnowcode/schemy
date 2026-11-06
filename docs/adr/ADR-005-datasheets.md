@@ -62,6 +62,8 @@
 
 실제 데이터시트로 돌려 본 결과(2026-11-05, `examples/i2c-sensor-3v3`, TI LM1117 SNOS412Q): 처음에는 핀맵이 「불일치 3」, 전압·외부 부품이 「확인 불가」였다. 데이터시트는 VIN·VOUT·ADJ/GND, KiCad 심볼은 VI·VO·GND로 이름이 달랐기 때문이다. 핀 이름 비교에 흔한 별칭(VIN = VI = IN, VOUT = VO = OUT), 겸용 이름(「ADJ/GND」는 고정 전압판의 GND), 같은 신호의 탭·중복 핀(SOT-223 TAB = VOUT, 상태 `same_as`)을 더했다. 품번 확인은 앞 6쪽만 읽어 TI 주문 품번(23쪽)을 놓쳤으므로 앞뒤 40쪽까지 읽는다(47쪽 3.3 s). 고친 뒤 핀맵 일치, 전압 정상, 필수·권장 콘덴서 있음, 품번 확인됨.
 
+BOM 재고·가격 조회(2026-11): 같은 유통사 키로 「문서 · BOM」 탭에서 **유통사 재고·가격 조회**를 할 수 있다. MPN이 있는 BOM 줄만, 품번만 보낸다(job). 줄마다 유통사별 재고(수량), 가장 작은 수량 구간의 단가, 수명 상태(Active·NRND·Obsolete 등), 제품 페이지를 보여 주고, 재고가 필요 수량보다 적거나 단종·생산 종료·신규 설계 비추천이면 「확인할 점」에 적는다. 결과는 보드 폴더 `bom_availability.json`에 revision과 조회 시각과 함께 남고, 회로가 바뀌면 다시 조회하라고 알린다. 쓰는 필드: Mouser `PriceBreaks[{Quantity, Price, Currency}]`·`AvailabilityInStock`·`Availability`·`LifecycleStatus`·`IsDiscontinued`·`MouserPartNumber`, DigiKey `QuantityAvailable`·`UnitPrice`·`ProductStatus.Status`·`Discontinued`·`EndOfLife`(위 명세와 같은 문서). 가격은 조회 시점 값이고 주문 전에 유통사 페이지에서 다시 확인해야 한다. 실제 키로는 호출하지 않았다(가짜 서버로 시험).
+
 출처:
 - Mouser API Swagger: https://api.mouser.com/api/docs/v1 (UI: https://api.mouser.com/api/docs/ui/index)
 - DigiKey Product Information v4 KeywordSearch: https://developer.digikey.com/products/product-information-v4/productsearch/keywordsearch

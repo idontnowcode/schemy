@@ -22,6 +22,7 @@ Request and response shapes follow the vendors' published specifications (read 2
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 
@@ -76,7 +77,28 @@ class MouserSearch:
         self.api_key, self.base = api_key, base.rstrip("/")
         self.http = http or httpx.Client(timeout=TIMEOUT_S)
 
-    def search(self, part: str) -> list[DatasheetCandidate]:
+    def offers(self, part: str) -> list[dict]:
+        """Stock, unit price and lifecycle for the matching part numbers (for the BOM)."""
+        out = []
+        for p in self._parts(part):
+            if not _matches(p.get("ManufacturerPartNumber"), part):
+                continue
+            breaks = sorted((b for b in p.get("PriceBreaks") or [] if isinstance(b, dict)),
+                            key=lambda b: int(b.get("Quantity") or 0))
+            first = breaks[0] if breaks else {}
+            stock_text = str(p.get("AvailabilityInStock") or "").replace(",", "")
+            out.append({"source": self.name, "manufacturer": p.get("Manufacturer"),
+                        "part_number": p.get("ManufacturerPartNumber"), "distributor_part": p.get("MouserPartNumber"),
+                        "stock": int(stock_text) if stock_text.isdigit() else None,
+                        "availability": p.get("Availability") or None,
+                        "price": _price(first.get("Price")), "price_qty": first.get("Quantity"),
+                        "currency": first.get("Currency"),
+                        "lifecycle": p.get("LifecycleStatus")
+                        or ("Discontinued" if str(p.get("IsDiscontinued")).lower() == "true" else None),
+                        "product_url": _https(p.get("ProductDetailUrl"))})
+        return _unique_offers(out)
+
+    def _parts(self, part: str) -> list[dict]:
         try:
             r = self.http.post(f"{self.base}/api/v1/search/partnumber", params={"apiKey": self.api_key},
                                json={"SearchByPartRequest": {"mouserPartNumber": part, "partSearchOptions": "None"}})
@@ -94,7 +116,10 @@ class MouserSearch:
             words = " ".join(f"{e.get('Code', '')} {e.get('Message', '')}" for e in errors).lower()
             status = 401 if any(w in words for w in ("key", "identifier", "unauthorized", "forbidden")) else 400
             raise _http_error(self.name, status, text)
-        parts = ((body.get("SearchResults") or {}).get("Parts")) or []
+        return ((body.get("SearchResults") or {}).get("Parts")) or []
+
+    def search(self, part: str) -> list[DatasheetCandidate]:
+        parts = self._parts(part)
         out = []
         for p in sorted(parts, key=lambda p: -_matches(p.get("ManufacturerPartNumber"), part)):
             if not _matches(p.get("ManufacturerPartNumber"), part):
@@ -136,7 +161,22 @@ class DigiKeySearch:
             self._token = (body["access_token"], time.time() + max(int(body.get("expires_in") or 600) - 30, 30))
             return self._token[0]
 
-    def search(self, part: str) -> list[DatasheetCandidate]:
+    def offers(self, part: str) -> list[dict]:
+        out = []
+        for p in self._products(part):
+            if not _matches(p.get("ManufacturerProductNumber"), part):
+                continue
+            status = (p.get("ProductStatus") or {}).get("Status")
+            out.append({"source": self.name, "manufacturer": (p.get("Manufacturer") or {}).get("Name"),
+                        "part_number": p.get("ManufacturerProductNumber"), "distributor_part": None,
+                        "stock": p.get("QuantityAvailable"), "availability": None,
+                        "price": p.get("UnitPrice"), "price_qty": 1, "currency": "USD",
+                        "lifecycle": status or ("Discontinued" if p.get("Discontinued") else
+                                                "End of life" if p.get("EndOfLife") else None),
+                        "product_url": _https(p.get("ProductUrl"))})
+        return _unique_offers(out)
+
+    def _products(self, part: str) -> list[dict]:
         headers = {"X-DIGIKEY-Client-Id": self.client_id, "Authorization": f"Bearer {self._access_token()}",
                    "X-DIGIKEY-Locale-Language": "en", "X-DIGIKEY-Locale-Currency": "USD",
                    "X-DIGIKEY-Locale-Site": "US"}
@@ -158,7 +198,10 @@ class DigiKeySearch:
                 pass
             raise _http_error(self.name, r.status_code, str(detail))
         body = r.json()
-        products = list(body.get("ExactMatches") or []) + list(body.get("Products") or [])
+        return list(body.get("ExactMatches") or []) + list(body.get("Products") or [])
+
+    def search(self, part: str) -> list[DatasheetCandidate]:
+        products = self._products(part)
         out = []
         for p in sorted(products, key=lambda p: -_matches(p.get("ManufacturerProductNumber"), part)):
             if not _matches(p.get("ManufacturerProductNumber"), part):
@@ -175,6 +218,25 @@ class DigiKeySearch:
                 description=(p.get("Description") or {}).get("ProductDescription"),
                 product_url=_https(p.get("ProductUrl")), status=status))
         return _unique(out)
+
+
+def _price(text) -> float | None:
+    """'$0.62' / '0,62 €' / 0.62 -> 0.62."""
+    if isinstance(text, (int, float)):
+        return float(text)
+    m = re.search(r"\d+(?:[.,]\d+)?", str(text or ""))
+    return float(m.group().replace(",", ".")) if m else None
+
+
+def _unique_offers(offers: list[dict], limit: int = 3) -> list[dict]:
+    seen, out = set(), []
+    for o in offers:
+        key = (o["part_number"], o.get("product_url"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(o)
+    return out[:limit]
 
 
 def _unique(cands: list[DatasheetCandidate], limit: int = 3) -> list[DatasheetCandidate]:

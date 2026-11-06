@@ -3,7 +3,9 @@ import { marked } from "marked";
 import { useEffect, useState } from "react";
 
 import { api, ApiError, errorText } from "../api";
+import { BOM_HEADER } from "../format";
 import type { BomTable } from "../types";
+import { BomAvailabilityCard } from "./BomAvailabilityCard";
 
 interface Props {
   projectId: string;
@@ -51,7 +53,7 @@ export function DocumentsTab({ projectId, boardId, revision }: Props) {
             <thead>
               <tr>
                 {bom.columns.map((c) => (
-                  <th key={c}>{c}</th>
+                  <th key={c}>{BOM_HEADER[c] ?? c}</th>
                 ))}
               </tr>
             </thead>
@@ -65,7 +67,14 @@ export function DocumentsTab({ projectId, boardId, revision }: Props) {
               ))}
             </tbody>
           </table>
+          <p className="small muted">
+            「핀 검토(엔지니어)」는 심볼 핀과 데이터시트 핀을 사람이 맞춰 본 기록입니다(unverified = 아직 안 봄). bom.csv에는 KiCad식 열 이름이 그대로
+            들어갑니다.
+          </p>
         </div>
+      )}
+      {bom && revision && (
+        <BomAvailabilityCard projectId={projectId} boardId={boardId} revision={revision} mpnLines={bom.rows.filter((r) => r.MPN).length} />
       )}
       <div className="panel">
         <div className="toolbar" role="tablist" aria-label="문서 종류">

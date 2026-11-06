@@ -12,7 +12,16 @@ from fastapi.responses import PlainTextResponse
 from ai_engine import AiError
 from ai_engine.design import circuit_text, draft_guide
 from circuit_core.engineering import engineering_review
-from circuit_core.guides import CHECKS, STRENGTH_LABEL, TOPICS, checklist, relevant, to_markdown
+from circuit_core.guides import (
+    CHECKS,
+    STRENGTH_LABEL,
+    TOPICS,
+    checklist,
+    parse_guide_csv,
+    parse_guide_markdown,
+    relevant,
+    to_markdown,
+)
 from circuit_core.quick_fixes import floating_pins
 
 from .ai_access import AiAccess, api_error, run_record
@@ -22,7 +31,7 @@ from .guides import GuideLibrary
 from .jobs import JobRunner
 from .proposals import ProposalStore
 from .routes_proposals import pin_types_for
-from .schemas import GuideCreate, GuideDecision, GuideDraftRequest, GuideUpdate
+from .schemas import GuideCreate, GuideDecision, GuideDraftRequest, GuideImport, GuideUpdate
 from .store import ProjectStore, now_iso
 
 BOARD = "/api/projects/{project_id}/boards/{board_id}"
@@ -47,7 +56,9 @@ def board_checklist(store: ProjectStore, proposals: ProposalStore, guides: Guide
     refs = {c.id: c.reference for c in circuit.components}
     findings = [f.to_dict(refs) for f in engineering_review(circuit)]
     floating = [f.to_dict() for f in floating_pins(circuit, pin_types_for(circuit, settings.symbol_dirs))]
-    items = checklist(applicable, findings, floating)
+    waivers = {g: {"id": d.id, "topic": d.topic, "choice": d.choice, "reason": d.reason}
+               for d in circuit.decisions for g in d.waives}
+    items = checklist(applicable, findings, floating, waivers)
     for item in items:
         item["ai_applied"] = item["id"] in ai_applied
     pending = relevant(entries, circuit=circuit, text=text, statuses=("candidate",), text_topics=False)
@@ -101,6 +112,19 @@ def build_guide_router(store: ProjectStore, jobs: JobRunner, proposals: Proposal
     @router.get("/api/guides-history")
     def all_history(limit: int = 200):
         return {"events": list(reversed(guides.history(limit=max(1, min(limit, 2000)))))}
+
+    @router.post("/api/guides-import")
+    def import_guides(body: GuideImport):
+        """A guide document people wrote (Markdown like the export, a bullet list, or CSV)."""
+        is_csv = body.filename.lower().endswith((".csv", ".tsv"))
+        drafts, warnings = (parse_guide_csv if is_csv else parse_guide_markdown)(body.text)
+        if not drafts:
+            raise ApiError(422, "NO_GUIDES_FOUND", "가져올 지침을 찾지 못했습니다.",
+                           recovery_hint="「## 분야」 아래 「- [필수] 제목: 할 일」 목록, 앱에서 내보낸 Markdown, 또는 "
+                                         "제목·지침·이유·강도·분야 열이 있는 CSV를 쓰세요.")
+        result = guides.import_drafts(drafts, by=body.by.strip() or "사용자", adopt=body.adopt,
+                                      source_name=body.filename)
+        return {**result, "warnings": warnings, "found": len(drafts)}
 
     @router.get("/api/guides-export.md", response_class=PlainTextResponse)
     def export_markdown():

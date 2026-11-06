@@ -242,3 +242,63 @@ def test_keywords_match_whole_latin_words():
     assert has_word("Status LED 하나", "led") and not has_word("PWM controlled fan", "led")
     assert has_word("모터를 돌린다", "모터") and not has_word("scan chain", "can")
     assert topics_of_text("CAN 통신") >= {"interface"} and "interface" not in topics_of_text("we can do it")
+
+
+def test_a_decision_can_waive_a_guide(tmp_path):
+    """The I2C example leaves out the reverse-polarity diode on purpose (dropout); its decision names G-PRT-01."""
+    from pathlib import Path
+
+    client = make_client(tmp_path)
+    pid = new_project(client)
+    root = Path(__file__).resolve().parents[1] / "examples" / "i2c-sensor-3v3"
+    save_ir(client, pid, {**json.loads((root / "circuit.json").read_text(encoding="utf-8")), "project_id": pid})
+    board = f"/api/projects/{pid}/boards/a"
+    items = {i["id"]: i for i in client.get(board + "/guides").json()["items"]}
+    waived = items["G-PRT-01"]
+    assert waived["status"] == "exception" and waived["decision"] == "dec-norev" and "드롭아웃" in waived["notes"][0]
+    # Waiving another one goes through a proposal (a decision with waives).
+    decision = {"id": "dec-waive-g-prt-03", "topic": "설계 지침 예외", "choice": "G-PRT-03을 따르지 않음",
+                "by": "engineer", "reason": "센서 케이블이 10 cm라 ESD 부품을 넣지 않음", "components": [],
+                "waives": ["G-PRT-03"]}
+    r = client.post(board + "/proposals", json={"title": "지침 예외: G-PRT-03",
+                                               "ops": [{"op": "set_decision", "decision": decision}]})
+    assert r.status_code == 201, r.text
+    p = r.json()["proposal"]["id"]
+    client.app.state.jobs.wait(r.json()["job"]["id"], timeout=60)
+    after = {i["id"]: i for i in client.get(board + "/guides", params={"proposal_id": p}).json()["items"]}
+    assert after["G-PRT-03"]["status"] == "exception"
+    report = client.get(board + "/documents/rationale").json()
+    assert "따르지 않은 설계 지침: G-PRT-01" in (report.get("markdown") or "")
+
+
+def test_import_a_guide_document(tmp_path):
+    from circuit_core.guides import parse_guide_csv, parse_guide_markdown
+
+    # The app's own export comes back unchanged (round trip), and a plain bullet list works too.
+    exported = to_markdown(entries())
+    drafts, warnings = parse_guide_markdown(exported)
+    assert len(drafts) == len(SEED) and not warnings
+    mot = next(d for d in drafts if d.title == "모터 드라이버 공급 전압에 여유를 둔다")
+    assert mot.strength == "must" and mot.topics == ["motor"] and mot.check == "motor_vm" and mot.why
+    company = ("## 전원\n- [필수] 전원 입력 TVS: 외부 24 V 입력에는 SMBJ33A급 TVS를 둔다.\n"
+               "## 모터 구동\n- [권장] 모터 배선: 꼬아서 배선\n")
+    drafts, _ = parse_guide_markdown(company)
+    assert [(d.title, d.strength, d.topics) for d in drafts] == [("전원 입력 TVS", "must", ["power"]),
+                                                                ("모터 배선", "should", ["motor"])]
+    csv_text = ("제목,지침,이유,강도,분야,출처\n"
+                "풀업 값,I2C 풀업은 4.7k,표준 모드,권장,통신 인터페이스,사내 기준서 3.2절\n"
+                ",빈 제목,,,,\n")
+    drafts, warnings = parse_guide_csv(csv_text)
+    assert [(d.title, d.topics, d.sources[0].text) for d in drafts] == [("풀업 값", ["interface"], "사내 기준서 3.2절")]
+    assert warnings and "3행" in warnings[0]
+
+    client = make_client(tmp_path)
+    r = client.post("/api/guides-import", json={"filename": "사내-설계기준.md", "text": company, "by": "박팀장"}).json()
+    assert len(r["created"]) == 2 and r["skipped"] == []
+    entries_now = {e["title"]: e for e in client.get("/api/guides").json()["entries"]}
+    tvs = entries_now["전원 입력 TVS"]
+    assert tvs["status"] == "candidate" and tvs["created_by"] == "박팀장"
+    again = client.post("/api/guides-import", json={"filename": "사내-설계기준.md", "text": company}).json()
+    assert again["created"] == [] and len(again["skipped"]) == 2  # same titles are not added twice
+    assert client.post("/api/guides-import", json={"filename": "x.md", "text": "hello"}).json()["error_code"] \
+        == "NO_GUIDES_FOUND"

@@ -162,8 +162,8 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
           </label>
         </div>
         {hint && (
-          <p className="small warn-text" role="note">
-            {hint}
+          <p className={`small ${hint.done ? "ok-text" : "warn-text"}`} role="note">
+            {hint.text}
           </p>
         )}
         <p className="muted small">
@@ -232,8 +232,15 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
   );
 }
 
-/** Why there is nothing to download, in words the user can act on. */
-export function fetchHint(report: DatasheetReport): string | null {
+const ALL_FETCHED = "받을 곳이 있는 부품은 모두 데이터시트를 이미 받았습니다.";
+
+/** Why there is nothing to download, in words the user can act on (done = nothing is left to get). */
+export function fetchHint(report: DatasheetReport): { text: string; done: boolean } | null {
+  const text = fetchHintText(report);
+  return text ? { text, done: text === ALL_FETCHED } : null;
+}
+
+function fetchHintText(report: DatasheetReport): string | null {
   if (report.fetchable.length > 0) return null;
   if (!report.library_available) {
     return "KiCad 심볼 라이브러리를 찾지 못해 데이터시트 링크를 읽을 수 없습니다. 설정 › 환경의 「심볼 라이브러리」를 확인하세요 (KiCad 10 기본 위치: C:\\Program Files\\KiCad\\10.0\\share\\kicad\\symbols).";
@@ -250,7 +257,7 @@ export function fetchHint(report: DatasheetReport): string | null {
       "제조사 사이트에서 받은 PDF를 「PDF 올리기」로 넣으세요."
     );
   }
-  return "받을 곳이 있는 부품은 모두 데이터시트를 이미 받았습니다.";
+  return ALL_FETCHED;
 }
 
 interface RowProps {

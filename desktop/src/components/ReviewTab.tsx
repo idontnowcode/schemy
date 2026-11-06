@@ -127,7 +127,7 @@ export function ReviewTab({ projectId, boardId, circuit, revision, onChanged, on
         <TechnicalReviewCard projectId={projectId} boardId={boardId} revision={revision} onOpenProposal={onOpenProposal} />
         <PartSpecsCard projectId={projectId} boardId={boardId} circuit={circuit} onOpenProposal={onOpenProposal} />
         <div className="card">
-          <GuideChecklistPanel projectId={projectId} boardId={boardId} refreshKey={revision} aiReady={aiReady} />
+          <GuideChecklistPanel projectId={projectId} boardId={boardId} refreshKey={revision} aiReady={aiReady} onOpenProposal={onOpenProposal} />
         </div>
         <div className="toolbar">
           <Chip label="엔지니어링 검토" text={board.text} tone={board.tone} />

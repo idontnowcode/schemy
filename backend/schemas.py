@@ -309,3 +309,10 @@ class GuideDraftRequest(_Model):
     feedback: str = Field(min_length=3, max_length=4000, description="What the person said should be done next time.")
     proposal_id: str | None = Field(default=None, max_length=20)
     include_circuit: bool = Field(default=True, description="Send a summary of the circuit as context.")
+
+
+class GuideImport(_Model):
+    filename: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=2_000_000)
+    by: str = Field(default="", max_length=100)
+    adopt: bool = Field(default=False, description="Adopt at once (a document people wrote); default: candidates.")

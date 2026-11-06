@@ -10,6 +10,7 @@ import type {
   BoardReview,
   AppSettings,
   BoardSummary,
+  BomAvailability,
   BomTable,
   BoardReviewStatus,
   ChecklistSuggestion,
@@ -133,6 +134,8 @@ export const api = {
 
   markdown: (p: string, b: string) => request<{ revision: number; markdown: string }>("GET", `${board(p, b)}/documents/markdown`),
   bom: (p: string, b: string) => request<BomTable>("GET", `${board(p, b)}/documents/bom`),
+  bomAvailability: (p: string, b: string) => request<BomAvailability>("GET", `${board(p, b)}/documents/bom/availability`),
+  lookupBomAvailability: (p: string, b: string) => request<Job>("POST", `${board(p, b)}/documents/bom/availability`),
   rationale: (p: string, b: string) =>
     request<{ revision: number; markdown: string; summary: Record<string, number> }>("GET", `${board(p, b)}/documents/rationale`),
   technicalReview: (p: string, b: string) => request<TechnicalReview>("GET", `${board(p, b)}/technical-review`),
@@ -179,6 +182,8 @@ export const api = {
   deleteGuide: (id: string) => request<null>("DELETE", `/guides/${enc(id)}`),
   guideHistory: (id: string) => request<{ events: GuideEvent[] }>("GET", `/guides/${enc(id)}/history`),
   guidesHistory: (limit = 50) => request<{ events: GuideEvent[] }>("GET", `/guides-history?limit=${limit}`),
+  importGuides: (filename: string, text: string, by: string, adopt: boolean) =>
+    request<{ created: string[]; skipped: string[]; warnings: string[]; found: number }>("POST", "/guides-import", { filename, text, by, adopt }),
   guidesMarkdown: async (): Promise<string> => {
     const res = await fetch("/api/guides-export.md", { headers: authHeaders() });
     if (!res.ok) throw new ApiError(res.status, toErrorBody(await res.text(), res.status));

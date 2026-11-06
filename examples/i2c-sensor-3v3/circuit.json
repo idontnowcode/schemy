@@ -516,6 +516,9 @@
       "calc": "4.75 V − 0.4 V = 4.35 V < 3.3 V + 1.2 V = 4.5 V",
       "components": [
         "j-host"
+      ],
+      "waives": [
+        "G-PRT-01"
       ]
     },
     {

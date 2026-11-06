@@ -8,6 +8,7 @@ after the user confirmed them.
 
 from __future__ import annotations
 
+import json
 from pathlib import PurePosixPath
 from urllib.parse import unquote, urlparse
 
@@ -28,6 +29,7 @@ from circuit_core.datasheet_sources import (
     url_part_name,
 )
 from circuit_core.datasheets import identity
+from circuit_core.export import bom_rows
 from circuit_core.models import Component
 from circuit_core.parts import CATEGORY_LABELS, category_of
 from kicad_adapter import SymbolLibrary, SymbolLibraryError
@@ -47,7 +49,7 @@ from .schemas import (
     DistributorKeyBody,
     MarkdownImportRequest,
 )
-from .store import ProjectStore, now_iso
+from .store import ProjectStore, atomic_write, now_iso
 from .uploads import decode_upload
 
 BOARD = "/api/projects/{project_id}/boards/{board_id}"
@@ -355,6 +357,53 @@ def build_datasheet_router(store: ProjectStore, jobs: JobRunner, library: Datash
                     "failed": sum(not r["ok"] for r in results)}
 
         return jobs.submit(project_id, "datasheet_fetch", run, board_id=board_id)
+
+    # --- BOM stock / price / lifecycle --------------------------------------------------------------
+
+    def availability_path(project_id: str, board_id: str):
+        return store.board_dir(project_id, board_id) / "bom_availability.json"
+
+    @router.get(BOARD + "/documents/bom/availability")
+    def bom_availability(project_id: str, board_id: str):
+        store.get_board(project_id, board_id)
+        path = availability_path(project_id, board_id)
+        last = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+        keys = key_status(settings.keystore)
+        return {"result": last, "search": {"mouser": keys["mouser"]["configured"], "digikey": keys["digikey"]["configured"]}}
+
+    @router.post(BOARD + "/documents/bom/availability", status_code=202)
+    def lookup_availability(project_id: str, board_id: str):
+        """Stock, unit price and lifecycle of the BOM lines that have a maker part number (only the part numbers
+        are sent). The result is kept with the board so the BOM tab can show it later."""
+        clients = settings.datasheet_searchers(settings.keystore)
+        if not clients:
+            raise ApiError(409, "NO_SEARCH_KEYS", "Mouser나 DigiKey 키가 없어 재고·가격을 조회할 수 없습니다.",
+                           recovery_hint="설정 › 데이터시트 검색에서 Mouser API 키나 DigiKey Client ID·Secret을 저장하세요.")
+        circuit, revision = store.get_circuit(project_id, board_id)
+        if circuit is None:
+            raise ApiError(409, "NO_CIRCUIT", "저장된 회로가 없습니다.")
+        lines = [r for r in bom_rows(circuit) if r["MPN"]]
+        if not lines:
+            raise ApiError(409, "NO_MPN", "제조사 품번(MPN)이 있는 BOM 줄이 없습니다.",
+                           recovery_hint="회로 (IR)에서 manufacturer_part_number를 넣거나 「보유 자재 적용」으로 채우세요.")
+
+        def run(job_id: str) -> dict:
+            out = []
+            for line in lines:
+                offers, errors = [], []
+                for client in clients:
+                    try:
+                        offers += client.offers(line["MPN"])
+                    except DatasheetError as exc:
+                        errors.append({"source": client.name, "error_code": exc.code, "message": exc.message})
+                out.append({"references": line["References"], "quantity": int(line["Quantity"]), "mpn": line["MPN"],
+                            "manufacturer": line["Manufacturer"], "offers": offers, "errors": errors})
+            result = {"revision": revision, "checked_at": now_iso(), "lines": out,
+                      "sources": [c.name for c in clients]}
+            atomic_write(availability_path(project_id, board_id), json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+            return result
+
+        return jobs.submit(project_id, "bom_availability", run, board_id=board_id)
 
     # --- distributor keys ----------------------------------------------------------------------
 

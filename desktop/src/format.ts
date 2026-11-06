@@ -430,3 +430,32 @@ const DATASHEET_SOURCE: Record<string, string> = {
 export function datasheetSourceLabel(source: string): string {
   return DATASHEET_SOURCE[source] ?? source;
 }
+
+/** BOM column headers in words (the CSV keeps the KiCad-style names). */
+export const BOM_HEADER: Record<string, string> = {
+  References: "부품",
+  Quantity: "수량",
+  Value: "값",
+  Symbol: "심볼",
+  Footprint: "풋프린트",
+  Manufacturer: "제조사",
+  MPN: "MPN",
+  PinMapStatus: "핀 검토(엔지니어)",
+};
+
+/** A distributor lifecycle word: discontinued/obsolete is bad, not-for-new-designs a warning, active fine. */
+export function lifecycleTone(status: string | null | undefined): Tone {
+  const s = (status ?? "").toLowerCase();
+  if (!s) return "muted";
+  if (/obsolete|discontinued|end of life|\beol\b|last time buy/.test(s)) return "bad";
+  if (/nrnd|not recommended|not for new/.test(s)) return "warn";
+  if (/active|new product|production/.test(s)) return "ok";
+  return "muted";
+}
+
+/** "$2.35 (10개~)" from the smallest price break. */
+export function priceText(price: number | null, currency: string | null, qty: number | null): string {
+  if (price == null) return "—";
+  const unit = currency === "USD" ? `$${price}` : `${price} ${currency ?? ""}`.trim();
+  return qty && qty > 1 ? `${unit} (${qty}개~)` : unit;
+}

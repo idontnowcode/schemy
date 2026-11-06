@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, errorText, waitForJob } from "../api";
 import { AI_SETUP_HINT, formatTime, providerLabel, type Tone } from "../format";
 import type {
   AiStatus,
   GuideChecklist,
+  GuideChecklistItem,
   GuideDraft,
   GuideEntry,
   GuideEvent,
@@ -51,6 +52,7 @@ const CHECK_STATUS: Record<string, { text: string; tone: Tone }> = {
   warn: { text: "확인 필요", tone: "warn" },
   ok: { text: "검사 통과", tone: "ok" },
   manual: { text: "직접 확인", tone: "muted" },
+  exception: { text: "예외", tone: "info" },
 };
 const EVENT_TEXT: Record<string, string> = {
   seeded: "앱 기본 지침 추가",
@@ -327,6 +329,8 @@ export function GuidesPage({ onError }: { onError(message: string | null): void 
   const [by, setBy] = useState(savedName());
   const [adding, setAdding] = useState(false);
   const [recent, setRecent] = useState<GuideEvent[]>([]);
+  const [imported, setImported] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -350,6 +354,25 @@ export function GuidesPage({ onError }: { onError(message: string | null): void 
       (!topic || e.topics.includes(topic)) &&
       (!q || `${e.id} ${e.title} ${e.rule} ${e.why}`.toLowerCase().includes(q)),
   );
+
+  const onImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const r = await api.importGuides(file.name, await file.text(), by.trim(), false);
+      setImported(
+        `${file.name}: 지침 ${r.found}개 중 ${r.created.length}개를 후보로 가져왔습니다` +
+          (r.skipped.length ? `, 같은 제목 ${r.skipped.length}개는 건너뜀` : "") +
+          (r.warnings.length ? `. 확인할 것: ${r.warnings.slice(0, 3).join(" / ")}` : "") +
+          ". 「후보」에서 검토하고 채택하세요.",
+      );
+      setStatus("candidate");
+      await load();
+    } catch (err) {
+      onError(errorText(err));
+    }
+  };
 
   const exportMd = async () => {
     try {
@@ -385,7 +408,28 @@ export function GuidesPage({ onError }: { onError(message: string | null): void 
           <button className="ghost" onClick={exportMd}>
             문서로 내보내기 (Markdown)
           </button>
+          <button className="ghost" onClick={() => fileInput.current?.click()} title="사내 설계 기준서를 Markdown 목록이나 CSV로 가져옵니다(후보로)">
+            문서 가져오기 (Markdown·CSV)
+          </button>
+          <input ref={fileInput} type="file" accept=".md,.markdown,.txt,.csv,text/markdown,text/csv" hidden onChange={onImport}
+            aria-label="가져올 설계 가이드 파일" />
         </div>
+        {imported && (
+          <p className="small" role="status">
+            {imported}
+          </p>
+        )}
+        <details className="small">
+          <summary>가져올 수 있는 형식</summary>
+          <ul>
+            <li>이 앱에서 내보낸 Markdown(분야·강도·이유·자동 검사·출처가 그대로 돌아옴)</li>
+            <li>
+              Markdown 목록: <code>## 전원</code> 아래 <code>- [필수] 제목: 할 일</code> (강도는 필수·권장·검토)
+            </li>
+            <li>CSV: 제목, 지침, 이유, 강도, 분야, 자동 검사, 출처 열 (첫 줄이 열 이름)</li>
+            <li>가져온 지침은 모두 「후보」로 들어오고, 같은 제목이 이미 있으면 건너뜁니다.</li>
+          </ul>
+        </details>
         {adding && (
           <GuideEditor
             initial={emptyDraft()}
@@ -555,13 +599,54 @@ interface ChecklistProps {
   /** Reload when this changes (a new check of the proposal, a new revision). */
   refreshKey?: string | number | null;
   aiReady: boolean;
+  /** Board context: "예외로 기록" makes a proposal and opens it. */
+  onOpenProposal?(id: string): void;
+}
+
+/** "이 보드에서는 따르지 않음": a design decision that waives the guide, as a proposal (the reason is the decision's). */
+function WaiveForm({ item, projectId, boardId, onDone }: { item: GuideChecklistItem; projectId: string; boardId: string; onDone(id: string): void }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const decision = {
+        id: `dec-waive-${item.id.toLowerCase()}`,
+        topic: `설계 지침 예외: ${item.title}`.slice(0, 120),
+        choice: `${item.id}를 이 보드에서는 따르지 않음`,
+        by: "engineer",
+        reason: reason.trim(),
+        components: [],
+        waives: [item.id],
+      };
+      const r = await api.createProposal(projectId, boardId, `지침 예외: ${item.id} ${item.title}`.slice(0, 150),
+        [{ op: "set_decision", decision }], "이 보드에서 설계 지침을 따르지 않는 이유를 설계 결정으로 남깁니다(연결·회로도는 바뀌지 않음).");
+      onDone(r.proposal.id);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="toolbar" onSubmit={submit} aria-label={`${item.id} 예외 기록`}>
+      <input aria-label="예외 이유" placeholder="따르지 않는 이유 (예: 직렬 다이오드를 넣으면 드롭아웃 조건을 못 지킴)" value={reason}
+        onChange={(e) => setReason(e.target.value)} style={{ minWidth: 360 }} required />
+      <button type="submit" className="small-btn" disabled={busy || reason.trim().length < 4}>예외 제안 만들기</button>
+      {error && <span className="small bad-text">{error}</span>}
+    </form>
+  );
 }
 
 /** The adopted guides that apply to this circuit, with what the app could check itself, and a feedback box. */
-export function GuideChecklistPanel({ projectId, boardId, proposalId, refreshKey, aiReady }: ChecklistProps) {
+export function GuideChecklistPanel({ projectId, boardId, proposalId, refreshKey, aiReady, onOpenProposal }: ChecklistProps) {
   const [data, setData] = useState<GuideChecklist | null>(null);
   const [listing, setListing] = useState<GuideListing | null>(null);
   const [showOk, setShowOk] = useState(false);
+  const [waiving, setWaiving] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -578,10 +663,11 @@ export function GuideChecklistPanel({ projectId, boardId, proposalId, refreshKey
   }, [load, refreshKey]);
 
   if (!data || !listing || data.revision === null && !proposalId) return null;
-  const order = { fail: 0, warn: 1, manual: 2, ok: 3 } as const;
+  const order = { fail: 0, warn: 1, manual: 2, exception: 3, ok: 4 } as const;
   const items = [...data.items].sort((a, b) => order[a.status] - order[b.status]);
   const problems = items.filter((i) => i.status === "fail" || i.status === "warn");
   const visible = showOk ? items : items.filter((i) => i.status !== "ok");
+  const canWaive = !proposalId && Boolean(onOpenProposal);
   return (
     <section className="guide-checklist" aria-label="설계 지침 확인">
       <h4>
@@ -598,6 +684,15 @@ export function GuideChecklistPanel({ projectId, boardId, proposalId, refreshKey
             {i.ai_applied && <span className="small ok-text"> · AI가 따랐다고 함</span>}
             <div className="small">{i.rule}</div>
             {i.notes.length > 0 && i.status !== "manual" && <div className="issue-hint">→ {i.notes.join(" / ")}</div>}
+            {canWaive && i.status !== "ok" && i.status !== "exception" && (
+              waiving === i.id ? (
+                <WaiveForm item={i} projectId={projectId} boardId={boardId} onDone={(id) => { setWaiving(null); onOpenProposal?.(id); }} />
+              ) : (
+                <button className="link small" onClick={() => setWaiving(i.id)} title="이 보드에서는 일부러 따르지 않는다면 이유를 설계 결정으로 남깁니다">
+                  예외로 기록
+                </button>
+              )
+            )}
           </li>
         ))}
       </ul>

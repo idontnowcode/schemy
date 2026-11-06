@@ -159,6 +159,22 @@ class GuideLibrary:
             self._save(raw)
             self._log("deleted", entry_id, by, entry=entry.model_dump(mode="json"))
 
+    def import_drafts(self, drafts: list[GuideDraft], *, by: str, adopt: bool, source_name: str) -> dict:
+        """Add drafts from a document; an entry with the same title (ignoring spaces and case) is skipped."""
+        def key(t: str) -> str:
+            return re.sub(r"\s+", "", t).lower()
+
+        have = {key(e.title) for e in self.entries()}
+        created, skipped = [], []
+        for d in drafts:
+            if key(d.title) in have:
+                skipped.append(d.title)
+                continue
+            have.add(key(d.title))
+            created.append(self.create(d, origin="engineer", by=by, adopt=adopt).id)
+        self._log("imported", None, by, source=source_name, created=created, skipped=skipped, adopted=adopt)
+        return {"created": created, "skipped": skipped}
+
     def record(self, event: str, entry_ids: list[str], *, by: str = "", **data) -> None:
         """Usage events: 'cited' (the AI said it followed these), 'flagged' (an AI review said one was not
         followed), 'issue' (an engineer's review recorded one not followed)."""

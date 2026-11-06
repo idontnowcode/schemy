@@ -349,15 +349,25 @@ def prompt_text(entries: list[GuideEntry], limit_chars: int = 6000) -> str:
 
 # --- checklist -----------------------------------------------------------------------------------------
 
-def checklist(entries: list[GuideEntry], findings: list[dict], floating: list[dict]) -> list[dict]:
+def checklist(entries: list[GuideEntry], findings: list[dict], floating: list[dict],
+              exceptions: dict[str, dict] | None = None) -> list[dict]:
     """Each guide with what the app could tell automatically: ``fail`` / ``warn`` (the linked check found a
-    problem), ``ok`` (the linked check ran and found none), ``manual`` (a person has to look)."""
+    problem), ``ok`` (the linked check ran and found none), ``manual`` (a person has to look), or ``exception``
+    (a design decision of the circuit deliberately does not follow it; its reason is the decision's reason)."""
     by_rule: dict[str, list[dict]] = {}
     for f in findings:
         by_rule.setdefault(f["rule"], []).append(f)
+    exceptions = exceptions or {}
     rows = []
     for e in entries:
         status, notes = "manual", []
+        waiver = exceptions.get(e.id)
+        if waiver is not None:
+            rows.append({"id": e.id, "title": e.title, "rule": e.rule, "strength": e.strength, "topics": e.topics,
+                         "check": e.check, "status": "exception", "origin": e.origin,
+                         "notes": [f"설계 결정 「{waiver['topic']}」: {waiver['choice']} — {waiver['reason']}"],
+                         "decision": waiver["id"]})
+            continue
         if e.check == "floating_input":
             if floating:
                 status = "warn"
@@ -408,3 +418,103 @@ def to_markdown(entries: list[GuideEntry], *, title: str = "회로 설계 가이
         for e in candidates:
             out += block(e)
     return "\n".join(out).rstrip() + "\n"
+
+
+# --- importing a guide document ----------------------------------------------------------------------------
+
+_STRENGTH_WORDS = {"필수": "must", "must": "must", "권장": "should", "should": "should", "검토": "consider",
+                   "consider": "consider", "참고": "consider"}
+_TOPIC_BY_LABEL = {**{v: k for k, v in TOPICS.items()}, **{k: k for k in TOPICS}}
+_CHECK_BY_LABEL = {**{v: k for k, v in CHECKS.items()}, **{k: k for k in CHECKS}}
+
+
+def _topic_of(label: str) -> str | None:
+    label = label.strip()
+    return _TOPIC_BY_LABEL.get(label) or next((k for lab, k in _TOPIC_BY_LABEL.items() if lab and lab in label), None)
+
+
+def parse_guide_markdown(text: str) -> tuple[list[GuideDraft], list[str]]:
+    """A guide written as Markdown: the app's own export (``## 분야`` / ``### ID 제목 (강도)`` / rule / ``- 이유:``),
+    or a plain list under ``## 분야`` headings: ``- [필수] 제목: 할 일``. Returns (drafts, warnings)."""
+    drafts: list[GuideDraft] = []
+    warnings: list[str] = []
+    topic = "general"
+    cur: dict | None = None
+
+    def flush():
+        nonlocal cur
+        if cur and cur.get("title") and cur.get("rule"):
+            try:
+                drafts.append(GuideDraft(**cur))
+            except ValueError as exc:
+                warnings.append(f"「{cur.get('title')}」: {exc.errors()[0]['msg'] if hasattr(exc, 'errors') else exc}")
+        cur = None
+
+    for line in text.splitlines():
+        raw = line.rstrip()
+        if raw.startswith("## "):
+            flush()
+            label = raw[3:].strip()
+            topic = _topic_of(label) or topic
+            if label.startswith("검토 대기 후보"):
+                topic = "general"
+            continue
+        m = re.match(r"^###\s+(?:(G-[A-Z0-9-]+)\s+)?(.+?)\s*(?:\((필수|권장|검토)\))?\s*$", raw)
+        if m:
+            flush()
+            cur = {"title": m.group(2).strip()[:120], "rule": "", "why": "", "strength": _STRENGTH_WORDS.get(m.group(3) or "", "should"),
+                   "topics": [topic], "sources": [{"kind": "practice", "text": "가져온 설계 가이드 문서"}]}
+            continue
+        m = re.match(r"^[-*]\s*\[(필수|권장|검토|참고|must|should|consider)\]\s*([^:：]+)[:：]\s*(.+)$", raw, re.I)
+        if m:
+            flush()
+            cur = {"title": m.group(2).strip()[:120], "rule": m.group(3).strip()[:2000], "why": "",
+                   "strength": _STRENGTH_WORDS[m.group(1).lower() if m.group(1).isascii() else m.group(1)],
+                   "topics": [topic], "sources": [{"kind": "practice", "text": "가져온 설계 가이드 문서"}]}
+            flush()
+            continue
+        if cur is None:
+            continue
+        item = re.match(r"^-\s*(이유|자동 검사|출처|상태)\s*[:：]\s*(.*)$", raw)
+        if item:
+            key, value = item.group(1), item.group(2).strip()
+            if key == "이유":
+                cur["why"] = value[:2000]
+            elif key == "자동 검사":
+                cur["check"] = _CHECK_BY_LABEL.get(value)
+            elif key == "출처" and value:
+                cur["sources"] = [s for s in cur["sources"] if s["text"] != "가져온 설계 가이드 문서"] + \
+                                 [{"kind": "practice", "text": value[:500]}]
+            continue
+        if raw.strip() and not raw.startswith(("#", ">", "|")):
+            cur["rule"] = (cur["rule"] + " " + raw.strip()).strip()[:2000]
+    flush()
+    return drafts, warnings
+
+
+def parse_guide_csv(text: str) -> tuple[list[GuideDraft], list[str]]:
+    """CSV with a header: 제목/title, 지침/rule, 이유/why, 강도/strength, 분야/topics, 자동 검사/check, 출처/source."""
+    import csv
+    import io
+
+    names = {"제목": "title", "title": "title", "지침": "rule", "할 일": "rule", "rule": "rule", "이유": "why",
+             "why": "why", "강도": "strength", "strength": "strength", "분야": "topics", "topics": "topics",
+             "topic": "topics", "자동 검사": "check", "check": "check", "출처": "source", "source": "source"}
+    reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff")))
+    drafts, warnings = [], []
+    for n, row in enumerate(reader, start=2):
+        rec = {names.get((k or "").strip().lower(), names.get((k or "").strip(), "")): (v or "").strip()
+               for k, v in row.items()}
+        if not rec.get("title") or not rec.get("rule"):
+            warnings.append(f"{n}행: 제목과 지침이 필요합니다.")
+            continue
+        topics = [t for t in (_topic_of(x) for x in re.split(r"[,;/]", rec.get("topics", ""))) if t] or ["general"]
+        try:
+            drafts.append(GuideDraft(title=rec["title"][:120], rule=rec["rule"][:2000], why=rec.get("why", "")[:2000],
+                                     strength=_STRENGTH_WORDS.get(rec.get("strength", "").lower(),
+                                                                  _STRENGTH_WORDS.get(rec.get("strength", ""), "should")),
+                                     topics=list(dict.fromkeys(topics))[:6], check=_CHECK_BY_LABEL.get(rec.get("check", "")),
+                                     sources=[{"kind": "practice", "text": rec.get("source") or "가져온 설계 가이드 CSV"}]))
+        except ValueError as exc:
+            warnings.append(f"{n}행: {exc}")
+    return drafts, warnings

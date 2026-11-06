@@ -285,6 +285,35 @@ export interface BomTable {
   rows: Record<string, string>[];
 }
 
+/** One distributor's answer for a maker part number (stock, smallest price break, lifecycle). */
+export interface BomOffer {
+  source: string;
+  manufacturer: string | null;
+  part_number: string | null;
+  distributor_part: string | null;
+  stock: number | null;
+  availability: string | null;
+  price: number | null;
+  price_qty: number | null;
+  currency: string | null;
+  lifecycle: string | null;
+  product_url: string | null;
+}
+
+export interface BomAvailabilityLine {
+  references: string;
+  quantity: number;
+  mpn: string;
+  manufacturer: string;
+  offers: BomOffer[];
+  errors: { source: string; error_code: string; message: string }[];
+}
+
+export interface BomAvailability {
+  result: { revision: number; checked_at: string; lines: BomAvailabilityLine[]; sources: string[] } | null;
+  search: { mouser: boolean; digikey: boolean };
+}
+
 // --- inventory -------------------------------------------------------------------
 
 export interface InventoryPart {
@@ -996,10 +1025,12 @@ export interface GuideChecklistItem {
   strength: GuideStrength;
   topics: string[];
   check: string | null;
-  status: "fail" | "warn" | "ok" | "manual";
+  status: "fail" | "warn" | "ok" | "manual" | "exception";
   notes: string[];
   origin: GuideOrigin;
   ai_applied: boolean;
+  /** For an exception: the design decision that does not follow this guide. */
+  decision?: string;
 }
 
 export interface GuideChecklist {

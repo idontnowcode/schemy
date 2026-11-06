@@ -124,6 +124,10 @@ class FakeDistributors:
                         {"ManufacturerPartNumber": part, "Manufacturer": "Texas Instruments",
                          "DataSheetUrl": MOUSER_URL, "Description": "CAN Interface IC 3.3V CAN Transceiver",
                          "ProductDetailUrl": "https://www.mouser.com/ProductDetail/595-SN65HVD230DR",
+                         "MouserPartNumber": "595-SN65HVD230DR", "AvailabilityInStock": "12,345",
+                         "Availability": "12345 In Stock", "IsDiscontinued": "false",
+                         "PriceBreaks": [{"Quantity": 10, "Price": "$1.90", "Currency": "USD"},
+                                         {"Quantity": 1, "Price": "$2.35", "Currency": "USD"}],
                          "LifecycleStatus": None}]}})
                 if url.path == "/v1/oauth2/token":
                     form = {k: v[0] for k, v in parse_qs(raw).items()}
@@ -141,7 +145,8 @@ class FakeDistributors:
                          "Manufacturer": {"Id": 296, "Name": "Texas Instruments"},
                          "DatasheetUrl": DK_URL, "ProductUrl": "https://www.digikey.com/en/products/detail/x",
                          "Description": {"ProductDescription": "IC TRANSCEIVER HALF 1/1 8SOIC"},
-                         "ProductStatus": {"Id": 0, "Status": "Active"}}], "Products": [
+                         "ProductStatus": {"Id": 0, "Status": "Active"}, "QuantityAvailable": 4521,
+                         "UnitPrice": 2.12}], "Products": [
                         {"ManufacturerProductNumber": "SN65HVD230DR", "DatasheetUrl": "https://127.0.0.1/x.pdf"}]})
                 return self.reply(404, {"error": "nope"})
 
@@ -178,6 +183,17 @@ def test_mouser_and_digikey_answers(fake):
     assert exc.value.code == "SEARCH_AUTH_FAILED"
 
 
+def test_stock_and_price_offers(fake):
+    """For the BOM: the matching part only, the smallest price break, stock as a number."""
+    [m] = MouserSearch("m-key", base=fake.base).offers("SN65HVD230DR")
+    assert m == {"source": "Mouser", "manufacturer": "Texas Instruments", "part_number": "SN65HVD230DR",
+                 "distributor_part": "595-SN65HVD230DR", "stock": 12345, "availability": "12345 In Stock",
+                 "price": 2.35, "price_qty": 1, "currency": "USD", "lifecycle": None,
+                 "product_url": "https://www.mouser.com/ProductDetail/595-SN65HVD230DR"}
+    d = DigiKeySearch("dk-id", "dk-secret", base=fake.base).offers("SN65HVD230DR")
+    assert [(o["stock"], o["price"], o["lifecycle"]) for o in d] == [(4521, 2.12, "Active"), (None, None, None)]
+
+
 # --- backend ---------------------------------------------------------------------------------------
 
 def client_with(tmp_path, fake, fetcher):
@@ -205,6 +221,7 @@ def test_search_then_fetch_with_fallback_and_proposal_recheck(tmp_path, fake):
     board = f"/api/projects/{pid}/boards/a"
 
     assert client.post(board + "/datasheets/search", json={}).json()["error_code"] == "NO_SEARCH_KEYS"
+    assert client.post(board + "/documents/bom/availability").json()["error_code"] == "NO_SEARCH_KEYS"
     assert client.put("/api/datasheet-search/keys/digikey", json={"client_id": "dk-id"}).json()["error_code"] \
         == "KEY_REQUIRED"
     status = client.put("/api/datasheet-search/keys/digikey",
@@ -247,6 +264,16 @@ def test_search_then_fetch_with_fallback_and_proposal_recheck(tmp_path, fake):
     assert next(c for c in pr["components"] if c["reference"] == "U2")["datasheet"]["id"] == entry["id"]
     rechecked = client.post(f"{board}/proposals/{proposal}/recheck-datasheets").json()
     assert rechecked["evidence"]["datasheets"] == []  # no summary yet: nothing to compare
+
+    # Stock and price for the BOM lines with a maker part number; the result is kept with the board.
+    assert client.get(board + "/documents/bom/availability").json()["result"] is None
+    job = wait(client, client.post(board + "/documents/bom/availability").json())
+    assert job["status"] == "succeeded", job
+    [line] = job["result"]["lines"]
+    assert line["mpn"] == "SN65HVD230DR" and line["references"] == "U1" and line["errors"] == []
+    assert [(o["source"], o["stock"]) for o in line["offers"]][:2] == [("Mouser", 12345), ("DigiKey", 4521)]
+    kept = client.get(board + "/documents/bom/availability").json()
+    assert kept["result"]["lines"] == job["result"]["lines"] and kept["search"] == {"mouser": True, "digikey": True}
 
     client.delete("/api/datasheet-search/keys/mouser")
     assert not client.get("/api/datasheet-search/keys").json()["mouser"]["configured"] and "mouser" not in keys.keys

@@ -80,3 +80,45 @@ test("design guide grows from people's feedback and is checked on a board", asyn
   await page.getByRole("button", { name: "거부 확정" }).click();
   await expect(page.getByText(/설계 지침 후보 G-0003로 남겼습니다/)).toBeVisible();
 });
+
+test("a guide a board does not follow is an exception; company guides come in from a document", async ({ page }) => {
+  backend = await startBackend(tempWorkspace());
+  await page.goto(backend.url);
+
+  // A company design standard as a Markdown list: imported as candidates.
+  await page.getByRole("button", { name: "설계 가이드" }).click();
+  const guide = page.getByLabel("설계 가이드", { exact: true });
+  await guide.getByLabel("가져올 설계 가이드 파일").setInputFiles({
+    name: "company-standard.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("## 전원\n- [필수] 전원 커넥터 극성 표시: 실크에 +/- 를 적는다.\n- [권장] 테스트 포인트: 각 전원 레일에 테스트 포인트를 둔다.\n"),
+  });
+  await expect(guide.getByRole("status")).toContainText("지침 2개 중 2개를 후보로 가져왔습니다");
+  await expect(guide).toContainText("전원 커넥터 극성 표시");
+
+  // The I2C example records that it has no reverse-polarity diode on purpose (decision dec-norev waives G-PRT-01).
+  await page.getByLabel("새 프로젝트 이름").fill("Exception Demo");
+  await page.getByRole("button", { name: "새 프로젝트" }).click();
+  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await page.getByLabel("예제 불러오기").selectOption("i2c-sensor-3v3");
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
+  await page.getByRole("tab", { name: "검토" }).click();
+  const checklist = page.getByLabel("설계 지침 확인");
+  const waived = checklist.getByRole("listitem").filter({ hasText: "G-PRT-01" });
+  await expect(waived).toContainText("예외");
+  await expect(waived).toContainText("설계 결정 「역극성 보호」");
+
+  // Another guide this board does not follow: the reason goes into a proposal as a decision.
+  await checklist.getByRole("button", { name: "예외로 기록" }).first().click();
+  await checklist.getByLabel("예외 이유").fill("시제품 1장이라 이 보드에서는 생략한다.");
+  await checklist.getByRole("button", { name: "예외 제안 만들기" }).click();
+  await expect(page.getByRole("heading", { name: /지침 예외: G-/ })).toBeVisible();
+
+  // The BOM names the pin column for what it is; stock lookup asks for distributor keys first.
+  await page.getByRole("tab", { name: "문서 · BOM" }).click();
+  await expect(page.getByRole("columnheader", { name: "핀 검토(엔지니어)" })).toBeVisible();
+  const stock = page.getByLabel("유통사 재고·가격");
+  await expect(stock.getByRole("button", { name: "유통사 재고·가격 조회" })).toBeDisabled();
+  await expect(stock).toContainText("Mouser API 키나 DigiKey Client ID·Secret");
+});
