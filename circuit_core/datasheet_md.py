@@ -122,6 +122,11 @@ def import_datasheet_markdown(text: str, *, source_name: str = "datasheet.md") -
         number, name = t2.get(row, "핀 번호"), t2.get(row, "핀 이름")
         if not number and not name:
             continue
+        if not name:  # a template row left empty: nothing to compare with the symbol
+            issues.append(ImportIssue("warning", "PIN_NAME_MISSING",
+                                      f"핀 {number}({package})의 이름이 비어 있어 건너뜁니다. 데이터시트의 핀 이름을 적으세요.",
+                                      line=line))
+            continue
         if number in ("", "?"):
             issues.append(ImportIssue("warning", "PIN_NUMBER_UNKNOWN",
                                       f"핀 '{name or '?'}'({package})의 번호가 없어 건너뜁니다.", line=line))
@@ -228,3 +233,41 @@ def import_datasheet_markdown(text: str, *, source_name: str = "datasheet.md") -
              "recommended": len(recommended), "external_parts": len(external), "notes": len(notes),
              "uncertain": len(uncertain), "warnings": sum(1 for i in issues if i.severity == "warning")}
     return DatasheetMdResult(facts, issues, stats)
+
+
+def summary_template(*, manufacturer: str | None, part_number: str | None, value: str, pins: list[str],
+                     package: str | None) -> str:
+    """An empty "데이터시트 요약 MD v0.1" for one part, to fill in from its datasheet by hand or with Copilot.
+
+    Only what the app knows for sure is filled in: the format line, maker and part number, and the pin numbers
+    of the part as drawn. Pin names, ratings and page numbers stay empty on purpose - copying the KiCad symbol's
+    pin names would make the pin check compare the symbol with itself. Left unfilled, it does not import (no
+    named pins)."""
+    cols = {n: c for n, c in SECTION_COLUMNS.items()}
+
+    def table(section: int, rows: list[list[str]]) -> str:
+        head = "| " + " | ".join(cols[section]) + " |"
+        rule = "|" + "|".join("---" for _ in cols[section]) + "|"
+        body = ["| " + " | ".join(r) + " |" for r in rows] or ["| " + " | ".join("" for _ in cols[section]) + " |"]
+        return "\n".join([head, rule, *body])
+
+    name = " ".join(x for x in (manufacturer, part_number or value) if x)
+    pkg = package or ""
+    lines = [
+        f"# 데이터시트: {name}",
+        "",
+        "<!-- AI Circuit Studio가 만든 빈 틀입니다. 모든 값은 데이터시트 원문에서 옮겨 적고, 행마다 인쇄 페이지 번호를 적으세요.",
+        "     핀 이름은 데이터시트 표기 그대로 적으세요(KiCad 심볼 이름을 베끼면 핀 대조가 의미 없어집니다).",
+        "     패키지 칸에는 회로의 풋프린트 이름을 넣어 두었습니다. 데이터시트의 패키지 이름으로 바꿔도 됩니다.",
+        "     모르는 값은 비워 두거나 7장 불확실 항목에 적고, 쓰지 않는 빈 행은 지우세요. -->",
+        "",
+        f"## 1. {SECTION_NAMES[1]}",
+        table(1, [["형식", FORMAT_NAME], ["제조사", manufacturer or ""], ["품번", part_number or ""], ["문서", ""],
+                  ["원본 파일", ""], ["페이지 수", ""]]),
+        "",
+        f"## 2. {SECTION_NAMES[2]}",
+        table(2, [[pkg, n, "", "", "", ""] for n in pins]),
+    ]
+    for section in (3, 4, 5, 6, 7):
+        lines += ["", f"## {section}. {SECTION_NAMES[section]}", table(section, [])]
+    return "\n".join(lines) + "\n"

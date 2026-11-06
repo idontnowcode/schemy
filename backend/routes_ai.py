@@ -8,6 +8,8 @@ suggestions are applied only through the normal inventory-apply endpoint.
 
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter
 
 from ai_engine import DEFAULT_MODELS, AiError, KeyStoreError
@@ -30,6 +32,8 @@ from .uploads import MB, decode_upload
 
 BOARD = "/api/projects/{project_id}/boards/{board_id}"
 PROVIDERS = ["gemini", "claude", "chatgpt"]
+TEST_PROMPT = "Connection test from AI Circuit Studio. Reply with the single word OK."
+"""All that the connection test sends: no circuit, file or project data."""
 MAX_PDF_BYTES = 50 * MB
 
 
@@ -114,6 +118,31 @@ def build_ai_router(store: ProjectStore, jobs: JobRunner, inventory: InventorySt
         cfg = ai_settings()
         settings.keystore.delete(cfg.provider)
         return {"key": key_status(cfg.provider)}
+
+    # --- connection test --------------------------------------------------------
+
+    @router.get("/api/ai/test")
+    def connection_test_preview():
+        """What the connection test would send, and to whom (shown before the user confirms)."""
+        cfg = ai_settings()
+        return {"prompt": TEST_PROMPT, "provider": cfg.provider, "model": cfg.model, "key": key_status(cfg.provider)}
+
+    @router.post("/api/ai/test")
+    def connection_test():
+        """One short fixed request to the chosen provider and model: checks the key or login, the model name, the
+        network and the quota before a real job. Works while AI features are still off (nothing of the user's is
+        sent); the key never appears in the answer."""
+        cfg = ai_settings()
+        provider = provider_for(cfg, require_enabled=False)
+        started = time.monotonic()
+        try:
+            # Current Claude and Gemini models think first: leave room so a short answer still comes back.
+            result = provider.generate(prompt=TEST_PROMPT, max_output_tokens=1024, temperature=0.0)
+        except AiError as exc:
+            raise _api_error(exc) from exc
+        return {"ok": True, "provider": cfg.provider, "model": result.model or cfg.model,
+                "reply": (result.text or "").strip()[:80], "finish_reason": result.finish_reason,
+                "latency_ms": round((time.monotonic() - started) * 1000), "usage": result.usage}
 
     @router.get("/api/ai/models")
     def list_models():

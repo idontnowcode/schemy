@@ -83,6 +83,8 @@
 - OpenAI, UI/UX guidelines: https://developers.openai.com/siwc/ui-ux-guidelines
 - Anthropic, Legal and compliance (Claude Code 문서의 인증 정책): https://code.claude.com/docs/en/legal-and-compliance
 
+연결 시험(2026-11): 설정 › 모델의 **연결 시험**은 고정 문장 한 줄("Connection test from AI Circuit Studio. Reply with the single word OK.")만 고른 공급자·모델에 보내 키·로그인, 모델 이름, 네트워크, 사용 한도를 실제 작업 전에 확인한다. 보내기 전에 받는 곳·모델·보낼 문장을 보여 주고 확인을 받는다. 회로·파일·프로젝트 정보는 보내지 않으므로 AI 기능이 꺼져 있어도 쓸 수 있다(키나 로그인은 필요). 생각하는 모델도 짧게 답하도록 출력 한도는 1024 토큰. 응답에 키가 들어가지 않는다(`tests/test_ai.py`, e2e `boards.spec.ts`). 실제 공급자로는 아직 눌러 보지 않았다.
+
 ## 검토한 다른 안
 
 | 안 | 판단 |

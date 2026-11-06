@@ -19,7 +19,7 @@ from ai_engine import KeyStoreError
 from ai_engine.keystore import ENV_VARS
 from ai_engine.tasks import datasheet_prompt, pdf_prompt
 from circuit_core.datasheet_checks import check_component
-from circuit_core.datasheet_md import import_datasheet_markdown
+from circuit_core.datasheet_md import import_datasheet_markdown, summary_template
 from circuit_core.datasheet_sources import (
     DatasheetCandidate,
     maker_candidate,
@@ -29,7 +29,7 @@ from circuit_core.datasheet_sources import (
     url_part_name,
 )
 from circuit_core.datasheets import identity
-from circuit_core.export import bom_rows
+from circuit_core.export import bom_rows, natural_key
 from circuit_core.models import Component
 from circuit_core.parts import CATEGORY_LABELS, category_of
 from kicad_adapter import SymbolLibrary, SymbolLibraryError
@@ -241,6 +241,21 @@ def build_datasheet_router(store: ProjectStore, jobs: JobRunner, library: Datash
     @router.get(BOARD + "/datasheets")
     def board_datasheets(project_id: str, board_id: str, proposal_id: str | None = None):
         return board_report(project_id, board_id, proposal_id)
+
+    @router.get(BOARD + "/datasheets/template/{component_id}")
+    def summary_skeleton(project_id: str, board_id: str, component_id: str, proposal_id: str | None = None):
+        """An empty summary MD for one part (maker, part number and pin numbers filled in) to complete from its
+        datasheet by hand or with Copilot, then bring back with 「요약 MD 가져오기」."""
+        circuit, _ = board_circuit(project_id, board_id, proposal_id)
+        comp = next((c for c in (circuit.components if circuit else []) if c.id == component_id), None)
+        if comp is None:
+            raise ApiError(404, "COMPONENT_NOT_FOUND", f"부품 '{component_id}'이(가) 회로에 없습니다.")
+        package = comp.footprint_id.split(":", 1)[-1] if comp.footprint_id else None
+        numbers = sorted({p.number for p in comp.pins}, key=natural_key)
+        text = summary_template(manufacturer=comp.manufacturer, part_number=comp.manufacturer_part_number,
+                                value=comp.value, pins=numbers, package=package)
+        stem = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in (comp.manufacturer_part_number or comp.value))
+        return {"filename": f"{stem or comp.reference}-datasheet-summary.md", "text": text}
 
     @router.post(BOARD + "/datasheets/search", status_code=202)
     def search(project_id: str, board_id: str, body: DatasheetSearchRequest):

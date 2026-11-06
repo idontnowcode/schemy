@@ -104,6 +104,31 @@ def test_upload_summary_and_checks(tmp_path):
     assert client.get(board + "/revisions").json()[-1]["revision"] == 1
 
 
+def test_summary_template_for_a_part(tmp_path):
+    """The empty summary has the part's maker, number and pin numbers - never pin names (the check would compare
+    the symbol with itself) - and an unfilled one does not import."""
+    client, _ = client_with(tmp_path)
+    _, board = can_project(client)
+    t = client.get(board + "/datasheets/template/u1").json()
+    assert t["filename"] == "SN65HVD230DR-datasheet-summary.md"
+    text = t["text"]
+    assert "| 형식 | 데이터시트 요약 MD v0.1 |" in text and "| 제조사 | Texas Instruments |" in text
+    assert "| 품번 | SN65HVD230DR |" in text
+    pin_rows = [line for line in text.splitlines() if line.startswith("| SOIC")]
+    assert [line.split("|")[2].strip() for line in pin_rows] == [str(n) for n in range(1, 9)]
+    assert all(line.split("|")[3].strip() == "" for line in pin_rows)  # names left for the datasheet
+    for name in ("TXD", "CANH", "Rs"):
+        assert f"| {name} |" not in text
+    entry = upload(client)
+    r = client.post(f"/api/datasheets/{entry['id']}/summary", json={"filename": t["filename"], "text": text}).json()
+    assert r["ok"] is False and "NO_PINS" in [i["code"] for i in r["issues"]]
+    # Filled in from the datasheet, it imports.
+    filled = text.replace("| 1 |  |", "| 1 | D |", 1)
+    r = client.post(f"/api/datasheets/{entry['id']}/summary", json={"filename": t["filename"], "text": filled}).json()
+    assert r["ok"] and any(i["code"] == "PIN_NAME_MISSING" for i in r["issues"])
+    assert client.get(board + "/datasheets/template/nope").json()["error_code"] == "COMPONENT_NOT_FOUND"
+
+
 def test_not_a_pdf_and_unknown_ids(tmp_path):
     client, _ = client_with(tmp_path)
     body = {"filename": "a.pdf", "content_base64": base64.b64encode(b"hi").decode()}

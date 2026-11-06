@@ -138,6 +138,20 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
       await load();
     });
 
+  const downloadTemplate = (row: DatasheetComponentRow) =>
+    run("만드는 중…", async () => {
+      const t = await api.datasheetTemplate(projectId, boardId, row.id);
+      const url = URL.createObjectURL(new Blob([t.text], { type: "text/markdown" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = t.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setMessage(
+        `${row.reference}의 요약 틀(${t.filename})을 받았습니다. 핀 이름·정격·외부 부품을 데이터시트에서 옮겨 적고 쪽 번호를 단 뒤 「요약 MD 가져오기」로 넣으세요.`,
+      );
+    });
+
   const copyPrompt = () =>
     run("복사하는 중…", async () => {
       const { text } = await api.prompt("datasheet-summary");
@@ -214,6 +228,7 @@ export function DatasheetsTab({ projectId, boardId, revision }: Props) {
                     onMd={() => chooseMd(row)}
                     onSummarize={() => summarize(row)}
                     onReviewed={() => toggleReviewed(row)}
+                    onTemplate={() => downloadTemplate(row)}
                   />
                   {openRow === row.id && (
                     <tr className="detail-row">
@@ -270,9 +285,10 @@ interface RowProps {
   onMd(): void;
   onSummarize(): void;
   onReviewed(): void;
+  onTemplate(): void;
 }
 
-function ComponentRow({ row, open, busy, aiReady, onToggle, onPdf, onMd, onSummarize, onReviewed }: RowProps) {
+function ComponentRow({ row, open, busy, aiReady, onToggle, onPdf, onMd, onSummarize, onReviewed, onTemplate }: RowProps) {
   const ds = row.datasheet;
   const ident = identityLabel(row.identity);
   const linkable = Boolean(row.manufacturer_part_number) || row.identity === "symbol";
@@ -342,6 +358,10 @@ function ComponentRow({ row, open, busy, aiReady, onToggle, onPdf, onMd, onSumma
               </button>
               <button className="ghost small-btn" onClick={onMd} disabled={busy}>
                 요약 MD 가져오기
+              </button>
+              <button className="ghost small-btn" onClick={onTemplate} disabled={busy}
+                title="이 부품의 제조사·품번·핀 번호를 채운 빈 요약 MD를 받습니다. 나머지는 데이터시트에서 옮겨 적습니다">
+                요약 틀 받기
               </button>
               <button className="ghost small-btn" onClick={onSummarize} disabled={busy || !aiReady}
                 title={aiReady ? "AI가 데이터시트를 요약합니다" : AI_SETUP_HINT}>

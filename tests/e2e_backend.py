@@ -27,13 +27,15 @@ class ScriptedAi:
         self.model = model
 
     def generate(self, *, prompt, attachments=(), json_schema=None, max_output_tokens=8192, temperature=0.0):
-        if "회로 변경을 계획하는 EDA 에이전트" in prompt:
+        if prompt.startswith("Connection test from AI Circuit Studio"):
+            text = "OK"
+        elif "회로 변경을 계획하는 EDA 에이전트" in prompt:
             text = json.dumps(PLAN, ensure_ascii=False)
         elif "승인한 범위 안에서만" in prompt:
             tool, args = STEPS[min(prompt.count("→ <data>"), len(STEPS) - 1)]
             text = json.dumps({"thought": "다음 단계", "tool": tool, "args_json": json.dumps(args)}, ensure_ascii=False)
         else:
-            raise RuntimeError("the e2e fake AI only answers agent prompts")
+            raise RuntimeError("the e2e fake AI only answers agent prompts and the connection test")
         return LlmResult(text=text, model=self.model, usage={"total_token_count": 100}, finish_reason="STOP")
 
     def list_models(self):

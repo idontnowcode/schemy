@@ -155,6 +155,19 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
       setModels((await api.aiModels()).models);
     });
 
+  const testConnection = () =>
+    run(async () => {
+      const p = await api.aiTestPreview();
+      const go = window.confirm(
+        `AI 연결 시험\n\n받는 곳: ${providerLabel(p.provider)} · 모델 ${p.model}\n` +
+          `보내는 것: 고정 문장 한 줄 — "${p.prompt}"\n` +
+          "회로·파일·프로젝트 정보는 보내지 않습니다. 요금제에 따라 아주 적은 사용량이 계산될 수 있습니다.",
+      );
+      if (!go) return;
+      const r = await api.aiTest();
+      setMessage(`연결됨: ${r.model} · ${r.latency_ms} ms · 응답 "${r.reply || "(빈 응답)"}"`);
+    });
+
   if (!status) return <div className="empty">불러오는 중…</div>;
   const k = status.key;
   const claude = status.settings.provider === "claude";
@@ -359,6 +372,10 @@ export function SettingsPage({ system, onError }: { system: SystemInfo | null; o
           </button>
           <button className="ghost" onClick={loadModels} disabled={!k.configured}>
             모델 목록 불러오기
+          </button>
+          <button className="ghost" onClick={testConnection} disabled={!k.configured}
+            title="키·로그인, 모델 이름, 네트워크, 사용 한도를 실제 작업 전에 확인합니다">
+            연결 시험
           </button>
         </div>
         <p className="muted small">

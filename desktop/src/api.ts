@@ -165,6 +165,8 @@ export const api = {
     ),
   suggest: (p: string, b: string) => request<Job>("POST", `${board(p, b)}/inventory-suggest`),
 
+  datasheetTemplate: (p: string, b: string, componentId: string) =>
+    request<{ filename: string; text: string }>("GET", `${board(p, b)}/datasheets/template/${enc(componentId)}`),
   boardDatasheets: (p: string, b: string, proposalId?: string | null) =>
     request<DatasheetReport>("GET", `${board(p, b)}/datasheets${proposalId ? `?proposal_id=${enc(proposalId)}` : ""}`),
   fetchDatasheets: (p: string, b: string, candidates: string[], proposalId?: string | null) =>
@@ -291,6 +293,12 @@ export const api = {
   claudeLogin: () => request<ClaudeLoginStatus>("GET", "/ai/claude/login"),
   startClaudeLogin: () => request<ClaudeLoginStatus & { started: boolean }>("POST", "/ai/claude/login"),
   claudeLogout: () => request<ClaudeLoginStatus>("POST", "/ai/claude/logout"),
+  aiTestPreview: () => request<{ prompt: string; provider: AiProvider; model: string }>("GET", "/ai/test"),
+  aiTest: () =>
+    request<{ ok: boolean; provider: AiProvider; model: string; reply: string; finish_reason: string | null; latency_ms: number }>(
+      "POST",
+      "/ai/test",
+    ),
   aiModels: () =>
     request<{ models: { name: string; display_name: string | null; output_token_limit: number | null }[]; current: string }>(
       "GET",

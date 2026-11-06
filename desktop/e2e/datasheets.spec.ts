@@ -55,6 +55,15 @@ test("upload a datasheet, import its summary and see the checks", async ({ page 
   await expect(page.getByText(/U1: sn65hvd230-test.pdf을\(를\) 저장했습니다 \(품번 확인됨\)/)).toBeVisible();
   await expect(page.getByLabel("데이터시트 찾기")).toHaveCount(0); // nothing left to get
 
+  // An empty summary for U1 to fill in from the datasheet: maker, part number and pin numbers only.
+  const download = page.waitForEvent("download");
+  await u1.getByRole("button", { name: "요약 틀 받기" }).click();
+  const skeleton = await download;
+  expect(skeleton.suggestedFilename()).toBe("SN65HVD230DR-datasheet-summary.md");
+  const skeletonText = readFileSync(await skeleton.path(), "utf-8");
+  expect(skeletonText).toContain("| 품번 | SN65HVD230DR |");
+  expect(skeletonText).not.toContain("| CANH |");
+
   // Import the summary Markdown: the checks appear.
   chooser = page.waitForEvent("filechooser");
   await u1.getByRole("button", { name: "요약 MD 가져오기" }).click();

@@ -87,6 +87,7 @@ test("AI buttons stay off until AI is enabled with a key", async ({ page }) => {
   await page.getByRole("button", { name: "설정" }).click();
   await expect(page.getByLabel("AI 기능 사용")).not.toBeChecked();
   await expect(page.getByLabel("AI 모델")).toHaveValue("gemini-flash-latest");
+  await expect(page.getByRole("button", { name: "연결 시험" })).toBeDisabled(); // no key yet
   // Claude: its default model, and a login button (disabled with an install hint when the `ant` CLI is missing).
   await page.getByRole("radio", { name: "Anthropic Claude API" }).click();
   await expect(page.getByLabel("AI 모델")).toHaveValue("claude-opus-5-5");
@@ -101,4 +102,20 @@ test("AI buttons stay off until AI is enabled with a key", async ({ page }) => {
   await expect(page.getByLabel("Gemini API 키")).toHaveCount(0);
   await page.getByRole("radio", { name: "Google Gemini API" }).click();
   await expect(page.getByLabel("AI 모델")).toHaveValue("gemini-flash-latest");
+});
+
+test("connection test sends one fixed line and shows the answer", async ({ page }) => {
+  backend = await startBackend(tempWorkspace(), { fakeAi: true });
+  await page.goto(backend.url);
+  await page.getByRole("button", { name: "설정" }).click();
+  let asked = "";
+  page.once("dialog", (d) => {
+    asked = d.message();
+    void d.accept();
+  });
+  await page.getByRole("button", { name: "연결 시험" }).click();
+  await expect(page.getByRole("status")).toContainText('연결됨: gemini-flash-latest');
+  await expect(page.getByRole("status")).toContainText('응답 "OK"');
+  expect(asked).toContain("보내는 것: 고정 문장 한 줄");
+  expect(asked).toContain("회로·파일·프로젝트 정보는 보내지 않습니다");
 });

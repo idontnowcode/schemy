@@ -64,6 +64,8 @@
 
 BOM 재고·가격 조회(2026-11): 같은 유통사 키로 「문서 · BOM」 탭에서 **유통사 재고·가격 조회**를 할 수 있다. MPN이 있는 BOM 줄만, 품번만 보낸다(job). 줄마다 유통사별 재고(수량), 가장 작은 수량 구간의 단가, 수명 상태(Active·NRND·Obsolete 등), 제품 페이지를 보여 주고, 재고가 필요 수량보다 적거나 단종·생산 종료·신규 설계 비추천이면 「확인할 점」에 적는다. 결과는 보드 폴더 `bom_availability.json`에 revision과 조회 시각과 함께 남고, 회로가 바뀌면 다시 조회하라고 알린다. 쓰는 필드: Mouser `PriceBreaks[{Quantity, Price, Currency}]`·`AvailabilityInStock`·`Availability`·`LifecycleStatus`·`IsDiscontinued`·`MouserPartNumber`, DigiKey `QuantityAvailable`·`UnitPrice`·`ProductStatus.Status`·`Discontinued`·`EndOfLife`(위 명세와 같은 문서). 가격은 조회 시점 값이고 주문 전에 유통사 페이지에서 다시 확인해야 한다. 실제 키로는 호출하지 않았다(가짜 서버로 시험).
 
+요약 틀(2026-11): 「데이터시트」 탭의 **요약 틀 받기**는 그 부품의 제조사·품번과 회로의 핀 번호, 풋프린트 이름만 채운 빈 요약 MD를 내려 준다. 핀 이름·정격·쪽 번호는 비워 둔다. KiCad 심볼의 핀 이름을 채우면 핀 대조가 심볼을 자기 자신과 비교하게 되기 때문이다. 이름이 빈 핀 행은 가져올 때 건너뛰고 알리므로(`PIN_NAME_MISSING`), 채우지 않은 틀은 「핀 없음」으로 가져오지 않는다.
+
 출처:
 - Mouser API Swagger: https://api.mouser.com/api/docs/v1 (UI: https://api.mouser.com/api/docs/ui/index)
 - DigiKey Product Information v4 KeywordSearch: https://developer.digikey.com/products/product-information-v4/productsearch/keywordsearch

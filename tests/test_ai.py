@@ -100,6 +100,24 @@ def test_ai_is_off_by_default_and_key_is_never_returned(tmp_path):
     assert client.delete("/api/ai/key").json()["key"]["configured"] is False
 
 
+def test_connection_test_sends_only_a_fixed_line(tmp_path):
+    client, created = ai_client(tmp_path, reply="OK")
+    assert client.post("/api/ai/test").json()["error_code"] == "AI_NO_KEY"
+    client.put("/api/ai/key", json={"api_key": "AIza-test-key-123456"})
+    preview = client.get("/api/ai/test").json()
+    assert preview["provider"] == "gemini" and "OK" in preview["prompt"] and preview["key"]["configured"]
+    r = client.post("/api/ai/test").json()  # AI features still off: the test works, nothing of the user's is sent
+    assert r["ok"] and r["reply"] == "OK" and r["model"] == preview["model"] and r["latency_ms"] >= 0
+    fake = next(c for c in created if isinstance(c, FakeProvider))
+    assert [c["prompt"] for c in fake.calls] == [preview["prompt"]] and fake.calls[0]["attachments"] == []
+    assert "AIza-test-key-123456" not in json.dumps(r)
+
+    failing, _ = ai_client(tmp_path / "x", reply=AiError("AI_AUTH_FAILED", "API key not valid", "키를 확인하세요."))
+    failing.put("/api/ai/key", json={"api_key": "AIza-wrong-key-123456"})
+    bad = failing.post("/api/ai/test")
+    assert bad.status_code == 401 and bad.json()["error_code"] == "AI_AUTH_FAILED"
+
+
 def test_keyring_unavailable_points_to_env_var(tmp_path):
     client, _ = ai_client(tmp_path, keystore=MemoryKeyStore(available=False))
     r = client.put("/api/ai/key", json={"api_key": "AIza-test-key-123456"})
