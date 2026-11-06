@@ -1129,3 +1129,49 @@ export interface NotePage {
   markdown: string;
   history: { at: string; event: string; by: string }[];
 }
+
+// --- AI performance evaluation ---------------------------------------------------------
+
+export type EvalSuite = "design" | "review" | "notes";
+
+export interface EvalCases {
+  design: { id: string; title: string; example: string; checks: string[] }[];
+  review: { id: string; title: string; example: string }[];
+  notes: { id: string; example: string }[];
+  calls_per_repeat: Record<EvalSuite, number>;
+  provider: AiProvider;
+  model: string;
+  enabled: boolean;
+  kicad: boolean;
+  metrics: Record<string, string>;
+}
+
+export type EvalSummary = Record<string, Record<string, number | null>>;
+
+export interface EvalRunInfo {
+  id: string;
+  created_at: string;
+  provider: string;
+  model: string;
+  suites: EvalSuite[];
+  repeats: number;
+  summary: EvalSummary;
+  app_version: string;
+  kicad: boolean;
+}
+
+export interface EvalChange {
+  key: string;
+  label: string;
+  kind: "rate" | "count" | "number";
+  new: number | null;
+  old: number | null;
+  better: boolean | null;
+}
+
+export interface EvalRunPage {
+  run: EvalRunInfo & { results: Record<string, unknown>[] };
+  previous_id: string | null;
+  changes: EvalChange[];
+  markdown: string;
+}

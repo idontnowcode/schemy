@@ -18,7 +18,7 @@
 | Phase 2 이후 개선 | ✅ 완료 | AI 출력 한국어, 검토 반영 수정안, 읽기 쉬운 회로도(블록 배치·전원 심볼·직접 배선), Claude 공급자 ([회로도 예](docs/images/schematic-auto-layout.png)) |
 | Phase 3 — 엔지니어링 템플릿 | ✅ 완료 | 다중 유닛 심볼, 검토된 회로 템플릿 4종, AI 설계의 템플릿 우선 사용, 엔지니어 검토 기록 ([보고서](docs/phase3-report.md)) |
 | Phase 4 — 제한된 AI EDA Agent | ✅ 완료 | 계획(dry-run) → 범위 승인 → 허용 도구만 쓰는 격리 실행 → 코드 검증 → 제안 → 승인 ([보고서](docs/phase4-report.md)) |
-| Phase 4 이후 개선 | ✅ 완료 | 회로도 영문 주석, 레귤레이터·크리스탈 블록, KiCad에서 고친 배치·연결·값·부품 가져오기, Windows 설치 파일, 선택 근거 기록·기술 검토·근거 리포트, 쌓이는 설계 가이드 ([ADR-009](docs/adr/ADR-009-schematic-notes-and-compact-blocks.md)~[ADR-013](docs/adr/ADR-013-design-guide.md), 연구노트 [ADR-015](docs/adr/ADR-015-research-notes.md)) |
+| Phase 4 이후 개선 | ✅ 완료 | 회로도 영문 주석, 레귤레이터·크리스탈 블록, KiCad에서 고친 배치·연결·값·부품 가져오기, Windows 설치 파일, 선택 근거 기록·기술 검토·근거 리포트, 쌓이는 설계 가이드 ([ADR-009](docs/adr/ADR-009-schematic-notes-and-compact-blocks.md)~[ADR-013](docs/adr/ADR-013-design-guide.md), 연구노트 [ADR-015](docs/adr/ADR-015-research-notes.md), AI 성능 평가 [ADR-016](docs/adr/ADR-016-ai-evaluation.md)) |
 | Phase 5 — PCB·시뮬레이션·펌웨어 | 제안 | 기능마다 검증 방법과 순서를 [ADR-014](docs/adr/ADR-014-phase5-verification-first.md)(제안)로 정리, 승인 후 착수 |
 
 ## 지금 할 수 있는 것
@@ -44,6 +44,9 @@
   - 「검토」 탭의 **AI로 연구노트 쓰기**, 또는 「제안」 탭의 AI 검토에서 **AI 검토 때 연구노트도 쓰기**(기본 켜짐)로 AI가 초안을 씁니다.
   - 노트는 요약·배경·확인한 것(방법과 결과)·배운 점·다음에 적용할 것·열린 질문으로 나뉩니다. AI는 앱이 계산·확인한 근거(기술 검토, 데이터시트 대조와 쪽 번호, 설계 지침, 설계 결정, KiCad 검사, AI 검토)에 번호를 붙여 인용하고, 근거 없는 문장은 「일반 지식, 확인 필요」로 표시됩니다.
   - 사람이 읽고 **검토함으로 표시**하거나 고칩니다(고친 줄은 사람 표시, 버전 이력). 다음에 적용할 것은 **지침 후보로** 설계 가이드에 넘깁니다. 사람이 직접 쓸 수도 있고, 사이드바 **연구노트**에서 모든 프로젝트의 노트를 검색하고 Markdown으로 내려받습니다.
+- **AI 성능 평가.** 사이드바 **AI 성능 평가**에서 지금 고른 AI(공급자·모델)를 같은 시험으로 잽니다([ADR-016](docs/adr/ADR-016-ai-evaluation.md)).
+  - 설계: 예제 요구사항으로 설계 → 완성률, 요구 충족률(사례별 검사), IR 오류, KiCad 검사, 기술 검토 실패, 근거 기록률. 검토: 예제에 심은 결함 5개 탐지율과 깨끗한 회로의 잘못된 오류 지적(앱 계산 검토와 비교). 연구노트: 근거 인용률, 없는 근거 번호, 근거 없는 쪽 번호.
+  - 채점은 모두 코드가 하고, 예제 보드만 보냅니다. 호출 수·토큰·시간도 기록하고, 이전 평가와 지표별로 비교한 보고서를 내려받을 수 있습니다.
 - **제한된 AI Agent.** 「Agent」 탭에 변경을 요청하면 AI가 먼저 계획과 변경 범위(연산·대상)만 제안합니다. 범위를 승인하면 허용된 EDA 도구(회로 읽기·검증·patch·회로도 생성·ERC·Netlist 비교)만으로 격리된 폴더에서 실행하고, 앱이 코드로 다시 검증한 뒤 결과를 제안으로 올립니다. 호출 수·토큰·시간 상한이 있고 모든 단계가 기록됩니다.
 - **프로젝트 → 보드(A, B, …) → 페이지.** 보드 하나가 회로 하나, revision 이력 하나, KiCad 프로젝트 하나입니다. 보드 안의 회로는 여러 페이지로 나눌 수 있고, 페이지를 오가는 Net은 자동으로 연결됩니다.
 - **회로 편집과 검사.** Circuit IR(JSON)을 넣거나 편집하면 규칙 검사와 KiCad 라이브러리 핀 대조를 하고, 저장할 때마다 revision을 남깁니다.
@@ -197,6 +200,7 @@ uv run aics report examples/lm7805-24v-to-5v/circuit.json \
                            #   유통사 검색으로 찾은 링크(candidates.json)
   guides/                  # 설계 가이드 (모든 프로젝트 공통): guides.json, 변경·사용 이력(history.jsonl), AI 기록(ai_runs/)
   notes/                   # 연구노트 (모든 프로젝트 공통): notes.json, 작성·수정·검토 이력(history.jsonl), AI 기록(ai_runs/)
+  evals/runs/              # AI 성능 평가 기록: 실행마다 설정·사례별 결과·요약(<id>.json)
   projects/<project-id>/
     project.json           # 이름, 보드 순서
     requirements.md

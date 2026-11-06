@@ -33,6 +33,12 @@ _LED_VF = [("RED", (1.8, 2.2)), ("ORANGE", (1.9, 2.2)), ("YELLOW", (1.9, 2.2)), 
 _POWER_PINS = re.compile(r"^(VCC|VDD|AVCC|AVDD|DVDD|VDDA|VDDIO|V\+|VS|VBAT|VIN|VI|IN|VM|VMOT|VBB)$", re.I)
 _IN_PINS = re.compile(r"^(IN|VI|VIN)$", re.I)
 _OUT_PINS = re.compile(r"^(OUT|VO|VOUT)$", re.I)
+DECOUPLING_MAX_F = 1e-6
+"""Largest capacitor counted as an IC's decoupling capacitor (a 100 nF-1 µF ceramic); bigger ones are bulk."""
+
+
+def _farad(comp: Component) -> float | None:
+    return parse_value(comp.value)
 _SUPPLY_NAME = re.compile(r"PWR|POWER|SUPPLY|VIN|VCC|VDD|VBAT|VBUS|V\+|^\+", re.I)
 _I2C = re.compile(r"(^|_)(I2C\d?_)?(SDA|SCL)\d?($|_)", re.I)
 # Regulator families: (pattern on the value, typical dropout V, maximum output current A). Series values.
@@ -297,6 +303,18 @@ def _leds(b: _Board) -> list[Finding]:
                     continue
                 v_far, bound = max(supplies), f" (구동 IC 전원 {max(supplies):g} V를 출력 최대값으로 가정)"
             v_hi, v_lo = (v_far, other_v) if at_anode else (other_v, v_far)
+            (vf_lo, _), _ = _vf(comp)
+            if bound:
+                # Driven by an IC pin (0 V .. its supply): if no output level can light the LED but the reverse
+                # would, it is turned the wrong way (e.g. anode on GND, cathode to the output through a resistor).
+                lights = (v_far - other_v > vf_lo) if at_anode else (other_v - 0.0 > vf_lo)
+                reversed_lights = (other_v - 0.0 > vf_lo) if at_anode else (v_far - other_v > vf_lo)
+                if not lights and reversed_lights:
+                    out.append(Finding("led_direction", "fail", f"{name}: 방향 반대",
+                                       f"구동 IC 출력(0~{v_far:g} V)으로는 켜질 수 없고, 반대로 달면 켜집니다 "
+                                       f"({'애노드' if not at_anode else '캐소드'}가 {other_v:g} V, {r.reference} 거쳐 IC 출력).",
+                                       None, (comp.id, r.id)))
+                    break
             if not bound:  # both ends known: the direction can be judged through the resistor
                 if v_hi < v_lo:
                     out.append(Finding("led_direction", "fail", f"{name}: 방향 반대",
@@ -676,15 +694,47 @@ def _decoupling(b: _Board) -> list[Finding]:
             pins += b.pins_named(comp, _OUT_PINS)
         rails = sorted({n for p in pins if (n := b.net_of.get((comp.id, p))) and not is_ground_name(n)})
         for rail in rails:
-            near = [c for c in caps if rail in b.two_nets(c) and any(is_ground_name(n) for n in b.two_nets(c) if n)]
-            refs = ", ".join(sorted((c.reference for c in near), key=natural_key))
+            on_rail = [c for c in caps if rail in b.two_nets(c) and any(is_ground_name(n) for n in b.two_nets(c) if n)]
+            near = on_rail
             what = "입출력 콘덴서" if kind == "linreg" else "디커플링 콘덴서"
+            if kind != "linreg":  # decoupling is a small ceramic by the pin; a bulk capacitor elsewhere does not count
+                near = [c for c in on_rail if _kind(c) == "c" and (_farad(c) is None or _farad(c) <= DECOUPLING_MAX_F)]
+                bulk = [c for c in on_rail if c not in near]
+                if bulk and not near:
+                    refs = ", ".join(f"{c.reference} {c.value}" for c in sorted(bulk, key=lambda c: natural_key(c.reference)))
+                    out.append(Finding("decoupling", "warn", f"{comp.reference} {rail}: 디커플링 콘덴서 없음 (벌크 {refs}만)",
+                                       "벌크 콘덴서는 전원 입력을 받쳐 주지만, IC 전원 핀 옆의 작은 세라믹(보통 100 nF)을 대신하지 "
+                                       "못합니다. 데이터시트 응용 회로를 확인하세요.", None, (comp.id, *(c.id for c in bulk))))
+                    continue
+            refs = ", ".join(sorted((c.reference for c in near), key=natural_key))
             if near:
                 out.append(Finding("decoupling", "ok", f"{comp.reference} {rail}: {what} 있음 ({refs})",
                                    "핀 가까이 배치하는지는 PCB에서 확인하세요.", None, (comp.id, *(c.id for c in near))))
             else:
                 out.append(Finding("decoupling", "warn", f"{comp.reference} {rail}: {what} 없음",
                                    f"{rail}과 GND 사이 콘덴서가 없습니다. 데이터시트 응용 회로를 확인하세요.", None, (comp.id,)))
+    return out
+
+
+_GROUND_PINS = re.compile(r"^(GND|AGND|DGND|PGND|VSS|VEE|V-|EP|PAD|EPAD|THERMAL)$", re.I)
+
+
+def _power_pins_open(b: _Board) -> list[Finding]:
+    """An IC supply or ground pin on no net (and not marked no-connect): the part cannot work."""
+    out = []
+    for comp in b.c.components:
+        if len(comp.pins) < 3 or comp.reference.startswith(("J", "P", "CN", "X")):
+            continue
+        open_pins = [p for p in comp.pins if not p.no_connect and (comp.id, p.number) not in b.net_of
+                     and (_POWER_PINS.match(p.name or "") or _GROUND_PINS.match(p.name or ""))]
+        if not open_pins:
+            continue
+        ground = [p for p in open_pins if _GROUND_PINS.match(p.name or "")]
+        what = "접지 핀" if len(ground) == len(open_pins) else "전원·접지 핀"
+        pins = ", ".join(f"{p.number}({p.name})" for p in open_pins)
+        out.append(Finding("power_pin_open", "fail", f"{comp.reference} ({comp.value}): {what} 연결 안 됨",
+                           f"핀 {pins}이 어느 Net에도 없습니다. 노출 패드·여러 GND 핀은 모두 연결해야 하는 경우가 많습니다. "
+                           f"데이터시트 핀 설명을 확인하세요.", None, (comp.id,)))
     return out
 
 
@@ -743,7 +793,8 @@ def engineering_review(circuit: CircuitIR) -> list[Finding]:
     leds = _leds(b)
     seen = {c for f in leds if f.rule == "r_power" for c in f.components}
     findings = (_capacitors(b) + leds + _resistors_across_rails(b, seen) + _regulators(b) + _diodes(b) + _decoupling(b)
-                + _i2c_pullups(b) + _crystals(b) + _motor_drivers(b) + _fuses(b) + _unknown_rails(b))
+                + _i2c_pullups(b) + _crystals(b) + _motor_drivers(b) + _fuses(b) + _power_pins_open(b)
+                + _unknown_rails(b))
     return sorted(findings, key=lambda f: (ORDER[f.severity], f.rule, f.title))
 
 

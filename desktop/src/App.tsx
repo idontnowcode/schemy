@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorText } from "./api";
 import { DatasheetLibraryPage } from "./components/DatasheetLibraryPage";
 import { GuidesPage } from "./components/Guides";
+import { EvalPage } from "./components/EvalPage";
 import { NotesPage } from "./components/Notes";
 import { InventoryPage } from "./components/InventoryPage";
 import { isTab, ProjectView, type TabId } from "./components/ProjectView";
@@ -139,6 +140,8 @@ export function App() {
           <GuidesPage onError={setError} />
         ) : view === "notes" ? (
           <NotesPage onError={setError} />
+        ) : view === "evals" ? (
+          <EvalPage onError={setError} />
         ) : view === "settings" ? (
           <SettingsPage system={system} onError={setError} />
         ) : current && currentBoard ? (

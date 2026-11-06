@@ -31,6 +31,10 @@ import type {
   GuideStatus,
   DesignPreview,
   EngineeringReview,
+  EvalCases,
+  EvalRunInfo,
+  EvalRunPage,
+  EvalSuite,
   Example,
   InventoryApplyResult,
   InventoryImportResult,
@@ -296,6 +300,14 @@ export const api = {
   claudeLogin: () => request<ClaudeLoginStatus>("GET", "/ai/claude/login"),
   startClaudeLogin: () => request<ClaudeLoginStatus & { started: boolean }>("POST", "/ai/claude/login"),
   claudeLogout: () => request<ClaudeLoginStatus>("POST", "/ai/claude/logout"),
+  evalCases: () => request<EvalCases>("GET", "/evals/cases"),
+  startEval: (suites: EvalSuite[], repeats: number, cases?: string[]) => request<Job>("POST", "/evals/runs", { suites, repeats, cases: cases ?? null }),
+  evalProgress: (jobId: string) => request<{ done: number; total: number; current: string | null; run_id?: string }>("GET", `/evals/progress/${enc(jobId)}`),
+  evalRuns: () => request<{ runs: EvalRunInfo[] }>("GET", "/evals/runs"),
+  evalRun: (id: string, compareTo?: string) =>
+    request<EvalRunPage>("GET", `/evals/runs/${enc(id)}${compareTo ? `?compare_to=${enc(compareTo)}` : ""}`),
+  evalReport: (id: string) => fetchText(`/api/evals/runs/${enc(id)}/report.md`),
+  deleteEvalRun: (id: string) => request<void>("DELETE", `/evals/runs/${enc(id)}`),
   notes: (filters: { project_id?: string; board_id?: string; status?: string; q?: string } = {}) => {
     const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]).toString();
     return request<{ notes: NoteSummary[]; topics: Record<string, string> }>("GET", `/notes${qs ? `?${qs}` : ""}`);

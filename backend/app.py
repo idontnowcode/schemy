@@ -33,8 +33,9 @@ from .agent.runner import AgentRunner
 from .ai_access import AiAccess
 from .config import APP_VERSION, Settings
 from .datasheets import DatasheetLibrary
-from .design_resolver import symbol_index
+from .design_resolver import PartResolver, symbol_index
 from .errors import ApiError, issue_dict, not_found
+from .evals import EvalRunner
 from .exports import external_edit_error, output_path, outputs_status, run_export
 from .guides import GuideLibrary
 from .inventory_store import InventoryStore
@@ -46,6 +47,7 @@ from .reviews import ReviewStore
 from .routes_ai import build_ai_router
 from .routes_datasheets import build_datasheet_router
 from .routes_design import build_design_router, proposal_evidence_text
+from .routes_evals import build_eval_router
 from .routes_guides import board_checklist, build_guide_router
 from .routes_inventory import build_inventory_router
 from .routes_layout import build_layout_router
@@ -445,6 +447,16 @@ def create_app(settings: Settings) -> FastAPI:
                                            note_writer=note_writer))
     app.include_router(build_guide_router(store, jobs, proposals, guides, settings))
     app.include_router(build_note_router(store, jobs, proposals, notes, guides, settings, note_writer))
+    index_path = settings.workspace / "cache" / "symbol_index.json"
+    eval_runner = EvalRunner(
+        settings.workspace, examples_dir=settings.examples_dir, symbol_dirs=settings.symbol_dirs,
+        resolver_factory=lambda lib: PartResolver(lib, symbol_index(settings.symbol_dirs, index_path), None,
+                                                  datasheets),
+        kicad_factory=settings.kicad_factory,
+        guides_text=lambda circuit, text: guide_prompt_text(relevant(guides.entries(), circuit=circuit, text=text,
+                                                                     text_topics=True)))
+    app.state.eval_runner = eval_runner
+    app.include_router(build_eval_router(store, jobs, settings, eval_runner))
 
     # --- desktop UI ---------------------------------------------------------------------
 
