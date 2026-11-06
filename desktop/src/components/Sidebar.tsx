@@ -3,7 +3,7 @@ import { useState } from "react";
 import { formatTime } from "../format";
 import type { ProjectSummary, SystemInfo } from "../types";
 
-export type View = "projects" | "inventory" | "datasheets" | "guides" | "settings";
+export type View = "projects" | "inventory" | "datasheets" | "guides" | "notes" | "settings";
 
 interface Props {
   projects: ProjectSummary[];
@@ -77,6 +77,9 @@ export function Sidebar({ projects, selected, system, ready, view, onView, onSel
         </button>
         <button className={`side-link ${view === "guides" ? "active" : ""}`} onClick={() => onView("guides")}>
           설계 가이드
+        </button>
+        <button className={`side-link ${view === "notes" ? "active" : ""}`} onClick={() => onView("notes")}>
+          연구노트
         </button>
         <button className={`side-link ${view === "settings" ? "active" : ""}`} onClick={() => onView("settings")}>
           설정

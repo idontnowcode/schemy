@@ -1083,3 +1083,66 @@ label.block {
   flex-wrap: wrap;
   gap: 4px 12px;
 }
+
+/* research notes (연구노트) */
+.notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.note-card.selected {
+  border-color: var(--accent, #3b82f6);
+}
+
+.note-title {
+  font-weight: 600;
+  text-align: left;
+}
+
+.note-view {
+  margin-top: 8px;
+}
+
+.note-view .markdown {
+  margin-top: 6px;
+}
+
+.note-apply ul,
+.note-rows {
+  padding-left: 18px;
+}
+
+.note-rows li {
+  margin: 4px 0;
+}
+
+.note-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.note-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.note-editor .topic-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: none;
+  padding: 0;
+}
+
+.note-editor .topic-picks label {
+  flex-direction: row;
+  align-items: center;
+}
+
+button.danger {
+  color: var(--bad);
+}

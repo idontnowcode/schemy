@@ -1040,3 +1040,92 @@ export interface GuideChecklist {
   candidates: number;
   ai_applied: string[];
 }
+
+// --- research notes (연구노트) ---------------------------------------------------------
+
+export type NoteAuthor = "ai" | "person";
+
+export interface NoteEvidence {
+  id: string;
+  kind: string;
+  text: string;
+}
+
+export interface NoteLine {
+  text: string;
+  evidence: string[];
+  by: NoteAuthor;
+}
+
+export interface NoteCheck {
+  what: string;
+  how: string;
+  result: string;
+  status: "ok" | "issue" | "unknown";
+  evidence: string[];
+  by: NoteAuthor;
+}
+
+export interface NoteApply extends NoteLine {
+  why: string;
+  guide_id: string | null;
+}
+
+export interface NoteDraft {
+  title: string;
+  summary: string;
+  background: string;
+  parts: string[];
+  topics: string[];
+  checks: NoteCheck[];
+  learnings: NoteLine[];
+  apply_next: NoteApply[];
+  open_questions: NoteLine[];
+}
+
+export interface NoteContext {
+  project_id: string | null;
+  project_name: string | null;
+  board_id: string | null;
+  board_name: string | null;
+  revision: number | null;
+  proposal_id: string | null;
+}
+
+export interface ResearchNote extends NoteDraft {
+  id: string;
+  status: "draft" | "reviewed";
+  author_kind: NoteAuthor;
+  written_by: string;
+  created_at: string;
+  updated_at: string;
+  version: number;
+  edited_by: string[];
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  context: NoteContext;
+  evidence: NoteEvidence[];
+}
+
+export interface NoteSummary {
+  id: string;
+  title: string;
+  summary: string;
+  status: "draft" | "reviewed";
+  author_kind: NoteAuthor;
+  written_by: string;
+  reviewed_by: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+  parts: string[];
+  topics: string[];
+  context: NoteContext;
+  counts: { checks: number; learnings: number; apply_next: number; open_questions: number };
+}
+
+export interface NotePage {
+  note: ResearchNote;
+  markdown: string;
+  history: { at: string; event: string; by: string }[];
+}

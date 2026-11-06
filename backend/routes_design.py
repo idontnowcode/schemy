@@ -50,6 +50,8 @@ class DesignBody(_Model):
 
 class ReviewBody(_Model):
     proposal_id: str | None = None
+    write_note: bool = False
+    """Also write a research note (연구노트) from this review: a second AI call, saved as a draft."""
 
 
 class ReviseBody(_Model):
@@ -131,7 +133,8 @@ def _pins_of(lib: SymbolLibrary):
 
 
 def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalService, inventory: InventoryStore,
-                        datasheets: DatasheetLibrary, settings: Settings, guides: GuideLibrary | None = None) -> APIRouter:
+                        datasheets: DatasheetLibrary, settings: Settings, guides: GuideLibrary | None = None,
+                        note_writer=None) -> APIRouter:
     router = APIRouter()
     access = AiAccess(store, settings)
     proposals = service.proposals
@@ -425,7 +428,16 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                              json.dumps({**result, "revision": revision}, ensure_ascii=False, indent=2) + "\n")
             record.update(status="succeeded", usage=call.usage, output={"findings": len(result["findings"])})
             save_run(project_id, board_id, record)
-            return {"review": result, "proposal_id": body.proposal_id}
+            out = {"review": result, "proposal_id": body.proposal_id}
+            if body.write_note and note_writer is not None:
+                # The research note is written from the same evidence plus this review (a second call).
+                try:
+                    note = note_writer(cfg, provider, project_id, board_id, body.proposal_id, job_id=job_id,
+                                       review=result)
+                    out["note"] = {"id": note.id, "title": note.title}
+                except ApiError as exc:  # the review is kept even when the note fails
+                    out["note_error"] = {"error_code": exc.error_code, "message": exc.message}
+            return out
 
         return jobs.submit(project_id, "ai_review", run, board_id=board_id)
 

@@ -27,7 +27,7 @@ export function savedName(): string {
   }
 }
 
-function saveName(name: string): void {
+export function saveName(name: string): void {
   try {
     window.localStorage.setItem(NAME_KEY, name);
   } catch {

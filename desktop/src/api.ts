@@ -38,6 +38,9 @@ import type {
   InventoryMatch,
   Job,
   MarkdownImportResult,
+  NoteDraft,
+  NotePage,
+  NoteSummary,
   QuickFix,
   QuickFixOption,
   OutputsStatus,
@@ -238,8 +241,8 @@ export const api = {
   designPreview: (p: string, b: string) => request<DesignPreview>("GET", `${board(p, b)}/ai/design/preview`),
   design: (p: string, b: string, body: { instructions?: string; use_inventory: boolean; review: boolean }) =>
     request<Job>("POST", `${board(p, b)}/ai/design`, body),
-  aiReview: (p: string, b: string, proposalId?: string) =>
-    request<Job>("POST", `${board(p, b)}/ai/review`, { proposal_id: proposalId ?? null }),
+  aiReview: (p: string, b: string, proposalId?: string, writeNote = false) =>
+    request<Job>("POST", `${board(p, b)}/ai/review`, { proposal_id: proposalId ?? null, write_note: writeNote }),
   boardReview: (p: string, b: string) => request<{ review: BoardReview | null }>("GET", `${board(p, b)}/ai/review`),
   revisePreview: (p: string, b: string, proposalId?: string | null) =>
     request<RevisionInputs>("GET", `${board(p, b)}/ai/revise/preview${proposalId ? `?proposal_id=${enc(proposalId)}` : ""}`),
@@ -293,6 +296,28 @@ export const api = {
   claudeLogin: () => request<ClaudeLoginStatus>("GET", "/ai/claude/login"),
   startClaudeLogin: () => request<ClaudeLoginStatus & { started: boolean }>("POST", "/ai/claude/login"),
   claudeLogout: () => request<ClaudeLoginStatus>("POST", "/ai/claude/logout"),
+  notes: (filters: { project_id?: string; board_id?: string; status?: string; q?: string } = {}) => {
+    const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]).toString();
+    return request<{ notes: NoteSummary[]; topics: Record<string, string> }>("GET", `/notes${qs ? `?${qs}` : ""}`);
+  },
+  note: (id: string) => request<NotePage>("GET", `/notes/${enc(id)}`),
+  createNote: (body: { draft: Partial<NoteDraft> & { title: string }; by: string; project_id?: string; board_id?: string; revision?: number | null }) =>
+    request<NotePage>("POST", "/notes", body),
+  editNote: (id: string, draft: NoteDraft, by: string) => request<NotePage>("PUT", `/notes/${enc(id)}`, { draft, by }),
+  reviewNote: (id: string, by: string, reviewed = true) => request<NotePage>("POST", `/notes/${enc(id)}/review`, { by, reviewed }),
+  deleteNote: (id: string, by: string) => request<void>("DELETE", `/notes/${enc(id)}?by=${enc(by)}`),
+  noteToGuide: (id: string, index: number, by: string) =>
+    request<NotePage & { guide: GuideEntry }>("POST", `/notes/${enc(id)}/apply/${index}/guide`, { by }),
+  noteMarkdown: (id: string) => fetchText(`/api/notes/${enc(id)}/markdown`),
+  notesMarkdown: () => fetchText("/api/notes-export.md"),
+  boardNotes: (p: string, b: string) => request<{ notes: NoteSummary[]; topics: Record<string, string> }>("GET", `${board(p, b)}/notes`),
+  notePreview: (p: string, b: string, proposalId?: string | null) =>
+    request<{ provider: AiProvider; model: string; enabled: boolean; revision: number | null; circuit_chars: number; evidence: number; evidence_kinds: Record<string, number> }>(
+      "GET",
+      `${board(p, b)}/notes/preview${proposalId ? `?proposal_id=${enc(proposalId)}` : ""}`,
+    ),
+  aiNote: (p: string, b: string, proposalId?: string | null, focus = "") =>
+    request<Job>("POST", `${board(p, b)}/notes/ai`, { proposal_id: proposalId ?? null, focus }),
   aiTestPreview: () => request<{ prompt: string; provider: AiProvider; model: string }>("GET", "/ai/test"),
   aiTest: () =>
     request<{ ok: boolean; provider: AiProvider; model: string; reply: string; finish_reason: string | null; latency_ms: number }>(
@@ -305,6 +330,13 @@ export const api = {
       "/ai/models",
     ),
 };
+
+/** A text download from the API (Markdown exports) with the token. */
+async function fetchText(path: string): Promise<string> {
+  const res = await fetch(path, { headers: authHeaders() });
+  if (!res.ok) throw new ApiError(res.status, toErrorBody(await res.text(), res.status));
+  return res.text();
+}
 
 /** Poll a job until it finishes. */
 export async function waitForJob(jobId: string, onUpdate?: (job: Job) => void, intervalMs = 600): Promise<Job> {

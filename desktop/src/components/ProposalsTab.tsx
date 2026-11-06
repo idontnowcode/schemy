@@ -23,6 +23,8 @@ import { emptyDraft, GuideChecklistPanel, savedName, saveFindingAsGuide } from "
 import { IssueList } from "./IssueList";
 import { TemplateEvidence } from "./TemplatesTab";
 
+const WRITE_NOTE_KEY = "aics.reviewWritesNote";
+
 interface Props {
   projectId: string;
   boardId: string;
@@ -45,6 +47,21 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
   const [detail, setDetail] = useState<Proposal | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [writeNote, setWriteNoteState] = useState(() => {
+    try {
+      return window.localStorage.getItem(WRITE_NOTE_KEY) !== "no";
+    } catch {
+      return true;
+    }
+  });
+  const setWriteNote = (on: boolean) => {
+    setWriteNoteState(on);
+    try {
+      window.localStorage.setItem(WRITE_NOTE_KEY, on ? "yes" : "no");
+    } catch {
+      /* per-viewer convenience only */
+    }
+  };
   const [ai, setAi] = useState<AiStatus | null>(null);
   const [boardReview, setBoardReview] = useState<BoardReview | null>(null);
   const aiReady = Boolean(ai?.settings.enabled && ai.key.configured);
@@ -151,12 +168,16 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
 
   const jobError = (job: Job) => (job.error ? `[${job.error.error_code}] ${job.error.message}` : "실패했습니다.");
 
+  const noteLine = "\n연구노트: 검토 결과와 앱이 찾은 근거(계산·데이터시트·설계 결정)로 노트 초안도 씁니다(AI 호출 1회 추가)";
+  const noteResult = (r: { note?: { id: string }; note_error?: { message: string } }) =>
+    r.note ? ` 연구노트 ${r.note.id}(초안)도 썼습니다(사이드바 「연구노트」).` : r.note_error ? ` 연구노트는 쓰지 못했습니다: ${r.note_error.message}` : "";
+
   const reviewProposal = (p: Proposal) =>
     run("AI가 제안을 검토하는 중…", async () => {
-      if (!window.confirm(`AI 검토\n\n전송할 데이터: 제안된 회로(부품·연결), 요구사항, 검사 결과, 데이터시트 요약\n받는 곳: ${providerLabel(ai?.settings.provider)} (모델 ${ai?.settings.model})\n\n계속할까요?`)) return;
-      const job = await waitForJob((await api.aiReview(projectId, boardId, p.id)).id, undefined, 1500);
+      if (!window.confirm(`AI 검토\n\n전송할 데이터: 제안된 회로(부품·연결), 요구사항, 검사 결과, 데이터시트 요약\n받는 곳: ${providerLabel(ai?.settings.provider)} (모델 ${ai?.settings.model})${writeNote ? noteLine : ""}\n\n계속할까요?`)) return;
+      const job = await waitForJob((await api.aiReview(projectId, boardId, p.id, writeNote)).id, undefined, 1500);
       if (job.status === "failed") return setMessage(jobError(job));
-      setMessage(`검토 의견 ${job.result.review.findings.length}건을 받았습니다.`);
+      setMessage(`검토 의견 ${job.result.review.findings.length}건을 받았습니다.` + noteResult(job.result));
       await load();
     });
 
@@ -177,10 +198,11 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
 
   const reviewBoard = () =>
     run("AI가 현재 회로를 검토하는 중…", async () => {
-      if (!window.confirm(`현재 회로 AI 검토\n\n전송할 데이터: 저장된 회로(부품·연결), 요구사항, 검사 결과, 데이터시트 요약\n받는 곳: ${providerLabel(ai?.settings.provider)} (모델 ${ai?.settings.model})\n\n계속할까요?`)) return;
-      const job = await waitForJob((await api.aiReview(projectId, boardId)).id, undefined, 1500);
+      if (!window.confirm(`현재 회로 AI 검토\n\n전송할 데이터: 저장된 회로(부품·연결), 요구사항, 검사 결과, 데이터시트 요약\n받는 곳: ${providerLabel(ai?.settings.provider)} (모델 ${ai?.settings.model})${writeNote ? noteLine : ""}\n\n계속할까요?`)) return;
+      const job = await waitForJob((await api.aiReview(projectId, boardId, undefined, writeNote)).id, undefined, 1500);
       if (job.status === "failed") return setMessage(jobError(job));
       setBoardReview({ ...job.result.review, revision });
+      if (job.result.note || job.result.note_error) setMessage(noteResult(job.result).trim());
     });
 
   const recheck = (p: Proposal) =>
@@ -203,6 +225,9 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
               title={aiReady ? "저장된 회로를 요구사항·검사 결과와 함께 AI가 검토합니다" : AI_SETUP_HINT}>
               현재 회로 AI 검토
             </button>
+            <label className="small" title="검토하면서 확인한 것·배운 점·다음에 적용할 것을 연구노트 초안으로 남깁니다">
+              <input type="checkbox" checked={writeNote} onChange={(e) => setWriteNote(e.target.checked)} /> AI 검토 때 연구노트도 쓰기
+            </label>
           </div>
         )}
         {circuit && revision && <ManualProposal projectId={projectId} boardId={boardId} circuit={circuit} onCreated={async (id) => {

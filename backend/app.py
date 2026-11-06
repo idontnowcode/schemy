@@ -39,15 +39,17 @@ from .exports import external_edit_error, output_path, outputs_status, run_expor
 from .guides import GuideLibrary
 from .inventory_store import InventoryStore
 from .jobs import JobRunner
+from .notes import NoteLibrary
 from .proposals import ProposalStore
 from .report import rationale_report, technical_review
 from .reviews import ReviewStore
 from .routes_ai import build_ai_router
 from .routes_datasheets import build_datasheet_router
-from .routes_design import build_design_router
-from .routes_guides import build_guide_router
+from .routes_design import build_design_router, proposal_evidence_text
+from .routes_guides import board_checklist, build_guide_router
 from .routes_inventory import build_inventory_router
 from .routes_layout import build_layout_router
+from .routes_notes import build_note_router, make_note_writer
 from .routes_proposals import ProposalService, build_proposal_router
 from .routes_reviews import build_review_router
 from .routes_templates import build_template_router
@@ -105,6 +107,7 @@ def create_app(settings: Settings) -> FastAPI:
     inventory = InventoryStore(settings.workspace)
     datasheets = DatasheetLibrary(settings.workspace)
     guides = GuideLibrary(settings.workspace)
+    notes = NoteLibrary(settings.workspace)
     proposals = ProposalStore(store)
     checker = CircuitChecker(settings)
 
@@ -434,8 +437,14 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(build_agent_router(agent_runner))
     app.include_router(build_datasheet_router(store, jobs, datasheets, settings, checker.library, proposals))
     app.include_router(build_proposal_router(proposal_service))
-    app.include_router(build_design_router(store, jobs, proposal_service, inventory, datasheets, settings, guides))
+    note_writer = make_note_writer(
+        store, proposals, notes, guides, datasheets, settings,
+        board_checklist=lambda p, b, prop: board_checklist(store, proposals, guides, settings, p, b, prop),
+        proposal_text=proposal_evidence_text)
+    app.include_router(build_design_router(store, jobs, proposal_service, inventory, datasheets, settings, guides,
+                                           note_writer=note_writer))
     app.include_router(build_guide_router(store, jobs, proposals, guides, settings))
+    app.include_router(build_note_router(store, jobs, proposals, notes, guides, settings, note_writer))
 
     # --- desktop UI ---------------------------------------------------------------------
 
