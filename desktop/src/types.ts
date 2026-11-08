@@ -283,6 +283,23 @@ export interface JobStep {
   data?: AutoReviewRound;
 }
 
+/** A job running (or just finished) in any project, for the status panel (GET /api/jobs/active). */
+export interface ActiveJob {
+  id: string;
+  kind: string;
+  status: Job["status"];
+  project_id: string;
+  project_name: string;
+  board_id: string | null;
+  board_name: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  step: string | null;
+  proposal_id: string | null;
+  error: string | null;
+}
+
 /** A way forward for a part with no KiCad symbol (an AI design stopped there; POST …/ai/design/resume). */
 export interface DesignOption {
   id: string;
@@ -324,12 +341,15 @@ export interface AutoReviewRound {
   said: string[];
   repeated?: string[];
   revised_to?: string;
-  fix?: { summary: string; diff: ProposalDiff["summary"] | null };
+  fix?: { summary: string; diff: ProposalDiff["summary"] | null; method?: "edits" | "redesign" };
+  unverified?: number;
+  unverified_said?: string[];
+  declined?: string[];
 }
 
 export interface AutoReviewResult {
   rounds: AutoReviewRound[];
-  stop: "met" | "max_rounds" | "repeated" | "check_failed" | "revise_failed" | "ai_failed";
+  stop: "met" | "max_rounds" | "repeated" | "check_failed" | "revise_failed" | "ai_failed" | "no_progress" | "no_change" | "declined";
   message: string;
   /** Why the AI step failed, when known: how its answer ended and the answer's last characters. */
   why?: AiFailure | null;
@@ -767,6 +787,11 @@ export interface AiFinding {
   detail: string;
   references: string[];
   suggestion: string | null;
+  /** What the finding rests on (evidence number, guide, requirement, a pin or net, or judgment) and whether the app
+   * could confirm it. Unconfirmed 수정 필요/권장 do not drive automatic revisions. */
+  basis?: "evidence" | "guide" | "requirement" | "circuit" | "judgment";
+  evidence?: string | null;
+  verified?: boolean | null;
 }
 
 export interface ProposalAi {
@@ -784,6 +809,12 @@ export interface ProposalAi {
   addressed?: { severity: string; title: string; detail: string; source: "ai" | "check" }[];
   diff_from_parent?: ProposalDiff | null;
   remaining_problems?: string[];
+  /** edits = the revision edited the current circuit; redesign = it was designed again. */
+  method?: "edits" | "redesign";
+  changes?: string[];
+  not_addressed?: { title: string; why: string }[];
+  /** The app's guide self-check of the fresh design: guide ids violated before / after its edit pass. */
+  guide_check?: { before: string[]; after: string[]; changes?: string[]; error?: string } | null;
 }
 
 export interface QuickFixOption {
@@ -1200,11 +1231,12 @@ export interface NotePage {
 
 // --- AI performance evaluation ---------------------------------------------------------
 
-export type EvalSuite = "design" | "review" | "notes";
+export type EvalSuite = "design" | "review" | "revise" | "notes";
 
 export interface EvalCases {
   design: { id: string; title: string; example: string; checks: string[] }[];
   review: { id: string; title: string; example: string }[];
+  revise?: { id: string; title: string; example: string }[];
   notes: { id: string; example: string }[];
   calls_per_repeat: Record<EvalSuite, number>;
   provider: AiProvider;

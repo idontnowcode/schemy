@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, errorText, outputText, waitForJob } from "../api";
 import { desktop } from "../desktop";
@@ -51,6 +51,8 @@ interface Props {
   onChanged(): Promise<unknown>;
   onAdvanced(tab: TabId, proposalId?: string): void;
   onError(message: string | null): void;
+  /** Opened from the job status panel: show the stage with that job's result. */
+  jump?: { kind: string; n: number } | null;
 }
 
 /** Per-board flow state kept for this viewer: where they were and their choices. */
@@ -123,15 +125,17 @@ function usePoll(job: Job | null, setJob: (j: Job) => void, onDone?: (j: Job) =>
  * The default project screen: one stage at a time, from an idea in plain words to a checked KiCad schematic.
  * Every stage uses the same back-end steps as the advanced tabs; AI results stay proposals until approved.
  */
-export function StageFlow({ project, board, circuit, revision, outputs, review, system, onChanged, onAdvanced, onError }: Props) {
+export function StageFlow({ project, board, circuit, revision, outputs, review, system, onChanged, onAdvanced, onError, jump }: Props) {
   const key = `aics.flow.${project.id}.${board.id}`;
   const [flow, setFlowState] = useState<FlowState>(() => loadState(key));
+  const flowRef = useRef(flow);
+  // Saved at once (not inside a state update), so a stage reached after the screen closed — say, "AI 설계" once the
+  // design request returns while the person is already in 설정 — is still where the board reopens.
   const setFlow = useCallback((patch: Partial<FlowState>) => {
-    setFlowState((cur) => {
-      const next = { ...cur, ...patch };
-      saveState(key, next);
-      return next;
-    });
+    const next = { ...flowRef.current, ...patch };
+    flowRef.current = next;
+    saveState(key, next);
+    setFlowState(next);
   }, [key]);
 
   const [loaded, setLoaded] = useState(false);
@@ -180,8 +184,13 @@ export function StageFlow({ project, board, circuit, revision, outputs, review, 
         setAi(status);
         setProposals(list);
         setStock(inv?.inventory ? inv.inventory.parts.length : null);
-        setDesignJob(jobs.find((j) => j.kind === "ai_design") ?? null);
-        setAutoJob(jobs.find((j) => j.kind === "ai_auto_review") ?? null);
+        const design = jobs.find((j) => j.kind === "ai_design") ?? null;
+        const auto = jobs.find((j) => j.kind === "ai_auto_review") ?? null;
+        setDesignJob(design);
+        setAutoJob(auto);
+        // Work still running on this board: open at its stage.
+        if (running(auto)) setFlow({ stage: 4, reached: Math.max(flowRef.current.reached, 4) });
+        else if (running(design)) setFlow({ stage: 3, reached: Math.max(flowRef.current.reached, 3) });
       } catch (e) {
         onError(errorText(e));
       } finally {
@@ -191,7 +200,16 @@ export function StageFlow({ project, board, circuit, revision, outputs, review, 
     return () => {
       cancelled = true;
     };
-  }, [pid, bid, onError]);
+  }, [pid, bid, onError, setFlow]);
+
+  // From the job status panel: the stage that shows that job's result.
+  useEffect(() => {
+    if (!jump) return;
+    const stage = { ai_design: 3, ai_auto_review: 4, ai_revision: 5, export: 6 }[jump.kind];
+    if (stage !== undefined) setFlow({ stage, reached: Math.max(flowRef.current.reached, stage) });
+    void loadProposals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jump?.n]);
 
   const aiProposals = useMemo(() => proposals.filter((p) => AI_SOURCES.includes(p.source)).sort((a, b) => num(a.id) - num(b.id)),
     [proposals]);
@@ -732,6 +750,9 @@ const STOP_LABEL: Record<AutoReviewResult["stop"], string> = {
   check_failed: "수정안이 KiCad 검사를 통과하지 못함",
   revise_failed: "수정안을 만들지 못함",
   ai_failed: "AI 검토 실패",
+  no_progress: "의견이 줄지 않음",
+  no_change: "수정안이 회로를 바꾸지 않음",
+  declined: "AI가 남은 의견을 고치지 않기로 함",
 };
 
 /** The loop's rounds as reported so far (the latest report of each round wins). */
@@ -751,7 +772,7 @@ function reviewStage(p: Common & {
   const live = running(job) ? (job!.progress ?? []).at(-1)?.text ?? "시작하는 중…" : null;
   const last = rounds.at(-1);
   return {
-    lead: "AI 검토 → 수정안 → 다시 검토를 조건이 맞을 때까지 반복합니다. 회차마다 새 제안이 생기고, 회로는 아직 바뀌지 않습니다.",
+    lead: "AI 검토 → 수정안 → 다시 검토를 조건이 맞을 때까지 반복합니다. 근거를 확인한 의견만 세고, 수정안은 고칠 곳만 편집합니다. 회차마다 새 제안이 생기고, 회로는 아직 바뀌지 않습니다.",
     body: !p.focus && !job ? (
       <p className="muted">검토할 AI 설계안이 없습니다. 「AI 설계」 단계에서 설계안을 먼저 만드세요.</p>
     ) : (
@@ -768,7 +789,7 @@ function reviewStage(p: Common & {
             <input type="number" aria-label="최대 반복 횟수" min={1} max={5} value={p.maxRounds} disabled={running(job)}
               onChange={(e) => p.setLimits(p.maxWarnings, Math.max(1, Math.min(5, Number(e.target.value) || 1)))} /> 회
           </label>
-          <span className="muted small">같은 의견이 다시 나오거나 KiCad 검사가 실패하면 멈춤 · AI 호출 최대 약 {autoCalls(p.maxRounds)}회</span>
+          <span className="muted small">의견이 줄지 않거나, 같은 의견이 다시 나오거나, KiCad 검사가 실패하면 멈춤 · AI 호출 최대 약 {autoCalls(p.maxRounds)}회</span>
         </div>
         <div className="flow-row">
           <button type="button" onClick={p.start} disabled={!p.aiReady || !p.focus || running(job) || p.busy !== null}
@@ -788,12 +809,15 @@ function reviewStage(p: Common & {
                 <span className="flow-round-chips">
                   <Chip text={`수정 필요 ${r.errors}`} tone={r.errors ? "bad" : "ok"} />
                   <Chip text={`수정 권장 ${r.warnings}`} tone={r.warnings ? "warn" : "ok"} />
+                  {r.unverified ? <span title={`근거를 확인하지 못해 세지 않은 의견: ${(r.unverified_said ?? []).join(" / ")}`}>
+                    <Chip text={`근거 확인 안 됨 ${r.unverified}`} tone="muted" /></span> : null}
                 </span>
                 <span className="flow-round-what">
                   <span>{r.said.length ? r.said.join(" / ") : "지적 없음"}</span>
                   {r.revised_to ? (
                     <span className="muted small">
-                      → 수정안 #{num(r.revised_to)}{r.fix?.diff ? `: ${diffSummaryText(r.fix.diff)}` : ""}
+                      → 수정안 #{num(r.revised_to)}{r.fix?.method === "edits" ? " (고칠 곳만 편집)" : r.fix?.method === "redesign" ? " (다시 설계)" : ""}
+                      {r.fix?.diff ? `: ${diffSummaryText(r.fix.diff)}` : ""}
                     </span>
                   ) : result && r === last ? (
                     <span className="muted small">{STOP_LABEL[result.stop]} → 멈춤</span>

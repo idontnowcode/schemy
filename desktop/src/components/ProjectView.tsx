@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, errorText } from "../api";
 import { outputsLabel, reviewLabel } from "../format";
@@ -60,6 +60,8 @@ interface Props {
   onTab(tab: TabId): void;
   mode: ProjectMode;
   onMode(mode: ProjectMode): void;
+  /** A proposal to show (from the job status panel). */
+  focus?: { id: string | null; kind: string; n: number } | null;
   onProjectChanged(): Promise<unknown>;
   onError(message: string | null): void;
 }
@@ -73,13 +75,23 @@ export interface BoardData {
 
 const EMPTY: BoardData = { circuit: null, revision: null, outputs: null, review: null };
 
-export function ProjectView({ project, boardId, onBoard, system, tab, onTab, mode, onMode, onProjectChanged, onError }: Props) {
+export function ProjectView({ project, boardId, onBoard, system, tab, onTab, mode, onMode, focus, onProjectChanged, onError }: Props) {
   // Data is stored with the board it belongs to, so a tab never sees the previous board's revision.
   const [loaded, setLoaded] = useState<{ boardId: string; data: BoardData } | null>(null);
   const data = loaded?.boardId === boardId ? loaded.data : EMPTY;
   const [editingName, setEditingName] = useState(false);
   const [focusProposal, setFocusProposal] = useState<string | null>(null);
   const setMode = onMode;
+  // A finished job's proposal: the advanced screen opens it in 「제안」; the step screen picks it up by itself.
+  useEffect(() => {
+    if (!focus) return;
+    if (focus.id) {
+      setFocusProposal(focus.id);
+      if (mode === "advanced") onTab("proposals");
+    }
+    void reloadRef.current?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.n]);
   const openProposal = (id: string) => {
     setFocusProposal(id);
     onTab("proposals");
@@ -93,6 +105,7 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, mod
   const [name, setName] = useState(project.name);
   const board = project.board_list.find((b) => b.id === boardId) ?? project.board_list[0];
 
+  const reloadRef = useRef<(() => Promise<void>) | null>(null);
   const reload = useCallback(async () => {
     try {
       const [c, o, r] = await Promise.all([
@@ -107,6 +120,7 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, mod
   }, [project.id, boardId, onError]);
 
   useEffect(() => {
+    reloadRef.current = reload;
     void reload();
   }, [reload]);
 
@@ -208,6 +222,7 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, mod
             onChanged={afterChange}
             onAdvanced={openAdvanced}
             onError={onError}
+            jump={focus ? { kind: focus.kind, n: focus.n } : null}
           />
         </>
       ) : (

@@ -128,3 +128,28 @@ test("a part with no KiCad symbol: pick another part and the design continues", 
   await page.getByRole("button", { name: "다음: 검토 →" }).click();
   await expect(page.getByRole("button", { name: "자동 반복 검토 시작" })).toBeEnabled();
 });
+
+test("work keeps going when you leave the screen, and the status panel shows it everywhere", async ({ page }) => {
+  backend = await startBackend(tempWorkspace(), { fakeAi: true });
+  await page.goto(backend.url);
+  await page.request.put(`${backend.url}/api/ai/settings`, { data: { enabled: true } });
+  await newProject(page, "상태창 보드");
+  await page.getByRole("textbox", { name: "아이디어" }).fill("3.3V로 동작하는 CAN 노드. MCU와 UART로 연결하고 버스 종단 저항 포함.");
+  await page.getByRole("button", { name: "AI로 요구사항 정리 →" }).click();
+  await page.getByRole("button", { name: "다음: 설계 준비 →" }).click();
+  await page.getByRole("button", { name: "AI 설계 시작" }).click();
+  // Leave for another screen at once: the design keeps running in the backend.
+  await page.getByRole("button", { name: "설정" }).click();
+  const panel = page.getByLabel("작업 상태");
+  await expect(panel).toBeVisible();
+  const row = panel.locator(".job-row").filter({ hasText: "AI 설계" }).filter({ hasText: "상태창 보드" });
+  await expect(row).toBeVisible();
+  await expect(row).toContainText(/끝남 .*제안 #1 열기/, { timeout: 60_000 });
+  await expect(panel.getByText("작업 끝남")).toBeVisible();
+  // The finished job takes you back to its project, where the result is waiting.
+  await row.getByRole("button", { name: /AI 설계/ }).click();
+  await expect(page.locator(".flow-card").getByText("제안 #1 만듦", { exact: false }).first()).toBeVisible();
+  await expect(panel.locator(".job-row").filter({ hasText: "요구사항 정리" })).toBeVisible();  // every recent job is listed
+  await row.getByRole("button", { name: "목록에서 지우기" }).click();
+  await expect(row).toHaveCount(0);
+});

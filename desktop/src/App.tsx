@@ -6,10 +6,11 @@ import { GuidesPage } from "./components/Guides";
 import { EvalPage } from "./components/EvalPage";
 import { NotesPage } from "./components/Notes";
 import { InventoryPage } from "./components/InventoryPage";
+import { JobStatus } from "./components/JobStatus";
 import { isTab, ProjectView, type ProjectMode, type TabId } from "./components/ProjectView";
 import { SettingsPage } from "./components/SettingsPage";
 import { Sidebar, type View } from "./components/Sidebar";
-import type { ProjectSummary, SystemInfo } from "./types";
+import type { ActiveJob, ProjectSummary, SystemInfo } from "./types";
 
 export function App() {
   const [system, setSystem] = useState<SystemInfo | null>(null);
@@ -18,6 +19,8 @@ export function App() {
   const [boardId, setBoardId] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("requirements");
   const [mode, setMode] = useState<ProjectMode>("flow");
+  /** A proposal to open (from the job status panel); ``n`` makes the same one open again. */
+  const [focus, setFocus] = useState<{ id: string | null; kind: string; n: number } | null>(null);
   const [view, setView] = useState<View>("projects");
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -112,6 +115,13 @@ export function App() {
     }
   };
 
+  /** From the job status panel: go to the project (and board) the job ran in, and open its proposal. */
+  const openJob = async (job: ActiveJob) => {
+    if (selected !== job.project_id || view !== "projects") await select(job.project_id);
+    if (job.board_id) changeBoard(job.board_id);
+    setFocus({ id: job.proposal_id, kind: job.kind, n: Date.now() });
+  };
+
   const current = projects.find((p) => p.id === selected) ?? null;
   const currentBoard = current && boardId && current.boards.includes(boardId) ? boardId : current?.boards[0] ?? null;
 
@@ -162,6 +172,7 @@ export function App() {
             onTab={changeTab}
             mode={mode}
             onMode={changeMode}
+            focus={focus}
             onProjectChanged={refreshProjects}
             onError={setError}
           />
@@ -172,6 +183,7 @@ export function App() {
           </div>
         )}
       </main>
+      <JobStatus onOpen={openJob} />
     </div>
   );
 }

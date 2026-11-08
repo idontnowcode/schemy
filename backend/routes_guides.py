@@ -11,6 +11,7 @@ from fastapi.responses import PlainTextResponse
 
 from ai_engine import AiError
 from ai_engine.design import circuit_text, draft_guide
+from circuit_core import CircuitIR
 from circuit_core.engineering import engineering_review
 from circuit_core.guides import (
     CHECKS,
@@ -37,6 +38,20 @@ from .store import ProjectStore, now_iso
 BOARD = "/api/projects/{project_id}/boards/{board_id}"
 
 
+def circuit_checklist(store: ProjectStore, guides: GuideLibrary, settings: Settings, project_id: str,
+                      circuit: CircuitIR) -> list[dict]:
+    """The adopted guides that apply to ``circuit`` with what the app's own checks tell (fail / warn / ok / manual /
+    exception) — for a saved board, a proposal, or a design that is not even a proposal yet."""
+    text = store.get_requirements(project_id)
+    applicable = relevant(guides.entries(), circuit=circuit, text=text, text_topics=False)
+    refs = {c.id: c.reference for c in circuit.components}
+    findings = [f.to_dict(refs) for f in engineering_review(circuit)]
+    floating = [f.to_dict() for f in floating_pins(circuit, pin_types_for(circuit, settings.symbol_dirs))]
+    waivers = {g: {"id": d.id, "topic": d.topic, "choice": d.choice, "reason": d.reason}
+               for d in circuit.decisions for g in d.waives}
+    return checklist(applicable, findings, floating, waivers)
+
+
 def board_checklist(store: ProjectStore, proposals: ProposalStore, guides: GuideLibrary, settings: Settings,
                     project_id: str, board_id: str, proposal_id: str | None = None) -> dict:
     """The adopted guides that apply to the saved circuit (or a proposal's), with what the app can tell itself."""
@@ -52,13 +67,7 @@ def board_checklist(store: ProjectStore, proposals: ProposalStore, guides: Guide
         return {"revision": None, "items": [], "candidates": 0, "ai_applied": []}
     text = store.get_requirements(project_id)
     entries = guides.entries()
-    applicable = relevant(entries, circuit=circuit, text=text, text_topics=False)
-    refs = {c.id: c.reference for c in circuit.components}
-    findings = [f.to_dict(refs) for f in engineering_review(circuit)]
-    floating = [f.to_dict() for f in floating_pins(circuit, pin_types_for(circuit, settings.symbol_dirs))]
-    waivers = {g: {"id": d.id, "topic": d.topic, "choice": d.choice, "reason": d.reason}
-               for d in circuit.decisions for g in d.waives}
-    items = checklist(applicable, findings, floating, waivers)
+    items = circuit_checklist(store, guides, settings, project_id, circuit)
     for item in items:
         item["ai_applied"] = item["id"] in ai_applied
     pending = relevant(entries, circuit=circuit, text=text, statuses=("candidate",), text_topics=False)

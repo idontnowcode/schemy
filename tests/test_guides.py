@@ -143,7 +143,7 @@ def guided_reply():
         text = base(prompt)
         if "부품 목록을 정하세요" in prompt:
             return json.dumps({**json.loads(text), "guides_applied": ["G-PWR-05", "G-NOT-OFFERED"]}, ensure_ascii=False)
-        if "꼼꼼한 회로 설계 검토자" in prompt:
+        if "당신은 회로 설계 검토자입니다" in prompt:
             data = json.loads(text)
             data["findings"][0]["guide"] = "G-PRT-03"
             return json.dumps(data, ensure_ascii=False)
@@ -163,7 +163,7 @@ def test_ai_design_gets_the_guide_and_says_what_it_followed(tmp_path):
     assert "G-IF-02" in plan_prompt  # the requirements mention CAN
     p = client.get(f"{board}/proposals/{job['result']['proposal_id']}").json()
     assert p["ai"]["guides"]["applied"] == ["G-PWR-05"] and "G-PWR-05" in p["ai"]["guides"]["offered"]
-    review_prompt = next(c["prompt"] for c in provider.calls if "꼼꼼한 회로 설계 검토자" in c["prompt"])
+    review_prompt = next(c["prompt"] for c in provider.calls if "당신은 회로 설계 검토자입니다" in c["prompt"])
     assert "[설계 지침" in review_prompt
     assert p["ai"]["review"]["findings"][0]["guide"] == "G-PRT-03" and p["ai"]["review"]["guides_checked"]
     items = {i["id"]: i for i in client.get(board + "/guides", params={"proposal_id": p["id"]}).json()["items"]}

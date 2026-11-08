@@ -108,7 +108,7 @@ export function RequirementsTab({ projectId, boardId, boardName, onSaved, onOpen
     });
 
   const design = () =>
-    run("AI가 회로를 설계하는 중… 부품 선택 → 연결 → KiCad 검사 → 검토 순서로 진행합니다 (1~3분).", async () => {
+    run("AI가 회로를 설계하는 중… 부품 선택 → 연결 → 지침 점검 → KiCad 검사 → 검토 순서로 진행합니다 (1~3분). 다른 화면으로 가도 계속되고, 오른쪽 아래 「작업」에서 볼 수 있습니다.", async () => {
       const pv = await api.designPreview(projectId, boardId);
       const ok = window.confirm(
         `AI 회로 설계 — ${boardName}\n\n전송할 데이터: 요구사항 ${pv.requirements_chars}자` +

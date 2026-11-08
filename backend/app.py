@@ -11,6 +11,7 @@ import hmac
 import logging
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any
@@ -388,6 +389,27 @@ def create_app(settings: Settings) -> FastAPI:
     def board_jobs(project_id: str, board_id: str):
         store.get_board(project_id, board_id)
         return store.list_jobs(project_id, board_id)
+
+    @api.get("/api/jobs/active")
+    def active_jobs(recent_seconds: int = 600):
+        """What is running in any project (and what finished in the last ``recent_seconds``), for the status bar
+        that stays visible whichever screen is open. A job keeps running when the screen that started it closes."""
+        # Same format as the stored times (local time with its offset), so the text comparison holds.
+        since = (datetime.now().astimezone() - timedelta(seconds=max(0, min(recent_seconds, 86_400)))).isoformat(
+            timespec="seconds")
+        names = {p.id: p for p in store.list_projects()}
+        out = []
+        for j in store.active_jobs(since):
+            project = names.get(j.project_id)
+            board = next((b for b in (project.board_list if project else []) if b.id == j.board_id), None)
+            out.append({"id": j.id, "kind": j.kind, "status": j.status, "project_id": j.project_id,
+                        "project_name": project.name if project else j.project_id, "board_id": j.board_id,
+                        "board_name": board.name if board else None, "created_at": j.created_at,
+                        "started_at": j.started_at, "finished_at": j.finished_at,
+                        "step": j.progress[-1]["text"] if j.progress else None,
+                        "proposal_id": (j.result or {}).get("proposal_id") if j.status == "succeeded" else None,
+                        "error": (j.error or {}).get("message") if j.status == "failed" else None})
+        return out
 
     @api.get("/api/jobs/{job_id}")
     def get_job(job_id: str):

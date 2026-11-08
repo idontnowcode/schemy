@@ -23,6 +23,7 @@ test("run an AI evaluation and read its report", async ({ page }) => {
 
   await evals.getByLabel("설계 묶음").uncheck();
   await evals.getByLabel("검토 묶음").uncheck();
+  await evals.getByLabel("수정 묶음").uncheck();
   await expect(evals).toContainText("AI 호출 약 2회");
   let asked = "";
   page.once("dialog", (d) => {

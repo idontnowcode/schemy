@@ -7,16 +7,19 @@ checked in its own folder (IR rules, KiCad ERC and netlist, datasheets) before a
 from __future__ import annotations
 
 import json
+import re
 
 from fastapi import APIRouter
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from ai_engine import AiError
 from ai_engine.design import (
     DesignInput,
     circuit_text,
+    counted,
     design_circuit,
     review_circuit,
+    revise_by_edits,
     structure_requirements,
     suggest_alternatives,
 )
@@ -37,6 +40,7 @@ from .guides import GuideLibrary
 from .inventory_store import InventoryStore
 from .jobs import JobRunner
 from .proposals import Proposal, datasheet_evidence
+from .routes_guides import circuit_checklist
 from .routes_proposals import ProposalService
 from .schemas import _Model
 from .store import ProjectStore, atomic_write, now_iso
@@ -100,9 +104,23 @@ def _norm(title) -> str:
     return " ".join(str(title or "").split()).lower()
 
 
+def _bigrams(text) -> set[str]:
+    t = re.sub(r"\s+", "", str(text or "").lower())
+    return {t[i:i + 2] for i in range(len(t) - 1)} or {t}
+
+
+def similar(a, b, threshold: float = 0.5) -> bool:
+    """Two finding titles say the same thing (character-pair overlap, so 「역극성 보호 없음」 and 「역극성 보호
+    회로가 없음」 match; Korean word endings change too much for word comparison)."""
+    x, y = _bigrams(a), _bigrams(b)
+    return len(x & y) / max(1, len(x | y)) >= threshold
+
+
 def _count_text(findings: list[dict]) -> str:
-    n = {s: sum(1 for f in findings if f.get("severity") == s) for s in ("error", "warning", "info")}
-    return f"수정 필요 {n['error']} · 수정 권장 {n['warning']} · 참고 {n['info']}"
+    needs, recommended, unverified = counted(findings)
+    info = sum(1 for f in findings if f.get("severity") == "info")
+    return (f"수정 필요 {len(needs)} · 수정 권장 {len(recommended)} · 참고 {info}"
+            + (f" · 근거 확인 안 됨 {len(unverified)}" if unverified else ""))
 
 
 def _check_text(p: Proposal) -> str:
@@ -119,6 +137,8 @@ def _check_text(p: Proposal) -> str:
 
 
 STOP_TEXT = {"met": "조건 충족", "max_rounds": "최대 횟수에 도달", "repeated": "같은 의견이 다시 나옴",
+             "no_progress": "의견이 줄지 않음", "no_change": "수정안이 회로를 바꾸지 않음",
+             "declined": "AI가 남은 의견을 고치지 않기로 함",
              "check_failed": "수정안이 KiCad 검사를 통과하지 못함", "revise_failed": "수정안을 만들지 못함",
              "ai_failed": "AI 검토 실패"}
 
@@ -240,13 +260,13 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
         return relevant(guides.entries(), circuit=circuit, text=text, text_topics=True)
 
     def run_review(cfg, provider, project_id: str, circuit: CircuitIR, evidence: str,
-                   context: dict | None = None) -> tuple[dict, object]:
+                   context: dict | None = None, previous: list[dict] | None = None) -> tuple[dict, object]:
         entries = applicable_guides(project_id, circuit)
         review, call = review_circuit(provider, requirements=store.get_requirements(project_id),
                                       spec=store.get_requirements_spec(project_id), circuit=circuit,
                                       evidence=evidence, datasheet_notes=datasheet_text(circuit),
                                       guides=guide_prompt_text(entries), guide_ids={e.id for e in entries},
-                                      max_output_tokens=min(cfg.max_output_tokens, 16384))
+                                      max_output_tokens=min(cfg.max_output_tokens, 16384), previous=previous)
         review["created_at"] = now_iso()
         review["guides_checked"] = [e.id for e in entries]
         flagged = [f["guide"] for f in review["findings"] if f.get("guide")]
@@ -398,16 +418,146 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             record = run_record(job_id, source, cfg, {"requirements_chars": len(text), "spec": spec is not None,
                                                       "inventory_rows": len(rows), "revising": parent,
                                                       "findings": len(findings or [])})
+
+            def guides_for_parts(parts, blocks) -> str:
+                """Guide text for the connection step: the plan's guides plus those the chosen parts bring."""
+                if guides is None:
+                    return inp.guides
+                comps = [{"id": x.ref.lower(), "reference": x.ref, "value": x.value or "?", "symbol_id": x.symbol_id,
+                          "manufacturer_part_number": x.mpn, "description": x.role[:200] or None,
+                          "pins": [{"number": n, "name": nm if nm and nm != "~" else None} for n, nm, _ in x.pins]}
+                         for x in parts] + [c.model_dump(mode="json") for b in blocks for c in b.components]
+                try:
+                    provisional = CircuitIR.model_validate({"project_id": project_id, "components": comps, "nets": []})
+                except ValidationError:
+                    return inp.guides
+                chosen = relevant(guides.entries(), circuit=provisional, text=f"{text}\n{instructions or ''}",
+                                  text_topics=True)
+                merged = list({e.id: e for e in [*chosen, *entries]}.values())  # strongest first, within the size limit
+                entries[:] = merged  # what the proposal records as offered
+                return guide_prompt_text(merged)
+
+            def guide_pass(circuit: CircuitIR) -> tuple[CircuitIR, dict | None]:
+                """Run the app's own checks behind the adopted guides on a fresh design; must/should violations are fixed
+                with one edit pass before anyone reviews it. Kept only if it leaves fewer violations."""
+                if guides is None:
+                    return circuit, None
+
+                def violations(c: CircuitIR) -> list[dict]:
+                    return [r for r in circuit_checklist(store, guides, settings, project_id, c)
+                            if r["status"] in ("fail", "warn") and r["strength"] in ("must", "should")]
+
+                bad = violations(circuit)
+                if not bad:
+                    step("check", "설계 지침 자동 점검: 위반 없음")
+                    return circuit, {"before": [], "after": []}
+                step("check", f"설계 지침 자동 점검: 위반 {len(bad)}개 ({', '.join(r['id'] for r in bad[:4])}) → 고칠 곳만 편집")
+                asked = [{"severity": "error" if r["strength"] == "must" else "warning", "title": f"{r['id']} {r['title']}",
+                          "detail": r["rule"], "evidence": "; ".join(r["notes"])[:300] or None, "suggestion": None,
+                          "source": "guide"} for r in bad]
+                applicable = relevant(guides.entries(), circuit=circuit, text=text, text_topics=False)
+                ginp = DesignInput(**{**inp.__dict__, "guides": guide_prompt_text(applicable)})
+                info = {"before": [r["id"] for r in bad], "after": [r["id"] for r in bad]}
+                try:
+                    fixed = revise_by_edits(provider, ginp, circuit, asked, resolver,
+                                            max_output_tokens=cfg.max_output_tokens, max_repairs=1, on_step=step)
+                except AiError as exc:
+                    step("check", f"지침 위반을 고치지 못함: {exc.message}")
+                    return circuit, {**info, "error": exc.message}
+                record.setdefault("usage", []).extend(c.usage for c in fixed.calls)
+                if fixed.circuit is None:
+                    step("check", "지침 위반을 편집으로 고치지 못함 — 검토에서 다룹니다")
+                    return circuit, {**info, "not_addressed": fixed.not_addressed}
+                left = violations(fixed.circuit)
+                if len(left) >= len(bad):
+                    step("check", "편집해도 지침 위반이 줄지 않아 원래 설계를 둡니다")
+                    return circuit, info
+                step("check", f"지침 위반 고침: {len(bad)} → {len(left)} ({', '.join(fixed.changes[:4])})")
+                return fixed.circuit, {"before": info["before"], "after": [r["id"] for r in left], "changes": fixed.changes,
+                                       "not_addressed": fixed.not_addressed}
+
+            def finish(circuit: CircuitIR, ai: dict, title: str, out: dict) -> dict:
+                """Guide self-check → proposal → isolated KiCad check → AI review (of a revision: with what it tried
+                to fix)."""
+                circuit, ai["guide_check"] = guide_pass(circuit)
+                if base is not None and ai.get("diff_from_parent") is not None:
+                    ai["diff_from_parent"] = diff_circuits(base, circuit)
+                p = proposals.create(project_id, board_id, title=title, ops=[ReplaceCircuit(circuit=circuit)],
+                                     source=source, rationale=ai["summary"][:20_000], ai=ai)
+                applied = (ai.get("guides") or {}).get("applied") or []
+                if guides is not None and applied:
+                    guides.record("cited", applied, by="AI 설계", project_id=project_id, board_id=board_id, proposal_id=p.id)
+                step("check", "KiCad로 회로도를 만들어 ERC 실행")
+                p = service.check_now(p)
+                step("check", f"KiCad 검사: {_check_text(p)}")
+                step("proposal", f"제안 #{int(p.id)} 만듦 (승인 전에는 회로가 바뀌지 않음)")
+                if review:
+                    step("review", "AI 검토 중")
+                    try:
+                        findings_out, call = run_review(cfg, provider, project_id, circuit, proposal_evidence_text(p),
+                                                        {"project_id": project_id, "board_id": board_id,
+                                                         "proposal_id": p.id},
+                                                        previous=ai.get("addressed") if base is not None else None)
+                        record.setdefault("usage", []).append(call.usage)
+                        p = proposals.update(p, ai={**(p.ai or {}), "review": findings_out})
+                        step("review", "AI 검토: " + _count_text(findings_out["findings"]))
+                    except AiError as exc:
+                        step("review", f"AI 검토 실패: {exc.message}")
+                        p = proposals.update(p, ai={**(p.ai or {}), "review": {"summary": f"AI 검토 실패: {exc.message}",
+                                                                               "findings": []}})
+                record.update(status="succeeded", output={"proposal": p.id, "status": p.status})
+                save_run(project_id, board_id, record)
+                return {"proposal_id": p.id, "status": p.status, **out}
+
+            if base is not None:
+                # A revision first edits the current circuit; only what it cannot do that way is designed again.
+                try:
+                    er = revise_by_edits(provider, inp, base, findings or [], resolver,
+                                         max_output_tokens=cfg.max_output_tokens, on_step=step)
+                except AiError as exc:
+                    if exc.code != "AI_BAD_OUTPUT":
+                        record.update(status="failed", error={"code": exc.code, "message": exc.message})
+                        save_run(project_id, board_id, record)
+                        raise api_error(exc) from exc
+                    er = None  # unreadable edits even after asking again: a redesign may still work
+                    record.update(edit_error={"message": exc.message, "details": exc.details})
+                    step("parts", f"편집 응답을 읽지 못해 회로를 다시 설계합니다: {exc.message}")
+                if er is not None:
+                    record.update(usage=[c.usage for c in er.calls], method="edits", edit_attempts=er.attempts,
+                                  edit_problems=er.problems)
+                if er is not None and er.circuit is not None:
+                    ai = {"model": er.calls[-1].model, "method": "edits", "summary": er.summary, "edits": er.edits,
+                          "changes": er.changes, "assumptions": [], "questions": [], "citations": [],
+                          "parts": [{"key": x.ref, "role": x.role, "symbol_id": x.symbol_id, "how": x.how} for x in er.added],
+                          "templates": [], "attempts": er.attempts, "remaining_problems": [], "notes": "", "parent": parent,
+                          "review": None, "instructions": instructions,
+                          "addressed": [{"severity": f.get("severity"), "title": f.get("title"), "detail": f.get("detail"),
+                                         "source": f.get("source", "ai")} for f in er.addressed],
+                          "not_addressed": er.not_addressed,
+                          "diff_from_parent": diff_circuits(base, er.circuit),
+                          "guides": {"offered": [e.id for e in entries], "applied": []}}
+                    title = ("수정: " + ", ".join(er.changes[:3]) + (" 외" if len(er.changes) > 3 else ""))[:150]
+                    return finish(er.circuit, ai, title, {"attempts": er.attempts, "remaining_problems": [],
+                                                          "method": "edits"})
+                if er is not None and er.declined:
+                    record.update(status="declined")
+                    save_run(project_id, board_id, record)
+                    reasons = " / ".join(f"{x['title']}: {x['why']}" for x in er.not_addressed[:4])
+                    raise ApiError(422, "AI_NOTHING_TO_FIX", f"AI가 남은 의견을 고치지 않기로 했습니다. {reasons}",
+                                   recovery_hint="의견을 직접 판단하거나, 고칠 내용을 직접 적어 수정안을 요청하세요.",
+                                   details={"not_addressed": er.not_addressed})
+                if er is not None:
+                    step("parts", "고칠 곳만으로는 해결하지 못해 회로를 다시 설계합니다: " + " / ".join(er.problems[:2]))
             try:
                 result = design_circuit(provider, inp, resolver, project_id=project_id,
                                         max_output_tokens=cfg.max_output_tokens, pins_of=_pins_of(lib), on_step=step,
-                                        plan=plan)
+                                        plan=plan, guides_for_parts=guides_for_parts)
             except AiError as exc:
                 record.update(status="failed", error={"code": exc.code, "message": exc.message,
                                                      **({"details": exc.details} if exc.details else {})})
                 save_run(project_id, board_id, record)
                 raise api_error(exc) from exc
-            record.update(usage=[c.usage for c in result.calls], attempts=result.attempts,
+            record.update(usage=[*record.get("usage", []), *(c.usage for c in result.calls)], attempts=result.attempts,
                           unresolved=result.unresolved, problems=result.problems)
             plan_out = result.plan
             if result.circuit is None:
@@ -444,33 +594,9 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             said = [str(x).strip() for x in [*(plan_out.get("guides_applied") or []),
                                               *(result.connections.get("guides_applied") or [])]]
             ai["guides"] = {"offered": offered, "applied": [g for g in dict.fromkeys(said) if g in offered]}
-            title = str(plan_out.get("title") or "AI 설계안")[:150]
-            p = proposals.create(project_id, board_id, title=title, ops=[ReplaceCircuit(circuit=result.circuit)],
-                                 source=source, rationale=ai["summary"][:20_000], ai=ai)
-            if guides is not None and ai["guides"]["applied"]:
-                guides.record("cited", ai["guides"]["applied"], by="AI 설계", project_id=project_id, board_id=board_id,
-                              proposal_id=p.id)
-            step("check", "KiCad로 회로도를 만들어 ERC 실행")
-            p = service.check_now(p)
-            step("check", f"KiCad 검사: {_check_text(p)}")
-            step("proposal", f"제안 #{int(p.id)} 만듦 (승인 전에는 회로가 바뀌지 않음)")
-            if review:
-                step("review", "AI 검토 중")
-                try:
-                    findings_out, call = run_review(cfg, provider, project_id, result.circuit, proposal_evidence_text(p),
-                                                    {"project_id": project_id, "board_id": board_id,
-                                                     "proposal_id": p.id})
-                    record.setdefault("usage", []).append(call.usage)
-                    p = proposals.update(p, ai={**(p.ai or {}), "review": findings_out})
-                    step("review", "AI 검토: " + _count_text(findings_out["findings"]))
-                except AiError as exc:
-                    step("review", f"AI 검토 실패: {exc.message}")
-                    p = proposals.update(p, ai={**(p.ai or {}), "review": {"summary": f"AI 검토 실패: {exc.message}",
-                                                                           "findings": []}})
-            record.update(status="succeeded", output={"proposal": p.id, "status": p.status})
-            save_run(project_id, board_id, record)
-            return {"proposal_id": p.id, "status": p.status, "attempts": result.attempts,
-                    "remaining_problems": result.problems}
+            ai["method"] = "redesign"
+            return finish(result.circuit, ai, str(plan_out.get("title") or "AI 설계안")[:150],
+                          {"attempts": result.attempts, "remaining_problems": result.problems})
 
         return run
 
@@ -596,29 +722,35 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                     jobs.step(job_id, "review", f"{k}회차: 제안 #{int(p.id)} AI 검토 중")
                     try:
                         review, _ = run_review(cfg, provider, project_id, proposals.candidate(p), proposal_evidence_text(p),
-                                               {"project_id": project_id, "board_id": board_id, "proposal_id": p.id})
+                                               {"project_id": project_id, "board_id": board_id, "proposal_id": p.id},
+                                               previous=(p.ai or {}).get("addressed") or None)
                     except AiError as exc:
                         stop, message, why = "ai_failed", exc.message, exc.details
                         break
                     p = proposals.update(proposals.get(project_id, board_id, p.id), ai={**(p.ai or {}), "review": review})
-                findings = review["findings"]
-                needs = [f for f in findings if f.get("severity") == "error"]
-                recommended = [f for f in findings if f.get("severity") == "warning"]
+                # Only findings whose basis checked out count and go into a revision; the rest stay visible.
+                needs, recommended, unverified = counted(review["findings"])
                 failed_check = p.status in ("invalid", "check_failed")
                 entry = {"round": k, "proposal_id": p.id, "errors": len(needs) + (1 if failed_check else 0),
                          "warnings": len(recommended), "check": _check_text(p), "check_failed": failed_check,
-                         "said": [str(f.get("title", "")) for f in [*needs, *recommended]][:4]}
+                         "said": [str(f.get("title", "")) for f in [*needs, *recommended]][:4],
+                         "unverified": len(unverified), "unverified_said": [str(f.get("title", "")) for f in unverified][:4]}
+                if (p.ai or {}).get("not_addressed"):
+                    entry["declined"] = [f"{x.get('title')}: {x.get('why')}" for x in p.ai["not_addressed"]][:4]
+                prev = rounds[-1] if rounds else None
                 rounds.append(entry)
+                again = sorted({str(f.get("title")) for f in [*needs, *recommended]
+                                if any(similar(f.get("title"), a) for a in asked)})
                 if entry["errors"] == 0 and entry["warnings"] <= body.max_warnings:
                     stop = "met"
                 elif failed_check and k > 1:
                     stop = "check_failed"
                 elif k == body.max_rounds:
                     stop = "max_rounds"
-                elif {_norm(f.get("title")) for f in [*needs, *recommended]} & asked:
-                    stop = "repeated"
-                    entry["repeated"] = sorted({str(f.get("title")) for f in [*needs, *recommended]
-                                                if _norm(f.get("title")) in asked})
+                elif again:
+                    stop, entry["repeated"] = "repeated", again
+                elif prev is not None and (entry["errors"], entry["warnings"]) >= (prev["errors"], prev["warnings"]):
+                    stop = "no_progress"  # the revision did not reduce what is left: another round will not either
                 else:
                     stop = ""
                 jobs.step(job_id, "round", f"{k}회차: 제안 #{int(p.id)} 수정 필요 {entry['errors']} · 수정 권장 "
@@ -626,21 +758,26 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                 if stop:
                     break
                 chosen = [{**f, "source": "ai"} for f in [*needs, *recommended]] + proposal_check_findings(p)
-                asked |= {_norm(f.get("title")) for f in [*needs, *recommended]}
+                asked |= {str(f.get("title")) for f in [*needs, *recommended]}
                 jobs.step(job_id, "revise", f"{k}회차: 의견 {len(chosen)}개를 반영한 수정안 만드는 중")
                 try:
                     out = design_task(project_id, board_id, instructions=None, use_inventory=True, review=True,
                                       base=proposals.candidate(p), findings=chosen, source="ai_revision",
                                       parent=p.id)(job_id)
                 except ApiError as exc:
-                    stop, message, why = "revise_failed", exc.message, exc.details
+                    stop = "declined" if exc.error_code == "AI_NOTHING_TO_FIX" else "revise_failed"
+                    message, why = exc.message, (None if stop == "declined" else exc.details)
                     break
                 revised = proposals.get(project_id, board_id, out["proposal_id"])
                 diff = ((revised.ai or {}).get("diff_from_parent") or {}).get("summary")
                 entry["revised_to"] = revised.id
-                entry["fix"] = {"summary": str((revised.ai or {}).get("summary") or "")[:300], "diff": diff}
+                entry["fix"] = {"summary": str((revised.ai or {}).get("summary") or "")[:300], "diff": diff,
+                                "method": (revised.ai or {}).get("method", "redesign")}
                 jobs.step(job_id, "revised", f"{k}회차: 수정안 #{int(revised.id)} 만듦", data=entry)
                 p = revised
+                if diff is not None and not any(diff.values()):
+                    stop = "no_change"  # the revision is the same circuit: reviewing it again changes nothing
+                    break
             last = proposals.get(project_id, board_id, p.id)
             result = {"rounds": rounds, "stop": stop, "message": message, "why": why, "proposal_id": last.id,
                       "met": stop == "met", "max_warnings": body.max_warnings, "max_rounds": body.max_rounds}

@@ -123,28 +123,31 @@ def test_a_run_end_to_end(tmp_path, monkeypatch):
     client, created = ai_client(tmp_path, reply=reply)
     cases = client.get("/api/evals/cases").json()
     assert [c["id"] for c in cases["design"]] == [c.id for c in DESIGN_CASES] and not cases["kicad"]
-    assert cases["calls_per_repeat"] == {"design": 30, "review": 20, "notes": 2}
+    assert cases["calls_per_repeat"] == {"design": 30, "review": 20, "revise": 20, "notes": 2}
+    assert [c["id"] for c in cases["revise"]][0] == "fix:led-reversed"
     assert client.post("/api/evals/runs", json={}).json()["error_code"] == "AI_DISABLED"
     enable(client)
     assert client.post("/api/evals/runs", json={"suites": ["nope"]}).json()["error_code"] == "UNKNOWN_SUITE"
 
     job = wait(client, client.post("/api/evals/runs", json={"repeats": 1}).json())
     assert job["status"] == "succeeded", job
-    assert client.get(f"/api/evals/progress/{job['id']}").json()["done"] == 32  # 10 designs, 20 reviews, 2 notes
+    assert client.get(f"/api/evals/progress/{job['id']}").json()["done"] == 42  # 10 designs, 20 reviews, 10 fixes, 2 notes
     run = client.get(f"/api/evals/runs/{job['result']['run_id']}").json()
     s = run["run"]["summary"]
     assert s["design"]["completed"] == 1.0 and s["design"]["requirements_met"] == 1.0  # reference designs
     assert s["design"]["kicad_checked"] == 0  # no KiCad here: not counted as passed or failed
     assert s["review"]["found"] == 0.1 and s["review"]["found_by_code"] == 1.0  # only the LED defect
     assert s["review"]["false_errors"] == 1.0  # one error on every clean board
+    assert s["review"]["unverified_rate"] == 1.0  # ... and none of them says what it rests on
+    assert s["revise"]["completed"] == 0.0  # this fake AI answers edit requests with a review: no edits
     assert s["notes"]["bad_ids"] == 2 and s["notes"]["cited"] == pytest.approx(0.75)  # E99 twice; 3 of 4 lines cite
-    assert s["cost"]["calls"] == 10 + 20 + 2 and s["cost"]["failed"] == 0
+    assert s["cost"]["calls"] == 10 + 20 + 10 + 2 and s["cost"]["failed"] == 0
     assert run["previous_id"] is None and "## 연구노트" in run["markdown"]
     # Nothing in the user's projects: the run only reads the examples.
     assert client.get("/api/projects").json() == []
 
     # A second run is compared with the first.
-    job2 = wait(client, client.post("/api/evals/runs", json={"suites": ["design", "review", "notes"],
+    job2 = wait(client, client.post("/api/evals/runs", json={"suites": ["design", "review", "revise", "notes"],
                                                               "cases": ["led-reversed"]}).json())
     second = client.get(f"/api/evals/runs/{job2['result']['run_id']}").json()
     assert second["run"]["summary"]["review"]["found"] == 1.0
@@ -171,3 +174,27 @@ def test_recording_counts_calls_and_tokens():
     r.generate(prompt="a")
     r.generate(prompt="b")
     assert r.cost() == {"calls": 2, "input_tokens": 6, "output_tokens": 4} and r.last == "x"
+
+
+def test_the_revise_suite_judges_a_fix_with_the_apps_own_calculation(tmp_path):
+    clean = example("ne555-led-board")
+    d2 = next(c for c in clean.components if c.reference == "D2")
+    net_of = {node.pin: n.name for n in clean.nets for node in n.nodes if node.component_id == d2.id}
+
+    def fixer(prompt: str) -> str:
+        if "회로를 새로 설계하지 마세요" in prompt:  # put D2 back the right way round
+            return json.dumps({"summary": "D2 방향 바로잡음", "addressed": ["F1"], "edits": [
+                {"action": "connect", "net": net_of[p], "pins": [f"D2.{p}"], "why": "F1"} for p in sorted(net_of)]},
+                ensure_ascii=False)
+        return reply(prompt)
+
+    client, _ = ai_client(tmp_path, reply=fixer)
+    enable(client)
+    job = wait(client, client.post("/api/evals/runs", json={"suites": ["revise"], "cases": ["led-reversed"]}).json())
+    assert job["status"] == "succeeded", job
+    run = client.get(f"/api/evals/runs/{job['result']['run_id']}").json()["run"]
+    [r] = run["results"]
+    assert r["completed"] and r["judged"] and r["fixed"] and r["new_problems"] == 0 and r["untouched"] == 1.0
+    assert run["summary"]["revise"] == {"runs": 1, "completed": 1.0, "fixed": 1.0, "new_problems": 0, "untouched": 1.0,
+                                        "declined": 0}
+    assert "심은 결함 고침률" in client.get(f"/api/evals/runs/{run['id']}").json()["markdown"]

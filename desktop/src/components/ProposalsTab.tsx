@@ -828,6 +828,24 @@ function AiMemo({ p }: { p: Proposal }) {
     <>
       <h4>{ai.parent ? `AI 수정안 메모 — 제안 #${Number(ai.parent)}의 수정안` : "AI 설계 메모"}</h4>
       {ai.summary && <p className="small">{ai.summary}</p>}
+      {ai.method === "edits" && (
+        <p className="small">
+          <Chip text="고칠 곳만 편집" tone="info" /> {ai.changes?.join(", ") || "바뀐 곳 없음"}
+        </p>
+      )}
+      {ai.not_addressed && ai.not_addressed.length > 0 && (
+        <>
+          <h4>AI가 고치지 않은 의견</h4>
+          <ul className="small">{ai.not_addressed.map((x, i) => <li key={i}>{x.title}: <span className="muted">{x.why}</span></li>)}</ul>
+        </>
+      )}
+      {ai.guide_check && ai.guide_check.before.length > 0 && (
+        <p className="small">
+          설계 지침 자동 점검: 위반 {ai.guide_check.before.join(", ")}
+          {ai.guide_check.changes ? ` → 편집으로 고침 (${ai.guide_check.changes.join(", ")})` : ""}
+          {ai.guide_check.after.length ? ` · 남은 위반 ${ai.guide_check.after.join(", ")}` : " · 남은 위반 없음"}
+        </p>
+      )}
       {ai.templates && ai.templates.length > 0 && (
         <>
           <h4>사용한 검토된 템플릿</h4>
@@ -911,8 +929,13 @@ function AiReview({ p, aiReady, busy, fix, onRevise }: {
   );
 }
 
+const BASIS_LABEL: Record<string, string> = {
+  evidence: "검사·계산·데이터시트", guide: "설계 지침", requirement: "요구사항", circuit: "회로의 핀·Net", judgment: "판단",
+};
+
 export function FindingList({ findings, onUse, blocked, guideRef, guideLabel }: {
-  findings: { severity: string; title: string; detail: string; references: string[]; suggestion: string | null; guide?: string | null }[];
+  findings: { severity: string; title: string; detail: string; references: string[]; suggestion: string | null; guide?: string | null;
+    basis?: string; evidence?: string | null; verified?: boolean | null }[];
   onUse?(index: number): void;
   /** Why "이 의견 반영하기" cannot be used now (AI off, an approved proposal the board moved on from...): the button
    * stays visible, disabled, with this as its tooltip, so the action is not silently missing. */
@@ -928,7 +951,13 @@ export function FindingList({ findings, onUse, blocked, guideRef, guideLabel }: 
       {findings.map((f, i) => (
         <li key={i} className={`issue issue-${f.severity === "error" ? "error" : f.severity === "warning" ? "warning" : "info"}`}>
           <b>{f.title}</b> {f.references.length > 0 && <span className="muted">({f.references.join(", ")})</span>}
+          {f.verified === false && (
+            <span className="chip chip-warn finding-unverified" title="AI가 댄 근거를 앱이 확인하지 못했습니다. 자동 반복 검토와 자동 수정안에서는 빼고, 사람이 판단하도록 남깁니다.">
+              근거 확인 안 됨
+            </span>
+          )}
           <div>{f.detail}</div>
+          {f.evidence && f.severity !== "info" && <div className="small muted">근거{f.basis ? ` (${BASIS_LABEL[f.basis] ?? f.basis})` : ""}: {f.evidence}</div>}
           {f.suggestion && <div className="issue-hint">→ {f.suggestion}</div>}
           {f.guide && <div className="small muted">설계 지침 {f.guide}을(를) 지키지 않았다는 의견입니다.</div>}
           {(onUse || blocked) && (
@@ -1288,7 +1317,7 @@ export function RevisionPanel({ projectId, boardId, proposalId, provider, model,
         "결과는 새 제안이 되고, 승인하기 전에는 회로가 바뀌지 않습니다. 계속할까요?",
     );
     if (!ok) return;
-    setBusy("AI가 수정안을 만드는 중… 부품 → 연결 → KiCad 검사 순서로 진행합니다 (1~3분).");
+    setBusy("AI가 수정안을 만드는 중… 고칠 곳만 편집하고, 안 되면 다시 설계합니다 (1~3분). 다른 화면으로 가도 계속되고, 오른쪽 아래 「작업」에서 볼 수 있습니다.");
     try {
       const job = await waitForJob(
         (await api.aiRevise(projectId, boardId, {

@@ -38,12 +38,16 @@ SPEC = {"summary": "3.3V CAN 노드", "functions": ["CAN 통신", "MCU와 UART �
         "interfaces": [{"name": "CAN", "kind": "CAN", "details": "버스 끝단"}, {"name": "UART", "kind": "UART", "details": ""}],
         "parts_preferences": ["트랜시버 SN65HVD230"], "constraints": ["칩 부품 0603"], "open_questions": ["CAN 버스 속도는?"]}
 REVIEWS = [
-    [{"severity": "error", "title": "종단 저항 값 확인", "detail": "120Ω인지 확인", "references": ["R1"], "suggestion": None},
+    [{"severity": "error", "title": "종단 저항 값 확인", "detail": "120Ω인지 확인", "references": ["R1"], "suggestion": None,
+      "basis": "circuit", "evidence": "R1.1이 CANH에 연결"},
      {"severity": "warning", "title": "ESD 보호 없음", "detail": "CAN 라인에 TVS가 없습니다.", "references": ["J2"],
-      "suggestion": "TVS 추가"}],
-    [{"severity": "warning", "title": "CAN 라인 TVS 권장", "detail": "버스 쪽 서지 보호", "references": ["J2"], "suggestion": None},
+      "suggestion": "TVS 추가", "basis": "circuit", "evidence": "J2.1 CANH"}],
+    [{"severity": "warning", "title": "CAN 라인 TVS 권장", "detail": "버스 쪽 서지 보호", "references": ["J2"], "suggestion": None,
+      "basis": "circuit", "evidence": "J2.2 CANL"},
      {"severity": "info", "title": "디커플링 적절", "detail": "100nF가 VCC 가까이에 있습니다.", "references": ["C1"],
-      "suggestion": None}],
+      "suggestion": None, "basis": "judgment"},
+     {"severity": "warning", "title": "커넥터 방향 표시 권장", "detail": "취향 문제", "references": ["J1"], "suggestion": None,
+      "basis": "judgment"}],
 ]
 
 
@@ -52,6 +56,11 @@ def design_reply(prompt: str, state: dict) -> str | None:
 
     if "정해진 항목으로 정리" in prompt:
         return json.dumps(SPEC, ensure_ascii=False)
+    if "회로를 새로 설계하지 마세요" in prompt:  # a revision by edits: add the TVS the review asked for
+        state["edits"] = state.get("edits", 0) + 1
+        return json.dumps({"summary": "CAN 라인에 TVS 추가", "addressed": ["F1", "F2"], "not_addressed": [],
+                           "edits": [{"action": "set_value", "ref": "R1", "value": f"12{state['edits']}",
+                                      "why": "F1: 종단 저항 값 확인"}]}, ensure_ascii=False)
     if "대안을 2~4개 제시하세요" in prompt:
         return json.dumps(ALTERNATIVES, ensure_ascii=False)
     if "부품 목록을 정하세요" in prompt:

@@ -612,6 +612,14 @@ class ProjectStore:
             raise not_found("job", job_id)
         return self._job_from_row(row)
 
+    def active_jobs(self, finished_since: str, limit: int = 20) -> list[Job]:
+        """Jobs still queued or running in any project, plus those that finished since ``finished_since``."""
+        with self._db() as db:
+            rows = db.execute(
+                "SELECT * FROM jobs WHERE status IN ('queued', 'running') OR finished_at > ? "
+                "ORDER BY created_at DESC, rowid DESC LIMIT ?", (finished_since, limit)).fetchall()
+        return [self._job_from_row(r) for r in rows]
+
     def list_jobs(self, project_id: str, board_id: str | None = None, limit: int = 20) -> list[Job]:
         query = "SELECT * FROM jobs WHERE project_id = ?"
         args: list = [project_id]

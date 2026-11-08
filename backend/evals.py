@@ -19,7 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ai_engine import AiError, LlmResult
-from ai_engine.design import DesignInput, circuit_text, design_circuit, review_circuit
+from ai_engine.design import DesignInput, circuit_text, counted, design_circuit, review_circuit, revise_by_edits
 from ai_engine.notes import write_note
 from circuit_core import CircuitIR, validate_circuit
 from circuit_core.engineering import engineering_review
@@ -42,7 +42,7 @@ from .exports import _run_checks
 from .notes import collect_evidence
 from .store import atomic_write, now_iso
 
-SUITES = ("design", "review", "notes")
+SUITES = ("design", "review", "revise", "notes")
 CALLS_PER_DESIGN = 3
 """Plan + connect, plus usually one repair: used only to estimate the cost before a run."""
 _RUN_ID = re.compile(r"^[0-9T-]{15,}-[0-9a-f]{6}$")
@@ -82,6 +82,9 @@ def plan_items(suites: list[str], case_ids: list[str] | None, repeats: int) -> l
             for example in dict.fromkeys(d.example for d in defects):  # the same boards without a defect
                 items.append({"suite": "review", "case": f"clean:{example}", "repeat": rep, "defect": None,
                               "example": example})
+        if "revise" in suites:
+            items += [{"suite": "revise", "case": f"fix:{d.id}", "repeat": rep, "defect": d.id} for d in REVIEW_CASES
+                      if not wanted or d.id in wanted or f"fix:{d.id}" in wanted]
         if "notes" in suites:
             items += [{"suite": "notes", "case": f"note:{e}", "repeat": rep, "example": e} for e in NOTE_EXAMPLES
                       if not wanted or f"note:{e}" in wanted]
@@ -89,7 +92,7 @@ def plan_items(suites: list[str], case_ids: list[str] | None, repeats: int) -> l
 
 
 def estimate_calls(items: list[dict]) -> int:
-    return sum(CALLS_PER_DESIGN if i["suite"] == "design" else 1 for i in items)
+    return sum(CALLS_PER_DESIGN if i["suite"] == "design" else 2 if i["suite"] == "revise" else 1 for i in items)
 
 
 class EvalRunner:
@@ -175,14 +178,60 @@ class EvalRunner:
         review, _ = review_circuit(ai, requirements=requirements, spec=None, circuit=circuit, evidence=evidence,
                                    guides=self.guides_text(circuit, requirements))
         findings = review["findings"]
+        needs, recommended, unverified = counted(findings)
         out = {"completed": True, "findings": len(findings),
                "errors": sum(1 for f in findings if f["severity"] == "error"),
                "warnings": sum(1 for f in findings if f["severity"] == "warning"),
+               "verified_errors": len(needs), "verified_warnings": len(recommended), "unverified": len(unverified),
                "defect": defect.id if defect else None, "defect_title": defect.title if defect else None}
         if defect:
             hit = found_by_ai(defect, findings)
             out.update(found=hit is not None, found_by=hit["title"] if hit else None,
                        found_by_code=found_by_code(defect, circuit))
+        return out
+
+    def _revise(self, ai: Recording, cfg, item: dict) -> dict:
+        """Revision ability: the planted defect, stated as a reviewer would, goes to the edit-based revision; the app's
+        own calculated review then says whether it is fixed, what new problems appeared and how much else changed."""
+        defect = next(d for d in REVIEW_CASES if d.id == item["defect"])
+        requirements, clean = self._example(defect.example)
+        planted = plant(defect, clean)
+        lib = SymbolLibrary(self.symbol_dirs) if self.symbol_dirs else None
+        if lib is None or self.resolver_factory is None:
+            raise ApiError(409, "NO_SYMBOL_LIBRARY", "KiCad 심볼 라이브러리가 없어 수정 평가를 할 수 없습니다.")
+        finding = {"severity": "error", "title": defect.title, "detail": defect.title, "references": list(defect.refs),
+                   "suggestion": None}
+        inp = DesignInput(requirements=requirements, board_name=defect.example,
+                          guides=self.guides_text(planted, requirements))
+        result = revise_by_edits(ai, inp, planted, [finding], self.resolver_factory(lib),
+                                 max_output_tokens=cfg.max_output_tokens)
+        judged = found_by_code(defect, planted)
+        out = {"completed": result.circuit is not None, "attempts": result.attempts, "judged": judged,
+               "declined": result.declined, "problems": result.problems[:5], "changes": result.changes[:12],
+               "defect_title": defect.title}
+        c = result.circuit
+        if c is None:
+            return out
+
+        def calc_keys(circuit: CircuitIR) -> set[tuple[str, str]]:
+            return {(f.rule, f.title) for f in engineering_review(circuit) if f.severity in ("fail", "warn")}
+
+        new = calc_keys(c) - calc_keys(planted)
+        before = {x.reference: x for x in planted.components}
+        others = [r for r in before if r not in defect.refs]
+        nets_of = {}
+        for circuit, tag in ((planted, "a"), (c, "b")):
+            for n in circuit.nets:
+                for node in n.nodes:
+                    nets_of[(tag, node.component_id, node.pin)] = n.name
+        after = {x.reference: x for x in c.components}
+        untouched = [r for r in others if r in after and after[r].value == before[r].value
+                     and all(nets_of.get(("a", before[r].id, p.number)) == nets_of.get(("b", after[r].id, p.number))
+                             for p in before[r].pins)]
+        out.update(fixed=(not found_by_code(defect, c)) if judged else None,
+                   new_problems=len(new) + sum(1 for i in validate_circuit(c).issues if i.severity.value == "error"),
+                   new_titles=sorted(t for _, t in new)[:5],
+                   untouched=round(len(untouched) / len(others), 3) if others else 1.0, edits=len(result.edits))
         return out
 
     def _note(self, ai: Recording, item: dict) -> dict:
@@ -230,6 +279,8 @@ class EvalRunner:
                     res.update(self._design(ai, cfg, next(c for c in DESIGN_CASES if c.id == item["case"])))
                 elif item["suite"] == "review":
                     res.update(self._review(ai, item))
+                elif item["suite"] == "revise":
+                    res.update(self._revise(ai, cfg, item))
                 else:
                     res.update(self._note(ai, item))
             except AiError as exc:

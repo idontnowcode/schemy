@@ -2,6 +2,7 @@
 -> proposal -> isolated check -> review. No real AI is called."""
 
 import json
+import re
 
 import pytest
 
@@ -47,10 +48,21 @@ SPEC = {"summary": "3.3V CAN 노드", "functions": ["CAN 통신"], "power": [{"n
         "interfaces": [{"name": "CAN", "kind": "CAN"}], "parts_preferences": [], "constraints": [], "open_questions": ["버스 속도?"]}
 
 
+def edit_reply(state: dict) -> str:
+    """A revision by edits: R1 gets a new value each time (so every revision really changes the circuit)."""
+    state["edits"] = state.get("edits", 0) + 1
+    return json.dumps({"summary": "R1 값 조정", "addressed": state.get("asked") or ["F1"], "not_addressed": [],
+                       "edits": [{"action": "set_value", "ref": "R1", "value": f"12{state['edits']}", "why": "F1 반영"}]},
+                      ensure_ascii=False)
+
+
 def scripted(bad_first=True):
     state = {"connect": 0}
 
     def reply(prompt):
+        if "회로를 새로 설계하지 마세요" in prompt:
+            state["asked"] = re.findall(r"- (F[0-9]+) \[", prompt)
+            return edit_reply(state)
         if "부품 목록을 정하세요" in prompt:
             return json.dumps(PLAN, ensure_ascii=False)
         if "핀 표만 써서" in prompt:
@@ -244,10 +256,14 @@ def test_revision_with_chosen_findings_own_request_and_diff(tmp_path):
     ai = second["ai"]
     assert ai["parent"] == first and ai["instructions"] == "커넥터를 JST-XH로 바꿔 주세요"
     assert [(a["title"], a["source"]) for a in ai["addressed"]] == [("ESD 보호 없음", "ai")]
-    assert ai["diff_from_parent"]["summary"]["components_added"] == 0  # the scripted AI returns the same design
+    # A revision edits the current circuit (R1's value here) instead of designing it again.
+    assert ai["method"] == "edits" and ai["changes"] == ["R1 값 120 → 121"]
+    assert ai["diff_from_parent"]["summary"]["components_added"] == 0
     calls = [c for provider in created if hasattr(provider, "calls") for c in provider.calls]
-    plan_prompt = [c["prompt"] for c in calls if "부품 목록을 정하세요" in c["prompt"]][-1]
-    assert "ESD 보호 없음" in plan_prompt and "JST-XH" in plan_prompt and "[현재 설계" in plan_prompt
+    edit_prompt = [c["prompt"] for c in calls if "회로를 새로 설계하지 마세요" in c["prompt"]][-1]
+    assert "F1 [warning] ESD 보호 없음" in edit_prompt and "JST-XH" in edit_prompt and "[현재 회로]" in edit_prompt
+    assert "U1 SN65HVD230 [Interface_CAN_LIN:SN65HVD230] 핀: 1=" in edit_prompt  # the real pin table
+    assert sum("부품 목록을 정하세요" in c["prompt"] for c in calls) == 1  # no second parts plan
 
 
 def test_revision_from_own_request_alone_and_nothing_to_do(tmp_path):
@@ -392,8 +408,10 @@ def test_one_sided_rail_ranges_are_kept():
 
 # --- step screens: design progress and the automatic review loop -----------------------------------------------------
 
-def finding(severity, title):
-    return {"severity": severity, "title": title, "detail": f"{title} 설명", "references": ["U1"], "suggestion": None}
+def finding(severity, title, basis="circuit", evidence="U1.1 TXD"):
+    """A review finding; by default it points at a real pin, so its basis checks out."""
+    return {"severity": severity, "title": title, "detail": f"{title} 설명", "references": ["U1"], "suggestion": None,
+            "basis": basis, "evidence": evidence}
 
 
 def reviews_in_turn(*reviews):
@@ -401,6 +419,8 @@ def reviews_in_turn(*reviews):
     base, state = scripted(bad_first=False), {"n": 0}
 
     def reply(prompt):
+        if "회로를 새로 설계하지 마세요" in prompt:
+            return base(prompt)
         if "검토자" in prompt and "부품 목록을 정하세요" not in prompt and "핀 표만 써서" not in prompt:
             state["n"] += 1
             findings = reviews[min(state["n"], len(reviews)) - 1]
@@ -437,7 +457,7 @@ def test_auto_review_stops_at_once_when_the_condition_holds(tmp_path):
     r = auto["result"]
     assert r["stop"] == "met" and r["met"] and r["proposal_id"] == pid and state["n"] == 1
     assert r["rounds"] == [{"round": 1, "proposal_id": pid, "errors": 0, "warnings": 1, "check": r["rounds"][0]["check"],
-                            "check_failed": False, "said": ["ESD 보호 없음"]}]
+                            "check_failed": False, "said": ["ESD 보호 없음"], "unverified": 0, "unverified_said": []}]
     assert client.get(f"{board}/proposals/{pid}").json()["ai"]["review"]["summary"] == "검토 1"
     assert auto["progress"][-1]["text"] == "멈춤: 조건 충족"
 
@@ -649,6 +669,8 @@ def test_auto_review_reports_why_a_revision_failed(tmp_path):
     state = {"connect": 0}
 
     def reply(prompt):
+        if "회로를 새로 설계하지 마세요" in prompt:
+            return '{"edits": ['  # the edits never come back readable either: the revision falls back to a redesign
         if "핀 표만 써서" in prompt and "부품 목록을 정하세요" not in prompt:
             state["connect"] += 1
             if state["connect"] > 1:  # the revision's connections never come back readable
@@ -659,3 +681,225 @@ def test_auto_review_reports_why_a_revision_failed(tmp_path):
     r = auto["result"]
     assert r["stop"] == "revise_failed" and "AI 응답(연결)이 JSON이 아닙니다" in r["message"]
     assert r["why"]["what"] == "연결" and r["why"]["tail"] == '{"nets": ['
+
+
+# --- grounded reviews: a finding needs a basis the app can check ------------------------------------------------------
+
+def test_review_findings_must_point_at_something_real(tmp_path):
+    from ai_engine.design import review_circuit
+
+    findings = [
+        finding("error", "자동 검사 근거", basis="evidence", evidence="E1 참고"),
+        finding("error", "없는 근거 번호", basis="evidence", evidence="E99"),
+        finding("warning", "실제 핀", basis="circuit", evidence="U1.7(CANH)이 R1과 연결"),
+        finding("warning", "없는 핀", basis="circuit", evidence="U7.3이 떠 있음"),
+        finding("warning", "Net 이름", basis="circuit", evidence="CANL 라인에 보호 없음"),
+        finding("warning", "요구사항 인용", basis="requirement", evidence="CAN 버스 종단 저항 포함"),
+        finding("warning", "지어낸 요구사항", basis="requirement", evidence="방수 등급 IP67"),
+        finding("warning", "그냥 권고", basis="judgment", evidence=""),
+        finding("info", "참고", basis="judgment", evidence=""),
+    ]
+    provider = Scripted(lambda prompt: json.dumps({"summary": "s", "findings": findings}, ensure_ascii=False))
+    from circuit_core import CircuitIR
+
+    client, _, pid = design_client(tmp_path)
+    board = f"/api/projects/{pid}/boards/a"
+    job = wait(client, client.post(board + "/ai/design", json={"review": False}).json())
+    circuit = CircuitIR.model_validate(client.get(f"{board}/proposals/{job['result']['proposal_id']}").json()["candidate"])
+    review, _ = review_circuit(provider, requirements=REQUIREMENTS, spec=None, circuit=circuit,
+                               evidence="KiCad 자동 검사: passed\n- IR warning: X 무엇", datasheet_notes="")
+    verdict = {f["title"]: f["verified"] for f in review["findings"]}
+    assert verdict == {"자동 검사 근거": True, "없는 근거 번호": False, "실제 핀": True, "없는 핀": False, "Net 이름": True,
+                       "요구사항 인용": True, "지어낸 요구사항": False, "그냥 권고": False, "참고": None}
+    assert [e["id"] for e in review["evidence"]][:2] == ["E1", "E2"]
+    prompt = provider.calls[0]["prompt"]
+    assert "E1 KiCad 자동 검사: passed" in prompt and "개수를 채우려고" in prompt and "항목을 통과했고" in prompt
+    # Unverified ones are listed after the verified ones of the same severity.
+    order = [(f["severity"], f["verified"]) for f in review["findings"]]
+    assert order.index(("error", True)) < order.index(("error", False))
+
+
+def test_unverified_findings_do_not_drive_the_loop(tmp_path):
+    reply, state = reviews_in_turn([finding("error", "느낌상 위험", basis="judgment", evidence=""),
+                                    finding("warning", "없는 핀 지적", basis="circuit", evidence="U9.9")])
+    client, board, job = designed(tmp_path, reply)
+    auto = wait(client, client.post(board + "/ai/auto-review", json={"proposal_id": job["result"]["proposal_id"],
+                                                                     "max_warnings": 0}).json())
+    [r1] = auto["result"]["rounds"]
+    assert auto["result"]["stop"] == "met" and (r1["errors"], r1["warnings"], r1["unverified"]) == (0, 0, 2)
+    assert r1["unverified_said"] == ["느낌상 위험", "없는 핀 지적"] and state["n"] == 1
+
+
+def test_the_loop_stops_when_nothing_gets_better(tmp_path):
+    reply, _ = reviews_in_turn([finding("error", "모터 전원 디커플링 부족")],
+                               [finding("error", "게이트 저항 없음")])
+    client, board, job = designed(tmp_path, reply)
+    auto = wait(client, client.post(board + "/ai/auto-review", json={"proposal_id": job["result"]["proposal_id"],
+                                                                     "max_rounds": 5}).json())
+    r = auto["result"]
+    assert r["stop"] in ("no_progress", "no_change") and len(r["rounds"]) <= 2
+
+
+def test_similar_titles_count_as_the_same_finding():
+    from backend.routes_design import similar
+
+    assert similar("역극성 보호 없음", "역극성 보호 회로가 없음")
+    assert similar("모터 전원 벌크 콘덴서 부족", "모터 전원의 벌크 콘덴서가 부족함")
+    assert not similar("역극성 보호 없음", "I2C 풀업 저항 값 확인")
+
+
+# --- revisions edit the current circuit ---------------------------------------------------------------------------------
+
+def can_candidate(tmp_path):
+    from circuit_core import CircuitIR
+
+    client, _, pid = design_client(tmp_path)
+    board = f"/api/projects/{pid}/boards/a"
+    job = wait(client, client.post(board + "/ai/design", json={"review": False}).json())
+    return CircuitIR.model_validate(client.get(f"{board}/proposals/{job['result']['proposal_id']}").json()["candidate"])
+
+
+def test_edits_change_only_what_they_name(tmp_path, resolver):
+    from ai_engine.design import apply_edits
+
+    base = can_candidate(tmp_path)
+    edits = [{"action": "set_value", "ref": "R1", "value": "121", "why": "F1"},
+             {"action": "add_part", "ref": "D1", "category": "diode", "value": "TVS", "role": "CANH 보호", "why": "F2"},
+             {"action": "connect", "net": "CANH", "pins": ["D1.1"], "why": "F2"},
+             {"action": "connect", "net": "GND", "pins": ["D1.2"], "why": "F2"}]
+    circuit, problems, changes, added = apply_edits(base, edits, resolver)
+    assert problems == [] and circuit is not None, problems
+    assert changes == ["R1 값 120 → 121", "D1 TVS 추가", "D1.1 → CANH", "D1.2 → GND"] and list(added) == ["D1"]
+    nets = {n.name: {(x.component_id, x.pin) for x in n.nodes} for n in circuit.nets}
+    assert ("d1", "1") in nets["CANH"] and ("d1", "2") in nets["GND"]
+    before = {c.reference: c for c in base.components}
+    assert all(c.model_dump() == before[c.reference].model_dump() for c in circuit.components if c.reference not in ("R1", "D1"))
+    assert any(d.id == "dec-d1" and d.by == "ai" and d.reason == "F2" for d in circuit.decisions)
+    # A wrong pin, a part left floating and a pin pulled off its net are all reported, not half-applied.
+    bad = [{"action": "add_part", "ref": "C9", "category": "capacitor", "value": "10uF", "why": "x"},
+           {"action": "connect", "net": "+3V3", "pins": ["C9.1", "U1.99"], "why": "x"},
+           {"action": "disconnect", "net": "TXD", "pins": ["J3.1"], "why": "x"}]
+    circuit, problems, _, _ = apply_edits(base, bad, resolver)
+    assert circuit is None
+    assert any("U1.99" in p for p in problems) and any("C9.2" in p and "새 부품" in p for p in problems)
+    assert any("J3.1" in p and "떴습니다" in p for p in problems)
+
+
+def test_edit_problems_go_back_to_the_ai_with_the_real_pins(tmp_path, resolver):
+    from ai_engine.design import DesignInput, revise_by_edits
+
+    base = can_candidate(tmp_path)
+    answers = iter([
+        {"summary": "TVS", "addressed": ["F1"], "edits": [
+            {"action": "add_part", "ref": "D1", "category": "diode", "value": "TVS", "why": "F1"},
+            {"action": "connect", "net": "CANH", "pins": ["D1.K"], "why": "F1"}]},
+        {"summary": "TVS", "addressed": ["F1"], "edits": [
+            {"action": "add_part", "ref": "D1", "category": "diode", "value": "TVS", "why": "F1"},
+            {"action": "connect", "net": "CANH", "pins": ["D1.1"], "why": "F1"},
+            {"action": "connect", "net": "GND", "pins": ["D1.2"], "why": "F1"}]},
+    ])
+    provider = Scripted(lambda prompt: json.dumps(next(answers), ensure_ascii=False))
+    inp = DesignInput(requirements=REQUIREMENTS, spec=None, board_name="A", instructions=None)
+    result = revise_by_edits(provider, inp, base, [finding("warning", "ESD 보호 없음")], resolver)
+    assert result.circuit is not None and result.attempts == 2 and result.changes[-1] == "D1.2 → GND"
+    second = provider.calls[1]["prompt"]
+    assert "[직전 답에서 생긴 문제" in second and "[새 부품의 실제 핀 표]" in second and "- D1 [Device:D] 핀: 1=K, 2=A" in second
+    assert [f["title"] for f in result.addressed] == ["ESD 보호 없음"]
+
+
+def test_when_the_ai_declines_every_finding_the_loop_says_so(tmp_path):
+    base_reply, _ = reviews_in_turn([finding("error", "애매한 결함")])
+
+    def reply(prompt):
+        if "회로를 새로 설계하지 마세요" in prompt:
+            return json.dumps({"summary": "고칠 것 없음", "edits": [], "addressed": [],
+                               "not_addressed": [{"id": "F1", "why": "요구사항상 의도된 구성입니다"}]}, ensure_ascii=False)
+        return base_reply(prompt)
+    client, board, job = designed(tmp_path, reply)
+    auto = wait(client, client.post(board + "/ai/auto-review", json={"proposal_id": job["result"]["proposal_id"]}).json())
+    r = auto["result"]
+    assert r["stop"] == "declined" and "요구사항상 의도된 구성입니다" in r["message"]
+    assert auto["progress"][-1]["text"].startswith("멈춤: AI가 남은 의견을 고치지 않기로 함")
+
+
+def test_edits_that_cannot_be_made_fall_back_to_a_redesign(tmp_path):
+    state = {"plans": 0}
+    base = scripted(bad_first=False)
+
+    def reply(prompt):
+        if "회로를 새로 설계하지 마세요" in prompt:
+            return json.dumps({"summary": "x", "addressed": ["F1"],
+                               "edits": [{"action": "connect", "net": "GND", "pins": ["U1.42"], "why": "F1"}]})
+        if "부품 목록을 정하세요" in prompt:
+            state["plans"] += 1
+        return base(prompt)
+    client, _, pid = design_client(tmp_path, reply)
+    board = f"/api/projects/{pid}/boards/a"
+    first = wait(client, client.post(board + "/ai/design", json={"review": False}).json())["result"]["proposal_id"]
+    job = wait(client, client.post(board + "/ai/revise", json={"proposal_id": first, "instructions": "GND 보강",
+                                                               "review": False}).json())
+    assert job["status"] == "succeeded", job
+    assert state["plans"] == 2 and job["result"]["attempts"] >= 1
+    assert any("고칠 곳만으로는 해결하지 못해 회로를 다시 설계" in s["text"] for s in job["progress"])
+    assert client.get(f"{board}/proposals/{job['result']['proposal_id']}").json()["ai"]["method"] == "redesign"
+
+
+# --- designs follow the design guides from the start ------------------------------------------------------------------
+
+def test_the_connection_step_gets_the_guides_the_parts_bring(tmp_path):
+    client, created, pid = design_client(tmp_path, scripted(bad_first=False))
+    # The requirements never say "CAN"; the AI picks SN65HVD230, which brings its own guide (G-IF-02).
+    client.put(f"/api/projects/{pid}/requirements", json={"text": "3.3V 전원 노드. MCU와 UART(TXD/RXD)로 연결하고 차동 버스로 내보낸다."})
+    board = f"/api/projects/{pid}/boards/a"
+    job = wait(client, client.post(board + "/ai/design", json={"review": False}).json())
+    assert job["status"] == "succeeded", job
+    calls = [c["prompt"] for provider in created if hasattr(provider, "calls") for c in provider.calls]
+    plan = next(c for c in calls if "부품 목록을 정하세요" in c)
+    connect = next(c for c in calls if "핀 표만 써서" in c and "부품 목록을 정하세요" not in c)
+    assert "[G-IF-02]" not in plan  # not from the requirements text
+    assert "[G-IF-02]" in connect  # the chosen transceiver brings it
+    assert any(s["text"] == "고른 부품에 맞는 설계 지침으로 연결합니다" for s in job["progress"])
+    p = client.get(f"{board}/proposals/{job['result']['proposal_id']}").json()
+    assert "G-IF-02" in p["ai"]["guides"]["offered"]
+
+
+def test_guide_violations_are_fixed_before_the_review(tmp_path):
+    plan = {**PLAN, "parts": [x for x in PLAN["parts"] if x["ref"] != "C1"]}
+    nets = {**GOOD, "nets": [{**n, "pins": [x for x in n["pins"] if not x.startswith("C1.")]} for n in GOOD["nets"]]}
+    prompts = []
+
+    def reply(prompt):
+        if "회로를 새로 설계하지 마세요" in prompt:
+            prompts.append(prompt)
+            return json.dumps({"summary": "디커플링 추가", "addressed": ["F1", "F2"], "edits": [
+                {"action": "add_part", "ref": "C1", "category": "capacitor", "value": "100nF", "package": "0603",
+                 "role": "U1 디커플링", "why": "F1·F2: G-PWR-04/05"},
+                {"action": "connect", "net": "+3V3", "pins": ["C1.1"], "why": "F1"},
+                {"action": "connect", "net": "GND", "pins": ["C1.2"], "why": "F1"}]}, ensure_ascii=False)
+        if "부품 목록을 정하세요" in prompt:
+            return json.dumps(plan, ensure_ascii=False)
+        if "핀 표만 써서" in prompt:
+            return json.dumps(nets, ensure_ascii=False)
+        return scripted(bad_first=False)(prompt)
+    client, board, job = designed(tmp_path, reply)
+    assert job["status"] == "succeeded", job
+    texts = [s["text"] for s in job["progress"]]
+    assert any(t.startswith("설계 지침 자동 점검: 위반 2개 (G-PWR-04, G-PWR-05)") for t in texts)
+    assert any(t.startswith("지침 위반 고침: 2 → 0") for t in texts)
+    assert "[G-PWR-04]" in prompts[0] and "F1 [error] G-PWR-04" in prompts[0]
+    p = client.get(f"{board}/proposals/{job['result']['proposal_id']}").json()
+    assert p["ai"]["guide_check"]["before"] == ["G-PWR-04", "G-PWR-05"] and p["ai"]["guide_check"]["after"] == []
+    assert any(c["reference"] == "C1" and c["value"] == "100nF" for c in p["candidate"]["components"])
+
+
+def test_jobs_keep_running_and_show_up_for_every_screen(tmp_path):
+    client, _, pid = design_client(tmp_path)
+    board = f"/api/projects/{pid}/boards/a"
+    started = client.post(board + "/ai/design", json={"review": False}).json()
+    # Nothing on the screen waits for it: the job runs in the backend and the status list sees it from anywhere.
+    done = wait(client, started)
+    active = client.get("/api/jobs/active").json()
+    [row] = [j for j in active if j["id"] == started["id"]]
+    assert row["status"] == "succeeded" and row["project_name"] == "CAN Node" and row["board_name"] == "보드 A"
+    assert row["kind"] == "ai_design" and row["proposal_id"] == done["result"]["proposal_id"] and row["step"]
+    assert client.get("/api/jobs/active", params={"recent_seconds": 0}).json() == []  # finished ones age out

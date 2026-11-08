@@ -7,13 +7,14 @@ import { AI_SETUP_HINT, formatTime, providerLabel } from "../format";
 import type { EvalCases, EvalChange, EvalRunInfo, EvalRunPage, EvalSuite, EvalSummary } from "../types";
 import { Chip } from "./Chip";
 
-const SUITE_LABEL: Record<EvalSuite, string> = { design: "설계", review: "검토", notes: "연구노트" };
+const SUITE_LABEL: Record<EvalSuite, string> = { design: "설계", review: "검토", revise: "수정", notes: "연구노트" };
 
 /** The four numbers shown on each run in the history (the full set is in the run's report). */
 export const HEADLINE: { key: string; label: string; kind: EvalChange["kind"] }[] = [
   { key: "design.completed", label: "설계 완료", kind: "rate" },
   { key: "design.requirements_met", label: "요구 충족", kind: "rate" },
   { key: "review.found", label: "결함 탐지", kind: "rate" },
+  { key: "revise.fixed", label: "결함 고침", kind: "rate" },
   { key: "notes.cited", label: "노트 근거 인용", kind: "rate" },
 ];
 
@@ -87,7 +88,7 @@ function RunDetail({ id, onDeleted }: { id: string; onDeleted(): void }) {
 export function EvalPage({ onError }: { onError(message: string | null): void }) {
   const [cases, setCases] = useState<EvalCases | null>(null);
   const [runs, setRuns] = useState<EvalRunInfo[]>([]);
-  const [suites, setSuites] = useState<EvalSuite[]>(["design", "review", "notes"]);
+  const [suites, setSuites] = useState<EvalSuite[]>(["design", "review", "revise", "notes"]);
   const [repeats, setRepeats] = useState(1);
   const [ready, setReady] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string | null } | null>(null);
@@ -167,7 +168,7 @@ export function EvalPage({ onError }: { onError(message: string | null): void })
                 <label key={s} className="small">
                   <input type="checkbox" checked={suites.includes(s)} aria-label={`${SUITE_LABEL[s]} 묶음`}
                     onChange={(e) => setSuites(e.target.checked ? [...suites, s] : suites.filter((x) => x !== s))} />{" "}
-                  {SUITE_LABEL[s]} ({s === "design" ? cases.design.length : s === "review" ? cases.review.length * 2 : cases.notes.length}건)
+                  {SUITE_LABEL[s]} ({s === "design" ? cases.design.length : s === "review" ? cases.review.length * 2 : s === "revise" ? (cases.revise?.length ?? 0) : cases.notes.length}건)
                 </label>
               ))}
               <label className="small">

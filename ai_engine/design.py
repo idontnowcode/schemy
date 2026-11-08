@@ -138,7 +138,10 @@ REVIEW_SCHEMA = {
             "severity": {"type": "string", "enum": ["error", "warning", "info"]},
             "title": _KO, "detail": _KO, "references": _STRS, "suggestion": _KO,
             "guide": {"type": "string", "description": "지키지 않은 설계 지침 id (해당할 때만, 예: G-MCU-02)"},
-        }, "required": ["severity", "title", "detail"]}},
+            "basis": {"type": "string", "enum": ["evidence", "guide", "requirement", "circuit", "judgment"],
+                      "description": "이 지적의 근거 종류"},
+            "evidence": {"type": "string", "description": "근거: 근거 목록 번호(E1, C2, D3), 요구사항 문장, 또는 실제 핀·Net"},
+        }, "required": ["severity", "title", "detail", "basis"]}},
     },
     "required": ["summary", "findings"],
 }
@@ -705,7 +708,8 @@ def place_templates(plan: dict, pins_of: PinsOf | None, taken_refs: set[str]) ->
 def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *, project_id: str,
                    max_repairs: int = 2, max_output_tokens: int = 32768,
                    pins_of: PinsOf | None = None, on_step: Callable[[str, str], None] | None = None,
-                   plan: dict | None = None) -> DesignResult:
+                   plan: dict | None = None,
+                   guides_for_parts: Callable[[list[ResolvedPart], list[TemplateBlock]], str] | None = None) -> DesignResult:
     """``on_step(step, text)`` reports progress: step "parts" (choosing parts) then "pins" (connecting them).
     ``plan`` continues from a parts plan already made (after the person chose alternatives) without asking again."""
     step = on_step or (lambda _step, _text: None)
@@ -746,6 +750,12 @@ def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *
         return result
     used = f", 검토된 템플릿 {', '.join(b.title for b in blocks)}" if blocks else ""
     step("parts", f"부품 {len(result.parts) + sum(len(b.components) for b in blocks)}개 선택{used}")
+    if guides_for_parts is not None:
+        # The parts decide which guides apply (an MCU brings its decoupling rules): connect with those.
+        chosen = guides_for_parts(result.parts, blocks)
+        if chosen.strip() and chosen != inp.guides:
+            inp = DesignInput(**{**inp.__dict__, "guides": chosen})
+            step("parts", "고른 부품에 맞는 설계 지침으로 연결합니다")
 
     prompt = connect_prompt(inp, plan, result.parts, blocks)
     title = str(plan.get("title") or "AI 설계안")
@@ -841,6 +851,323 @@ def suggest_alternatives(provider: LlmProvider, inp: DesignInput, plan: dict, un
     return options, call
 
 
+# --- revisions as edits of the current circuit ---------------------------------------------------------------------
+
+EDIT_ACTIONS = ("set_value", "add_part", "remove_part", "connect", "disconnect", "no_connect")
+
+EDIT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": _KO,
+        "edits": {"type": "array", "items": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": list(EDIT_ACTIONS)},
+            "ref": _STR, "value": _STR, "category": _STR, "role": _KO, "mpn": _STR, "package": _STR,
+            "kicad_symbol": _STR, "pin_count": {"type": "integer"}, "net": _STR, "pins": _STRS,
+            "why": {"type": "string", "description": "어느 의견(F 번호) 때문인지와 이유, 한국어로"},
+        }, "required": ["action", "why"]}},
+        "addressed": {"type": "array", "items": _STR, "description": "고친 의견 번호 (F1 …)"},
+        "not_addressed": {"type": "array", "items": {"type": "object", "properties": {"id": _STR, "why": _KO},
+                                                     "required": ["id", "why"]}},
+        "guides_applied": {"type": "array", "items": _STR, "description": "편집에서 따른 설계 지침 id"},
+    },
+    "required": ["summary", "edits", "addressed"],
+}
+
+
+def _circuit_pins(circuit: CircuitIR) -> str:
+    lines = ["[부품과 핀 표]"]
+    for c in sorted(circuit.components, key=lambda c: natural_key(c.reference)):
+        pins = ", ".join(f"{p.number}={p.name}" if p.name else p.number for p in c.pins)
+        nc = [p.number for p in c.pins if p.no_connect]
+        lines.append(f"- {c.reference} {c.value} [{c.symbol_id}] 핀: {pins}" + (f" (NC: {','.join(nc)})" if nc else ""))
+    lines.append("[Net]")
+    names = {c.id: c.reference for c in circuit.components}
+    for n in circuit.nets:
+        lines.append(f"- {n.name}: " + ", ".join(f"{names.get(x.component_id, x.component_id)}.{x.pin}" for x in n.nodes))
+    return "\n".join(lines)
+
+
+def edit_prompt(inp: DesignInput, base: CircuitIR, findings: list[dict]) -> str:
+    asked = "\n".join(f"- F{i + 1} [{f.get('severity')}] {f.get('title')}: {f.get('detail') or ''}"
+                      + (f" → {f['suggestion']}" if f.get("suggestion") else "")
+                      + (f" (근거: {f['evidence']})" if f.get("evidence") else "") for i, f in enumerate(findings))
+    head = [f"[보드] {inp.board_name}", "[요구사항]", inp.requirements.strip() or "(없음)"]
+    if inp.spec:
+        head += ["[정리된 요구사항(JSON)]", json.dumps(inp.spec, ensure_ascii=False)]
+    if inp.instructions:
+        head += ["[이번 요청]", inp.instructions.strip()]
+    return f"""당신은 회로 설계 엔지니어입니다. 아래 [현재 회로]에서 [고칠 의견]과 [이번 요청]을 해결하는 데 필요한 곳만 고치세요.
+회로를 새로 설계하지 마세요.
+
+[규칙]
+- 의견마다 고칠지 정하세요. 고친 의견 번호(F1 …)는 addressed에, 고치지 않는 의견은 not_addressed에 이유와 함께 적으세요.
+  근거가 약하거나, 요구사항과 맞지 않거나, 사람이 정해야 하는 의견은 고치지 말고 이유를 적는 것이 맞습니다.
+- 의견과 상관없는 부품·값·연결은 바꾸지 마세요. 있는 부품의 기호(ref)도 바꾸지 마세요.
+- edits 종류 (모든 edit에 why: 어느 의견 때문인지 F 번호와 이유):
+  · set_value: ref, value — 값만 바꿈 (예: R1을 4.7k로)
+  · add_part: 새 ref(겹치지 않게), category(resistor, capacitor, capacitor_polarized, inductor, led, diode, fuse,
+    crystal, connector, ic …), value, role, 알면 mpn·kicad_symbol·package, connector면 pin_count
+  · remove_part: ref
+  · connect: net, pins — 핀을 그 Net으로 옮김(원래 Net에서는 빠짐). 없는 Net 이름이면 새로 만듦.
+  · disconnect: net, pins
+  · no_connect: pins — 쓰지 않는 핀
+- 핀은 'U1.3'처럼 기호.핀번호로 쓰세요. 있는 부품의 핀 번호는 [현재 회로]의 핀 표를 따르세요.
+- 새 부품의 핀: 저항·콘덴서·인덕터·퓨즈 1, 2 / 극성 콘덴서 1(+), 2(−) / 다이오드·LED 1(K), 2(A).
+  그 밖의 새 부품은 핀 표를 모르면 연결을 비워 두세요. 다음 답에서 앱이 실제 핀 표를 줍니다.
+- 새 부품의 모든 핀은 어느 Net에 연결하거나 no_connect로 하세요. 핀을 옮겨 원래 Net이 비지 않게 하세요.
+
+{LANGUAGE_RULE}
+
+{chr(10).join(head)}
+
+[현재 회로]
+{_circuit_pins(base)}
+
+[고칠 의견]
+{asked or '(없음 — 이번 요청만)'}
+{_guides_block(inp.guides, "수정") if inp.guides.strip() else ''}
+- 편집이 위 설계 지침을 어기지 않게 하세요 (예: 새 IC를 넣으면 지침대로 디커플링 콘덴서도 함께 넣기).
+
+정해진 JSON 형식으로만 답하세요."""
+
+
+_PIN = re.compile(r"\s*([A-Za-z]+[0-9]+)\s*[.:]\s*([A-Za-z0-9_+\-~]+)\s*")
+
+
+def apply_edits(base: CircuitIR, edits: list[dict], resolve: Resolver) -> tuple[CircuitIR | None, list[str], list[str],
+                                                                             dict[str, ResolvedPart]]:
+    """Apply the AI's edits to a copy of ``base``: (circuit or None, problems for the AI, what changed, new parts).
+    Everything not edited — other parts, nets, notes, decisions, layout, power specs — stays as it was."""
+    data = base.model_dump(mode="json")
+    comps = {c["reference"].upper(): c for c in data["components"]}
+    nets = data["nets"]
+    problems: list[str] = []
+    changes: list[str] = []
+    added: dict[str, ResolvedPart] = {}
+    used_ids = {c["id"] for c in data["components"]}
+    net_ids = {n["id"] for n in nets}
+
+    def pin(token) -> tuple[dict, str] | None:
+        m = _PIN.fullmatch(str(token))
+        if not m:
+            problems.append(f"'{token}': 'U1.3'처럼 기호.핀번호로 써야 합니다.")
+            return None
+        ref, number = m.group(1).upper(), m.group(2)
+        c = comps.get(ref)
+        if c is None:
+            problems.append(f"{ref}: 회로에 없는 기호입니다.")
+            return None
+        numbers = [p["number"] for p in c["pins"]]
+        if number not in numbers:
+            named = [p["number"] for p in c["pins"] if (p.get("name") or "").upper() == number.upper()]
+            if len(named) != 1:
+                problems.append(f"{ref}.{number}: {ref}에 {number}번 핀이 없습니다. 핀 번호: {', '.join(numbers)}")
+                return None
+            number = named[0]
+        return c, number
+
+    def unplug(cid: str, number: str) -> str | None:
+        was = None
+        for n in nets:
+            before = len(n["nodes"])
+            n["nodes"] = [x for x in n["nodes"] if not (x["component_id"] == cid and x["pin"] == number)]
+            if len(n["nodes"]) != before:
+                was = n["name"]
+        return was
+
+    def set_nc(c: dict, number: str, on: bool) -> None:
+        for p in c["pins"]:
+            if p["number"] == number:
+                p["no_connect"] = on
+
+    def decide(c: dict, topic: str, choice: str, why: str) -> None:
+        did = f"dec-{c['id']}"
+        entry = {"id": did, "topic": topic[:120], "choice": choice[:300] or "?", "by": "ai",
+                 "reason": (why or "AI 수정안: 이유를 남기지 않았습니다.")[:2000], "components": [c["id"]]}
+        data["decisions"] = [d for d in data.get("decisions") or [] if d["id"] != did] + [entry]
+
+    for e in edits:
+        action, ref, why = e.get("action"), str(e.get("ref") or "").strip().upper(), str(e.get("why") or "").strip()
+        if action == "set_value":
+            c, value = comps.get(ref), str(e.get("value") or "").strip()
+            if c is None or not value:
+                problems.append(f"set_value {ref or '?'}: 회로에 없는 기호이거나 값이 비었습니다.")
+                continue
+            if c["value"] != value:
+                changes.append(f"{ref} 값 {c['value']} → {value}")
+                c["value"] = value
+                decide(c, f"{ref} 값", value, why)
+        elif action == "remove_part":
+            c = comps.pop(ref, None)
+            if c is None:
+                problems.append(f"remove_part {ref or '?'}: 회로에 없는 기호입니다.")
+                continue
+            data["components"] = [x for x in data["components"] if x["id"] != c["id"]]
+            for n in nets:
+                n["nodes"] = [x for x in n["nodes"] if x["component_id"] != c["id"]]
+            data["decisions"] = [d for d in data.get("decisions") or [] if list(d.get("components") or []) != [c["id"]]]
+            for d in data["decisions"]:
+                d["components"] = [x for x in d.get("components") or [] if x != c["id"]]
+            data["notes"] = [nt for nt in data.get("notes") or [] if list(nt.get("components") or []) != [c["id"]]]
+            for nt in data["notes"]:
+                nt["components"] = [x for x in nt.get("components") or [] if x != c["id"]]
+            (data.get("layout") or {}).pop(c["id"], None)
+            changes.append(f"{ref} 뺌")
+        elif action == "add_part":
+            if not re.fullmatch(r"[A-Z]+[0-9]+", ref) or ref in comps:
+                problems.append(f"add_part {ref or '?'}: 새 기호가 잘못되었거나 이미 있습니다.")
+                continue
+            part = {k: e.get(k) for k in ("category", "value", "mpn", "package", "kicad_symbol", "pin_count", "role")
+                    if e.get(k) not in (None, "")}
+            resolved, message = resolve({**part, "ref": ref, "reason": why, "basis": "ai"})
+            if resolved is None:
+                problems.append(f"add_part {ref} ({part.get('value') or part.get('mpn') or '?'}): {message}")
+                continue
+            cid = ref.lower()
+            while cid in used_ids:
+                cid += "x"
+            used_ids.add(cid)
+            c = {"id": cid, "reference": ref, "value": resolved.value or "?", "symbol_id": resolved.symbol_id,
+                 "footprint_id": resolved.footprint_id, "manufacturer": resolved.manufacturer,
+                 "manufacturer_part_number": resolved.mpn,
+                 "pins": [{"number": n, "name": nm if nm and nm != "~" else None, "no_connect": False}
+                          for n, nm, _ in resolved.pins],
+                 "pin_map_evidence": {"status": "unverified", "source": f"KiCad 라이브러리 {resolved.symbol_id} ({resolved.how})",
+                                      "notes": None},
+                 "description": resolved.role[:200] or None, "origin": "ai"}
+            data["components"].append(c)
+            comps[ref] = c
+            added[ref] = resolved
+            decide(c, f"{ref} {resolved.role}".strip(), c["value"], why)
+            changes.append(f"{ref} {c['value']} 추가")
+        elif action in ("connect", "disconnect"):
+            name = re.sub(r"[^A-Za-z0-9_+\-]+", "_", str(e.get("net") or "").strip()).strip("_")[:60]
+            if not name:
+                problems.append(f"{action}: Net 이름이 없습니다.")
+                continue
+            net = next((n for n in nets if n["name"] == name), None)
+            if net is None and action == "disconnect":
+                problems.append(f"disconnect: '{name}' Net이 없습니다.")
+                continue
+            if net is None:
+                nid, i = f"net-e{len(nets) + 1:03d}", len(nets) + 1
+                while nid in net_ids:
+                    i += 1
+                    nid = f"net-e{i:03d}"
+                net_ids.add(nid)
+                net = {"id": nid, "name": name, "nodes": []}
+                nets.append(net)
+            for token in e.get("pins") or []:
+                got = pin(token)
+                if got is None:
+                    continue
+                c, number = got
+                if action == "connect":
+                    was = unplug(c["id"], number)
+                    set_nc(c, number, False)
+                    net["nodes"].append({"component_id": c["id"], "pin": number})
+                    if was != name:
+                        changes.append(f"{c['reference']}.{number} → {name}" + (f" (원래 {was})" if was else ""))
+                else:
+                    before = len(net["nodes"])
+                    net["nodes"] = [x for x in net["nodes"] if not (x["component_id"] == c["id"] and x["pin"] == number)]
+                    if len(net["nodes"]) != before:
+                        changes.append(f"{c['reference']}.{number} {name}에서 뺌")
+        elif action == "no_connect":
+            for token in e.get("pins") or []:
+                got = pin(token)
+                if got is not None:
+                    c, number = got
+                    unplug(c["id"], number)
+                    set_nc(c, number, True)
+                    changes.append(f"{c['reference']}.{number} NC")
+        else:
+            problems.append(f"알 수 없는 edit: {action}")
+    data["nets"] = [n for n in nets if n["nodes"]]
+    connected = {(x["component_id"], x["pin"]) for n in data["nets"] for x in n["nodes"]}
+    was_connected = {(x.component_id, x.pin) for n in base.nets for x in n.nodes}
+    for c in data["components"]:
+        for p in c["pins"]:
+            key = (c["id"], p["number"])
+            if key in connected or p.get("no_connect"):
+                continue
+            label = f" ({p['name']})" if p.get("name") else ""
+            if c["reference"].upper() in added:
+                problems.append(f"{c['reference']}.{p['number']}{label}: 새 부품의 핀이 어느 Net에도 없고 no_connect도 아닙니다.")
+            elif key in was_connected:
+                problems.append(f"{c['reference']}.{p['number']}{label}: 원래 연결돼 있던 핀이 이번 수정으로 떴습니다.")
+    if problems:
+        return None, problems, changes, added
+    try:
+        circuit = CircuitIR.model_validate(data)
+    except ValidationError as exc:
+        err = exc.errors()[0]
+        return None, [f"IR 규칙 위반: {'.'.join(str(x) for x in err['loc'])}: {err['msg']}"], changes, added
+    errors = [f"{i.error_code}: {i.message}" for i in validate_circuit(circuit).errors]
+    return (None if errors else circuit), errors, changes, added
+
+
+@dataclass
+class EditResult:
+    circuit: CircuitIR | None
+    summary: str = ""
+    edits: list[dict] = field(default_factory=list)
+    changes: list[str] = field(default_factory=list)
+    addressed: list[dict] = field(default_factory=list)
+    not_addressed: list[dict] = field(default_factory=list)
+    added: list[ResolvedPart] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)
+    calls: list[LlmResult] = field(default_factory=list)
+    attempts: int = 0
+    declined: bool = False
+    """The AI decided none of the findings should be changed (each with a reason)."""
+
+
+def revise_by_edits(provider: LlmProvider, inp: DesignInput, base: CircuitIR, findings: list[dict], resolve: Resolver, *,
+                    max_output_tokens: int = 32768, max_repairs: int = 2,
+                    on_step: Callable[[str, str], None] | None = None) -> EditResult:
+    """A revision that edits the current circuit instead of designing it again: the AI lists edits for the findings it
+    accepts (and says why for the ones it does not), the app applies and checks them, and problems go back to the AI
+    with the real pin tables of any new parts. ``circuit`` is None when it could not be done this way."""
+    step = on_step or (lambda _s, _t: None)
+    by_id = {f"F{i + 1}": f for i, f in enumerate(findings)}
+    base_prompt = edit_prompt(inp, base, findings)
+    prompt = base_prompt
+    out = EditResult(circuit=None)
+    for attempt in range(max_repairs + 1):
+        step("parts", "AI에 고칠 곳만 요청 (회로를 새로 설계하지 않음)" if attempt == 0 else f"편집 문제를 고쳐 다시 요청 ({attempt}회째)")
+        answer, _ = _ask_json(provider, prompt=prompt, schema=EDIT_SCHEMA, what="수정 편집",
+                              max_output_tokens=max_output_tokens, calls=out.calls, on_retry=lambda t: step("parts", t))
+        out.attempts = attempt + 1
+        out.summary = str(answer.get("summary") or "").strip()[:2000]
+        out.edits = [e for e in answer.get("edits") or [] if isinstance(e, dict) and e.get("action") in EDIT_ACTIONS]
+        ids = [str(x).strip().upper() for x in answer.get("addressed") or []]
+        out.addressed = [by_id[i] for i in dict.fromkeys(ids) if i in by_id]
+        out.not_addressed = [{"title": by_id[str(x.get("id", "")).upper()].get("title"), "why": str(x.get("why") or "")[:500]}
+                             for x in answer.get("not_addressed") or []
+                             if isinstance(x, dict) and str(x.get("id", "")).upper() in by_id]
+        if not out.edits:
+            out.declined = bool(out.not_addressed) and not out.addressed
+            out.problems = ["AI가 고칠 곳(edits)을 하나도 적지 않았습니다."]
+            step("parts", "AI가 고칠 곳이 없다고 판단" if out.declined else "편집이 비어 있음")
+            return out
+        step("parts", f"편집 {len(out.edits)}개 · 고친 의견 {len(out.addressed)} · 고치지 않은 의견 {len(out.not_addressed)}")
+        circuit, problems, changes, added = apply_edits(base, out.edits, resolve)
+        out.changes, out.added, out.problems = changes, list(added.values()), problems
+        if circuit is not None:
+            out.circuit = circuit
+            step("pins", "고친 곳: " + ", ".join(changes[:6]) + (f" 외 {len(changes) - 6}개" if len(changes) > 6 else ""))
+            return out
+        step("pins", f"편집 문제 {len(problems)}개")
+        pins = "\n".join(f"- {r} [{p.symbol_id}] 핀: " + ", ".join(f"{n}={nm}" if nm and nm != "~" else n for n, nm, _ in p.pins)
+                         for r, p in added.items())
+        prompt = (base_prompt + "\n\n[직전 답에서 생긴 문제 — 모두 고친 편집 목록 전체를 다시 답하세요]\n"
+                  + "\n".join(f"- {x}" for x in problems[:30])
+                  + (f"\n[새 부품의 실제 핀 표]\n{pins}" if pins else "")
+                  + "\n[직전 답]\n" + json.dumps(answer, ensure_ascii=False)[:8000])
+    return out
+
+
 def circuit_text(circuit: CircuitIR) -> str:
     """A compact, readable description of a circuit for review prompts."""
     lines = ["[부품]"]
@@ -859,18 +1186,99 @@ def circuit_text(circuit: CircuitIR) -> str:
     return "\n".join(lines)
 
 
+REVIEW_BASES = ("evidence", "guide", "requirement", "circuit", "judgment")
+
+
+def review_evidence(circuit: CircuitIR, evidence: str, datasheet_notes: str = "") -> tuple[list[tuple[str, str]], int]:
+    """What a review may point at, numbered: E (automated checks, IR issues, datasheet comparison lines), C (the app's
+    own calculated review — only the items it flagged) and D (datasheet summary notes). Also returns how many
+    calculated checks passed, so the reviewer knows the rest was checked."""
+    from circuit_core.engineering import engineering_review
+
+    skip = {"(문제 없음)", "(검사 전)", "(없음)", ""}
+    items: list[tuple[str, str]] = []
+    for line in evidence.splitlines():
+        line = line.strip().lstrip("-").strip()
+        if line not in skip:
+            items.append((f"E{sum(1 for i, _ in items if i[0] == 'E') + 1}", line))
+    passed, n = 0, 0
+    for f in engineering_review(circuit):
+        if f.severity in ("fail", "warn"):
+            n += 1
+            label = "실패" if f.severity == "fail" else "주의"
+            items.append((f"C{n}", f"[앱 계산 {label}] {f.title} — {f.detail}" + (f" (계산: {f.calc})" if f.calc else "")))
+        elif f.severity == "ok":
+            passed += 1
+    d = 0
+    for line in datasheet_notes.splitlines():
+        if line.strip():
+            d += 1
+            items.append((f"D{d}", line.strip()))
+    return items, passed
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"[\s\"'“”‘’「」『』<>()\[\].,·:;!?~-]+", "", text).lower()
+
+
+def verify_finding(f: dict, *, ids: set[str], requirements: str, circuit: CircuitIR, guide_ok: bool) -> bool:
+    """Whether a finding points at something real: a numbered evidence item, an adopted guide, a sentence that is in
+    the requirements, or a pin or net that is in the circuit."""
+    basis, ev = f.get("basis") or "", str(f.get("evidence") or "")
+    cited = set(re.findall(r"\b([ECD][0-9]+)\b", ev)) & ids
+    if cited:
+        return True
+    if basis == "guide":
+        return guide_ok
+    if basis == "requirement":
+        quote = _squash(ev)
+        return len(quote) >= 6 and quote in _squash(requirements)
+    if basis == "circuit":
+        pins = {(c.reference.upper(), p.number.upper()) for c in circuit.components for p in c.pins}
+        pins |= {(c.reference.upper(), p.name.upper()) for c in circuit.components for p in c.pins if p.name}
+        for ref, pin in re.findall(r"\b([A-Za-z]+[0-9]+)\s*[.:]\s*([A-Za-z0-9_+\-]+)", ev):
+            if (ref.upper(), pin.upper()) in pins:
+                return True
+        nets = {n.name for n in circuit.nets}
+        return any(re.search(rf"(?<![A-Za-z0-9_]){re.escape(n)}(?![A-Za-z0-9_])", ev) for n in nets if len(n) >= 2)
+    return False
+
+
 def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | None, circuit: CircuitIR,
                    evidence: str, datasheet_notes: str = "", guides: str = "", guide_ids: set[str] | None = None,
-                   max_output_tokens: int = 16384) -> tuple[dict, LlmResult]:
-    prompt = f"""당신은 꼼꼼한 회로 설계 검토자입니다. 아래 회로가 요구사항을 만족하는지, 전기적으로 문제가 없는지 검토하세요.
+                   max_output_tokens: int = 16384, previous: list[dict] | None = None) -> tuple[dict, LlmResult]:
+    """AI review. Every 수정 필요/권장 must name its basis; code checks it (``verified``). A finding nothing backs is
+    kept for people to see but marked, so it does not drive automatic revisions. ``previous``: the findings a
+    revision tried to fix, so the review says what is still open instead of starting over."""
+    items, passed = review_evidence(circuit, evidence, datasheet_notes)
+    listing = "\n".join(f"{i} {t}" for i, t in items) or "(없음)"
+    prev_block = ""
+    if previous:
+        lines = "\n".join(f"- P{k + 1} [{f.get('severity')}] {f.get('title')}: {str(f.get('detail') or '')[:200]}"
+                          for k, f in enumerate(previous))
+        prev_block = f"""
+[이전 회차 의견 — 이번 수정안이 고치려 한 것]
+{lines}
+- 해결됐으면 다시 적지 마세요. 아직 남았으면 같은 제목으로 다시 적고, evidence에 아직 남은 곳을 적으세요.
+- 그 밖의 새 지적은 이번 수정으로 생긴 문제이거나 근거가 확실한 결함일 때만 error·warning으로 하세요.
+"""
+    prompt = f"""당신은 회로 설계 검토자입니다. 아래 회로가 요구사항을 만족하는지, 전기적으로 문제가 없는지 검토하세요.
 회로를 고치지 말고, 지적 사항(findings)만 적으세요.
 
 [검토 기준]
 - 요구사항 충족(전원, 인터페이스, 기능), 극성·핀 연결, 전원 전압과 부품 정격, 디커플링·풀업·종단 같은 주변 부품, 보호 회로.
-- 자동 검사 결과와 데이터시트 대조 결과가 있으면 그것을 근거로 쓰고, 근거가 없는 추측은 severity를 info로 하세요.
-- 확실한 결함은 error, 고치는 것이 좋은 것은 warning, 참고는 info입니다. references에는 관련 부품 기호를 적으세요.
-- 문제가 없으면 findings를 비워 두세요.
+- 확실한 결함은 error(수정 필요), 고치는 것이 좋은 것은 warning(수정 권장), 참고는 info입니다. references에는 관련 부품 기호를 적으세요.
 
+[근거 원칙 — 근거 없는 지적은 설계를 오히려 망칩니다]
+- error와 warning에는 basis와 evidence를 반드시 적으세요.
+  · basis="evidence": 아래 [근거 목록]의 번호(E1, C2, D3 …)를 evidence에 적으세요.
+  · basis="guide": 지키지 않은 설계 지침 id를 guide에 적으세요.
+  · basis="requirement": 지키지 못한 요구사항 문장을 evidence에 그대로 옮겨 적으세요.
+  · basis="circuit": [회로]에 실제로 있는 핀·Net을 evidence에 적고(예: "U1.5 VM이 +12V와 연결되지 않음"), 왜 결함인지 detail에 쓰세요.
+  · 위 어느 것에도 해당하지 않는 일반 권고·추측·취향은 basis="judgment", severity="info"로 하세요.
+- 앱 계산 검토는 {passed}개 항목을 통과했고, 위반은 [근거 목록]의 C 번호뿐입니다. 계산 근거 없이 통과 항목을 뒤집지 마세요.
+- 문제가 없으면 findings를 비워 두는 것이 정상입니다. 개수를 채우려고 사소한 개선을 warning으로 올리지 마세요.
+{prev_block}
 {LANGUAGE_RULE}
 
 [요구사항]
@@ -880,30 +1288,44 @@ def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | Non
 [회로]
 {circuit_text(circuit)}
 
-[자동 검사 결과]
-{evidence or '(없음)'}
-
-[데이터시트 요약]
-{datasheet_notes or '(없음)'}
+[근거 목록 — 자동 검사(E), 앱 계산 검토의 위반(C), 데이터시트 요약(D)]
+{listing}
 {('[설계 지침 — 이 조직이 채택한 규칙. 지키지 않은 것을 찾으면 그 finding의 guide에 지침 id를 적으세요]' + chr(10) + guides) if guides.strip() else ''}
 
 정해진 JSON 형식으로만 답하세요."""
     data, result = _ask_json(provider, prompt=prompt, schema=REVIEW_SCHEMA, what="검토", max_output_tokens=max_output_tokens)
     refs = {c.reference for c in circuit.components}
+    ids = {i for i, _ in items}
+    req_text = requirements + ("\n" + json.dumps(spec, ensure_ascii=False) if spec else "")
     findings = []
     for f in data.get("findings") or []:
         if not isinstance(f, dict) or not str(f.get("title", "")).strip():
             continue
         severity = f.get("severity") if f.get("severity") in ("error", "warning", "info") else "info"
-        findings.append({"severity": severity, "title": str(f["title"]).strip()[:200],
-                         "detail": str(f.get("detail", "")).strip()[:2000],
-                         "references": [r for r in _strs(f.get("references")) if r.upper() in refs],
-                         "suggestion": (str(f.get("suggestion")).strip()[:1000] or None) if f.get("suggestion") else None,
-                         "guide": (str(f.get("guide")).strip() if guide_ids and str(f.get("guide") or "").strip() in guide_ids
-                                   else None)})
+        guide = str(f.get("guide") or "").strip()
+        guide = guide if guide_ids and guide in guide_ids else None
+        basis = f.get("basis") if f.get("basis") in REVIEW_BASES else ("guide" if guide else "judgment")
+        out = {"severity": severity, "title": str(f["title"]).strip()[:200],
+               "detail": str(f.get("detail", "")).strip()[:2000],
+               "references": [r for r in _strs(f.get("references")) if r.upper() in refs],
+               "suggestion": (str(f.get("suggestion")).strip()[:1000] or None) if f.get("suggestion") else None,
+               "guide": guide, "basis": basis, "evidence": str(f.get("evidence") or "").strip()[:500] or None}
+        out["verified"] = (None if severity == "info" else
+                           verify_finding(out, ids=ids, requirements=req_text, circuit=circuit, guide_ok=guide is not None))
+        findings.append(out)
     order = {"error": 0, "warning": 1, "info": 2}
-    findings.sort(key=lambda f: order[f["severity"]])
-    return {"summary": str(data.get("summary", "")).strip()[:2000], "findings": findings, "model": result.model}, result
+    findings.sort(key=lambda f: (order[f["severity"]], f["verified"] is False))
+    return {"summary": str(data.get("summary", "")).strip()[:2000], "findings": findings, "model": result.model,
+            "evidence": [{"id": i, "text": t[:300]} for i, t in items], "calc_passed": passed}, result
+
+
+def counted(findings: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+    """(수정 필요, 수정 권장, 근거 확인 안 됨) — the first two only with a basis that checked out (older reviews,
+    without the check, count as before)."""
+    needs = [f for f in findings if f.get("severity") == "error" and f.get("verified") is not False]
+    recommended = [f for f in findings if f.get("severity") == "warning" and f.get("verified") is not False]
+    unverified = [f for f in findings if f.get("severity") in ("error", "warning") and f.get("verified") is False]
+    return needs, recommended, unverified
 
 
 def structure_requirements(provider: LlmProvider, text: str, *, max_output_tokens: int = 8192) -> tuple[dict, LlmResult]:

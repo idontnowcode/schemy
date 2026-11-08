@@ -364,6 +364,10 @@ def summarize(results: list[dict]) -> dict:
     defects = [r for r in review if r.get("defect")]
     clean = [r for r in review if not r.get("defect")]
     notes = [r for r in results if r["suite"] == "notes"]
+    revise = [r for r in results if r["suite"] == "revise"]
+    fixed_ok = [r for r in revise if r.get("completed")]
+    judged = [r for r in revise if r.get("judged")]
+    raised = sum(r.get("errors", 0) + r.get("warnings", 0) for r in review if r.get("completed"))
     done = [r for r in design if r.get("completed")]
     kicad = [r for r in done if r.get("kicad", {}).get("status") in ("passed", "failed")]
     ok_notes = [r for r in notes if r.get("completed")]
@@ -386,7 +390,17 @@ def summarize(results: list[dict]) -> dict:
             "found_by_code": _rate(sum(1 for r in defects if r.get("found_by_code")), len(defects)),
             "clean_runs": len(clean),
             "false_errors": _avg([r["errors"] for r in clean if r.get("completed")]),
+            "false_warnings": _avg([r.get("verified_warnings", r.get("warnings", 0)) for r in clean if r.get("completed")]),
+            "unverified_rate": _rate(sum(r.get("unverified", 0) for r in review if r.get("completed")), raised),
             "avg_findings": _avg([r["findings"] for r in review if r.get("completed")]),
+        },
+        "revise": {
+            "runs": len(revise),
+            "completed": _rate(len(fixed_ok), len(revise)),
+            "fixed": _rate(sum(1 for r in judged if r.get("fixed")), len(judged)),
+            "new_problems": _avg([r["new_problems"] for r in fixed_ok]),
+            "untouched": _avg([r["untouched"] for r in fixed_ok]),
+            "declined": sum(1 for r in revise if r.get("declined")),
         },
         "notes": {
             "runs": len(notes),
@@ -418,7 +432,13 @@ METRIC_LABELS: dict[str, tuple[str, str]] = {
     "review.found": ("심은 결함 탐지율 (AI)", "rate"),
     "review.found_by_code": ("같은 결함 탐지율 (앱 계산 검토)", "rate"),
     "review.false_errors": ("깨끗한 회로의 오류 지적(평균)", "number"),
+    "review.false_warnings": ("깨끗한 회로의 근거 있는 수정 권장(평균)", "number"),
+    "review.unverified_rate": ("근거 확인 안 된 지적 비율", "rate"),
     "review.avg_findings": ("검토 의견 수(평균)", "number"),
+    "revise.completed": ("수정안 완성률 (고칠 곳만 편집)", "rate"),
+    "revise.fixed": ("심은 결함 고침률 (앱 계산으로 판정)", "rate"),
+    "revise.new_problems": ("수정으로 생긴 새 문제(평균)", "number"),
+    "revise.untouched": ("상관없는 부품을 그대로 둔 비율", "rate"),
     "notes.cited": ("노트 근거 인용률", "rate"),
     "notes.bad_ids": ("없는 근거 번호", "count"),
     "notes.page_flags": ("근거 없는 쪽 번호", "count"),
@@ -429,7 +449,8 @@ METRIC_LABELS: dict[str, tuple[str, str]] = {
     "cost.seconds": ("걸린 시간(초)", "number"),
 }
 """Metric key -> (label, kind). Higher is better except the counts, false errors, attempts and cost."""
-LOWER_IS_BETTER = {"design.avg_attempts", "review.false_errors", "notes.bad_ids", "notes.page_flags", "cost.calls",
+LOWER_IS_BETTER = {"design.avg_attempts", "review.false_errors", "review.false_warnings", "review.unverified_rate",
+                   "revise.new_problems", "notes.bad_ids", "notes.page_flags", "cost.calls",
                    "cost.input_tokens", "cost.output_tokens", "cost.seconds"}
 
 

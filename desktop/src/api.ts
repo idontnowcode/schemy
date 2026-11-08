@@ -56,8 +56,7 @@ import type {
   SaveCircuitResult,
   SystemInfo,
   TechnicalReview,
-  ValidationReport,
-} from "./types";
+  ValidationReport, ActiveJob } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -151,6 +150,7 @@ export const api = {
   outputs: (p: string, b: string) => request<OutputsStatus>("GET", `${board(p, b)}/outputs`),
   jobs: (p: string, b: string) => request<Job[]>("GET", `${board(p, b)}/jobs`),
   job: (jobId: string) => request<Job>("GET", `/jobs/${enc(jobId)}`),
+  activeJobs: () => request<ActiveJob[]>("GET", "/jobs/active"),
 
   importMarkdown: (p: string, b: string, filename: string, text: string) =>
     request<MarkdownImportResult>("POST", `${board(p, b)}/imports/markdown`, { filename, text }),

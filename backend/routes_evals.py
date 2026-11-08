@@ -46,6 +46,7 @@ def build_eval_router(store: ProjectStore, jobs: JobRunner, settings: Settings, 
             "design": [{"id": c.id, "title": c.title, "example": c.example, "checks": [ch.label for ch in c.checks]}
                        for c in DESIGN_CASES],
             "review": [{"id": d.id, "title": d.title, "example": d.example} for d in REVIEW_CASES],
+            "revise": [{"id": f"fix:{d.id}", "title": d.title, "example": d.example} for d in REVIEW_CASES],
             "notes": [{"id": f"note:{e}", "example": e} for e in NOTE_EXAMPLES],
             "calls_per_repeat": per_suite, "provider": cfg.provider, "model": cfg.model, "enabled": cfg.enabled,
             "kicad": settings.kicad_factory() is not None, "metrics": {k: v[0] for k, v in METRIC_LABELS.items()},
