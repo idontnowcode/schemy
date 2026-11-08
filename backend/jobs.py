@@ -43,6 +43,12 @@ class JobRunner:
         finally:
             self._futures.pop(job_id, None)
 
+    def step(self, job_id: str, step: str, text: str, data: dict | None = None) -> None:
+        """Record a step a running job has reached (only the job itself writes its progress)."""
+        job = self.store.get_job(job_id)
+        entry = {"at": now_iso(), "step": step, "text": text, **({"data": data} if data is not None else {})}
+        self.store.update_job(job_id, progress=[*job.progress, entry])
+
     def wait(self, job_id: str, timeout: float | None = None) -> Job:
         """Block until a job submitted by this runner finishes (tests and CLI use)."""
         fut = self._futures.get(job_id)

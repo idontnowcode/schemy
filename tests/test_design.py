@@ -388,3 +388,101 @@ def test_one_sided_rail_ranges_are_kept():
                             {"net": "X", "voltage": 5, "load_ma": 0, "voltage_min": 4.5}]}, nets)
     assert nets[0] == {"name": "AIN", "voltage": 10.0, "voltage_max": 24.0}
     assert nets[1] == {"name": "X", "voltage": 5.0, "voltage_min": 4.5}
+
+
+# --- step screens: design progress and the automatic review loop -----------------------------------------------------
+
+def finding(severity, title):
+    return {"severity": severity, "title": title, "detail": f"{title} 설명", "references": ["U1"], "suggestion": None}
+
+
+def reviews_in_turn(*reviews):
+    """A scripted AI whose reviews come from ``reviews`` in order (the last one repeats)."""
+    base, state = scripted(bad_first=False), {"n": 0}
+
+    def reply(prompt):
+        if "검토자" in prompt and "부품 목록을 정하세요" not in prompt and "핀 표만 써서" not in prompt:
+            state["n"] += 1
+            findings = reviews[min(state["n"], len(reviews)) - 1]
+            return json.dumps({"summary": f"검토 {state['n']}", "findings": findings}, ensure_ascii=False)
+        return base(prompt)
+    return reply, state
+
+
+def designed(tmp_path, reply):
+    client, _, pid = design_client(tmp_path, reply)
+    board = f"/api/projects/{pid}/boards/a"
+    job = wait(client, client.post(board + "/ai/design", json={"review": False}).json())
+    return client, board, job
+
+
+def test_design_job_reports_its_steps(tmp_path):
+    client, board, job = designed(tmp_path, scripted())
+    steps = [s["step"] for s in job["progress"]]
+    assert steps[0] == "parts" and "pins" in steps and "check" in steps and steps[-1] == "proposal"
+    assert steps.index("parts") < steps.index("pins") < steps.index("check") < steps.index("proposal")
+    texts = [s["text"] for s in job["progress"]]
+    assert "부품 6개 선택" in texts and "연결 문제 3개" in texts and "연결 완료: Net 6개, 1회 고침" in texts
+    assert all(s["at"] for s in job["progress"])
+    # The job list keeps the steps too (the step screen reloads them after a restart).
+    assert client.get(board + "/jobs").json()[0]["progress"] == job["progress"]
+
+
+def test_auto_review_stops_at_once_when_the_condition_holds(tmp_path):
+    reply, state = reviews_in_turn([finding("warning", "ESD 보호 없음"), finding("info", "참고")])
+    client, board, job = designed(tmp_path, reply)
+    pid = job["result"]["proposal_id"]
+    auto = wait(client, client.post(board + "/ai/auto-review", json={"proposal_id": pid, "max_warnings": 1}).json())
+    assert auto["status"] == "succeeded", auto
+    r = auto["result"]
+    assert r["stop"] == "met" and r["met"] and r["proposal_id"] == pid and state["n"] == 1
+    assert r["rounds"] == [{"round": 1, "proposal_id": pid, "errors": 0, "warnings": 1, "check": r["rounds"][0]["check"],
+                            "check_failed": False, "said": ["ESD 보호 없음"]}]
+    assert client.get(f"{board}/proposals/{pid}").json()["ai"]["review"]["summary"] == "검토 1"
+    assert auto["progress"][-1]["text"] == "멈춤: 조건 충족"
+
+
+def test_auto_review_revises_until_the_condition_holds(tmp_path):
+    reply, state = reviews_in_turn([finding("error", "모터 구동 회로 누락"), finding("warning", "LED 저항 발열")],
+                                   [finding("warning", "VMOT 벌크 권장"), finding("warning", "ENABLE 풀업 권장")],
+                                   [finding("warning", "12 V 입력에 TVS 권장")])
+    client, board, job = designed(tmp_path, reply)
+    first = job["result"]["proposal_id"]
+    auto = wait(client, client.post(board + "/ai/auto-review", json={"proposal_id": first, "max_warnings": 1,
+                                                                     "max_rounds": 3}).json())
+    r = auto["result"]
+    assert auto["status"] == "succeeded" and r["stop"] == "met", auto
+    assert [(x["errors"], x["warnings"]) for x in r["rounds"]] == [(1, 1), (0, 2), (0, 1)]
+    second, third = r["rounds"][1]["proposal_id"], r["rounds"][2]["proposal_id"]
+    assert r["rounds"][0]["revised_to"] == second and r["rounds"][1]["revised_to"] == third and r["proposal_id"] == third
+    assert r["rounds"][0]["said"] == ["모터 구동 회로 누락", "LED 저항 발열"]
+    p3 = client.get(f"{board}/proposals/{third}").json()
+    assert p3["source"] == "ai_revision" and p3["ai"]["parent"] == second
+    assert [a["title"] for a in client.get(f"{board}/proposals/{second}").json()["ai"]["addressed"]] == [
+        "모터 구동 회로 누락", "LED 저항 발열"]
+    # Every round is its own proposal; the board itself is untouched until someone approves one.
+    assert client.get(board + "/circuit").json()["circuit"] is None
+    rounds = [s for s in auto["progress"] if s["step"] == "round"]
+    assert [s["data"]["round"] for s in rounds] == [1, 2, 3]
+    assert any(s["step"] == "pins" for s in auto["progress"])  # the revisions' design steps are logged too
+
+
+def test_auto_review_stops_when_a_finding_comes_back(tmp_path):
+    reply, _ = reviews_in_turn([finding("error", "역극성 보호 없음")], [finding("error", "역극성  보호 없음")])
+    client, board, job = designed(tmp_path, reply)
+    auto = wait(client, client.post(board + "/ai/auto-review", json={"proposal_id": job["result"]["proposal_id"],
+                                                                     "max_rounds": 5}).json())
+    r = auto["result"]
+    assert r["stop"] == "repeated" and len(r["rounds"]) == 2 and r["rounds"][1]["repeated"] == ["역극성  보호 없음"]
+    assert auto["progress"][-1]["text"] == "멈춤: 같은 의견이 다시 나옴"
+
+
+def test_auto_review_limits_and_gates(tmp_path):
+    reply, state = reviews_in_turn([finding("error", "결함")])
+    client, board, job = designed(tmp_path, reply)
+    pid = job["result"]["proposal_id"]
+    r = wait(client, client.post(board + "/ai/auto-review", json={"proposal_id": pid, "max_rounds": 1}).json())["result"]
+    assert r["stop"] == "max_rounds" and len(r["rounds"]) == 1 and "revised_to" not in r["rounds"][0]
+    assert client.post(board + "/ai/auto-review", json={"proposal_id": pid, "max_rounds": 9}).status_code == 422
+    client.post(f"{board}/proposals/{pid}/reject", json={"note": "다시"})
+    assert client.post(board + "/ai/auto-review", json={"proposal_id": pid}).json()["error_code"] == "PROPOSAL_CLOSED"

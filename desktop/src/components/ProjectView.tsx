@@ -5,6 +5,8 @@ import { outputsLabel, reviewLabel } from "../format";
 import type { CircuitIR, OutputsStatus, ProjectSummary, ReviewStatus, SystemInfo } from "../types";
 import { Chip } from "./Chip";
 import { AgentTab } from "./AgentTab";
+import { Icon, type IconName } from "./Icons";
+import { StageFlow } from "./StageFlow";
 import { CircuitTab } from "./CircuitTab";
 import { DatasheetsTab } from "./DatasheetsTab";
 import { DocumentsTab } from "./DocumentsTab";
@@ -17,24 +19,37 @@ import { SchematicTab } from "./SchematicTab";
 import { TemplatesTab } from "./TemplatesTab";
 
 export const TABS = [
-  { id: "requirements", label: "요구사항" },
-  { id: "templates", label: "템플릿" },
-  { id: "proposals", label: "제안" },
-  { id: "circuit", label: "회로 (IR)" },
-  { id: "schematic", label: "회로도 · 검증" },
-  { id: "materials", label: "자재" },
-  { id: "datasheets", label: "데이터시트" },
-  { id: "review", label: "검토" },
-  { id: "agent", label: "Agent" },
-  { id: "documents", label: "문서 · BOM" },
-  { id: "history", label: "이력" },
-] as const;
+  { id: "requirements", label: "요구사항", icon: "list" },
+  { id: "templates", label: "템플릿", icon: "grid" },
+  { id: "proposals", label: "제안", icon: "sparkle" },
+  { id: "circuit", label: "회로 데이터", icon: "database" },
+  { id: "schematic", label: "회로도 · 검증", icon: "board" },
+  { id: "review", label: "검토", icon: "shield" },
+  { id: "agent", label: "Agent", icon: "sparkle" },
+  { id: "materials", label: "자재", icon: "cube" },
+  { id: "datasheets", label: "데이터시트", icon: "file" },
+  { id: "documents", label: "문서 · BOM", icon: "notes" },
+  { id: "history", label: "이력", icon: "clock" },
+] as const satisfies readonly { id: string; label: string; icon: IconName }[];
 
 export type TabId = (typeof TABS)[number]["id"];
 
 export function isTab(value: unknown): value is TabId {
   return TABS.some((t) => t.id === value);
 }
+
+/** The advanced screen groups the eleven tabs in four: design, verification, references, records. */
+export const GROUPS: { id: string; label: string; icon: IconName; tabs: TabId[] }[] = [
+  { id: "design", label: "설계", icon: "chip", tabs: ["requirements", "templates", "proposals", "circuit"] },
+  { id: "verify", label: "검증", icon: "shield", tabs: ["schematic", "review", "agent"] },
+  { id: "library", label: "자료", icon: "file", tabs: ["materials", "datasheets", "documents"] },
+  { id: "records", label: "기록", icon: "clock", tabs: ["history"] },
+];
+
+const tabLabel = (id: TabId) => TABS.find((t) => t.id === id)!.label;
+
+/** Which screen a project opens in: the seven-step flow (default) or the advanced tabs. Kept in app settings. */
+export type ProjectMode = "flow" | "advanced";
 
 interface Props {
   project: ProjectSummary;
@@ -43,6 +58,8 @@ interface Props {
   system: SystemInfo | null;
   tab: TabId;
   onTab(tab: TabId): void;
+  mode: ProjectMode;
+  onMode(mode: ProjectMode): void;
   onProjectChanged(): Promise<unknown>;
   onError(message: string | null): void;
 }
@@ -56,15 +73,22 @@ export interface BoardData {
 
 const EMPTY: BoardData = { circuit: null, revision: null, outputs: null, review: null };
 
-export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onProjectChanged, onError }: Props) {
+export function ProjectView({ project, boardId, onBoard, system, tab, onTab, mode, onMode, onProjectChanged, onError }: Props) {
   // Data is stored with the board it belongs to, so a tab never sees the previous board's revision.
   const [loaded, setLoaded] = useState<{ boardId: string; data: BoardData } | null>(null);
   const data = loaded?.boardId === boardId ? loaded.data : EMPTY;
   const [editingName, setEditingName] = useState(false);
   const [focusProposal, setFocusProposal] = useState<string | null>(null);
+  const setMode = onMode;
   const openProposal = (id: string) => {
     setFocusProposal(id);
     onTab("proposals");
+  };
+  /** From the step screens: open one advanced tab (e.g. 문서 · BOM), optionally at a proposal. */
+  const openAdvanced = (next: TabId, proposalId?: string) => {
+    if (proposalId) setFocusProposal(proposalId);
+    onTab(next);
+    setMode("advanced");
   };
   const [name, setName] = useState(project.name);
   const board = project.board_list.find((b) => b.id === boardId) ?? project.board_list[0];
@@ -133,48 +157,74 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onP
               </button>
             </form>
           ) : (
-            <h1>
+            <h1 title={project.path}>
               {project.name}
               <button className="icon" aria-label="이름 바꾸기" title="이름 바꾸기" onClick={() => setEditingName(true)}>
                 ✎
               </button>
             </h1>
           )}
-          <div className="muted small">
-            <code>{project.id}</code> · <span title={project.path} className="truncate">{project.path}</span>
+          {mode === "advanced" && (
+            <button className="link back-link" onClick={() => setMode("flow")}>
+              ← 단계 화면으로
+            </button>
+          )}
+        </div>
+        {mode === "advanced" ? (
+          <div className="chips" aria-label="상태">
+            <Chip label="자동 검사" text={automated.text} tone={automated.tone} />
+            <Chip label="엔지니어링 검토" text={review.text} tone={review.tone} />
+            <Chip text={data.revision ? `revision ${data.revision}` : "저장된 회로 없음"} tone="muted" />
           </div>
-        </div>
-        <div className="chips" aria-label="상태">
-          <Chip label="자동 검사" text={automated.text} tone={automated.tone} />
-          <Chip label="엔지니어링 검토" text={review.text} tone={review.tone} />
-        </div>
+        ) : (
+          <button className="ghost head-btn" onClick={() => setMode("advanced")} title="기존의 모든 세부 기능이 있는 탭 화면">
+            <Icon name="panel" /> 고급 화면(탭)
+          </button>
+        )}
       </header>
 
-      <BoardBar
-        project={project}
-        boardId={board.id}
-        onBoard={onBoard}
-        onAdd={addBoard}
-        onChanged={onProjectChanged}
-        onError={onError}
-        revision={data.revision}
-      />
+      {mode === "flow" ? (
+        <>
+          {project.board_list.length > 1 && (
+            <div className="board-pills" role="tablist" aria-label="보드">
+              {project.board_list.map((b) => (
+                <button key={b.id} role="tab" aria-selected={b.id === board.id} className={`pill ${b.id === board.id ? "active" : ""}`}
+                  onClick={() => onBoard(b.id)}>
+                  {b.name}
+                  <span className="pill-meta">{b.current_revision ? `rev ${b.current_revision}` : "비어 있음"}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <StageFlow
+            key={board.id}
+            project={project}
+            board={board}
+            circuit={data.circuit}
+            revision={data.revision}
+            outputs={data.outputs}
+            review={data.review}
+            system={system}
+            onChanged={afterChange}
+            onAdvanced={openAdvanced}
+            onError={onError}
+          />
+        </>
+      ) : (
+        <AdvancedTabs tab={tab} onTab={onTab}>
+          <BoardBar
+            project={project}
+            boardId={board.id}
+            onBoard={onBoard}
+            onAdd={addBoard}
+            onChanged={onProjectChanged}
+            onError={onError}
+            revision={data.revision}
+          />
+        </AdvancedTabs>
+      )}
 
-      <div className="tabs" role="tablist">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            className={`tab ${tab === t.id ? "active" : ""}`}
-            onClick={() => onTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="tab-body" key={board.id}>
+      {mode === "advanced" && <div className="tab-body" key={board.id}>
         {tab === "requirements" && (
           <RequirementsTab
             projectId={project.id}
@@ -238,8 +288,38 @@ export function ProjectView({ project, boardId, onBoard, system, tab, onTab, onP
         {tab === "history" && (
           <HistoryTab projectId={project.id} boardId={board.id} revision={data.revision} onRestored={afterChange} />
         )}
-      </div>
+      </div>}
     </section>
+  );
+}
+
+/** Two-tier tabs: four groups on top, the group's own tabs below. A group remembers its last tab. */
+function AdvancedTabs({ tab, onTab, children }: { tab: TabId; onTab(tab: TabId): void; children: React.ReactNode }) {
+  const group = GROUPS.find((g) => g.tabs.includes(tab)) ?? GROUPS[0];
+  const [last, setLast] = useState<Record<string, TabId>>({});
+  useEffect(() => setLast((cur) => ({ ...cur, [group.id]: tab })), [group.id, tab]);
+  return (
+    <>
+      {children}
+      <div className="group-tabs" role="tablist" aria-label="묶음">
+        {GROUPS.map((g) => (
+          <button key={g.id} role="tab" aria-selected={g.id === group.id} className={`group-tab ${g.id === group.id ? "active" : ""}`}
+            title={`${g.label}: ${g.tabs.map(tabLabel).join(", ")}`} onClick={() => onTab(last[g.id] ?? g.tabs[0])}>
+            <Icon name={g.icon} /> {g.label}
+          </button>
+        ))}
+      </div>
+      <div className="tabs" role="tablist" aria-label={`${group.label} 탭`}>
+        {group.tabs.map((id) => {
+          const t = TABS.find((x) => x.id === id)!;
+          return (
+            <button key={id} role="tab" aria-selected={tab === id} className={`tab ${tab === id ? "active" : ""}`} onClick={() => onTab(id)}>
+              <Icon name={t.icon} size={16} /> {t.label}
+            </button>
+          );
+        })}
+      </div>
+    </>
   );
 }
 

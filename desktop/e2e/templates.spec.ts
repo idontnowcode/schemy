@@ -3,7 +3,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { stage, startBackend, tempWorkspace, type Backend } from "./backend";
+import { newProject, openTab, stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -15,11 +15,10 @@ test.afterEach(async () => {
 test("template → proposal → approve → engineering review", async ({ page }) => {
   backend = await startBackend(tempWorkspace());
   await page.goto(backend.url);
-  await page.getByLabel("새 프로젝트 이름").fill("Template Demo");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
+  await newProject(page, "Template Demo");
   await expect(page.getByRole("heading", { name: "Template Demo" })).toBeVisible();
 
-  await page.getByRole("tab", { name: "템플릿" }).click();
+  await openTab(page, "템플릿");
   await page.getByRole("button", { name: /CAN 트랜시버 \(SN65HVD230\)/ }).click();
   await expect(page.getByText("검토 체크리스트")).toBeVisible();
   await expect(page.getByText(/Function Modes — Rs pin/).first()).toBeVisible();
@@ -36,7 +35,7 @@ test("template → proposal → approve → engineering review", async ({ page }
   await expect(page.locator(".proposal-detail .chip").filter({ hasText: "승인됨" })).toBeVisible({ timeout: 60_000 });
   await expect(page.locator(".chips").getByText("검토 필요")).toBeVisible();
 
-  await page.getByRole("tab", { name: "검토" }).click();
+  await openTab(page, "검토");
   await page.getByLabel("검토자").fill("김엔지니어");
   await page.getByLabel("데이터시트 1 부품").fill("SN65HVD230");
   await page.getByLabel("데이터시트 1 쪽").fill("1, 20");

@@ -3,7 +3,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { kicadExpected, stage, startBackend, tempWorkspace, type Backend } from "./backend";
+import { kicadExpected, newProject, openTab, stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -15,20 +15,20 @@ test.afterEach(async () => {
 test("propose R1 330 → 1k, review the diff, approve", async ({ page }) => {
   backend = await startBackend(tempWorkspace());
   await page.goto(backend.url);
-  await page.getByLabel("새 프로젝트 이름").fill("Proposal Demo");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
+  await newProject(page, "Proposal Demo");
   await expect(page.getByRole("heading", { name: "Proposal Demo" })).toBeVisible();
 
-  // The requirements tab is the starting point; AI design waits for the AI settings.
+  // The requirements tab (advanced screen); AI design waits for the AI settings.
+  await openTab(page, "요구사항");
   await expect(page.getByRole("heading", { name: "AI 회로 설계" })).toBeVisible();
   await expect(page.getByRole("button", { name: "AI로 회로 설계" })).toBeDisabled();
 
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await openTab(page, "회로 데이터");
   await page.getByLabel("예제 불러오기").selectOption("led-resistor-connector");
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
 
-  await page.getByRole("tab", { name: "제안" }).click();
+  await openTab(page, "제안");
   await page.getByLabel("제안할 부품").selectOption({ label: "R1 (330)" });
   await page.getByLabel("새 값").fill("1k");
   await page.getByRole("button", { name: "제안 만들기" }).click();
@@ -66,20 +66,19 @@ test("propose R1 330 → 1k, review the diff, approve", async ({ page }) => {
   await expect(page.locator(".proposal-detail").getByText("색은 나중에 정함")).toBeVisible();
   await expect(page.getByText("revision 2 · proposal-demo-a")).toBeVisible();
 
-  await page.getByRole("tab", { name: "이력" }).click();
+  await openTab(page, "이력");
   await expect(page.getByRole("cell", { name: "제안 승인" }).first()).toBeVisible();
 });
 
 test("a proposal is reviewed one stage at a time, like slides", async ({ page }) => {
   backend = await startBackend(tempWorkspace());
   await page.goto(backend.url);
-  await page.getByLabel("새 프로젝트 이름").fill("Slides Demo");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await newProject(page, "Slides Demo");
+  await openTab(page, "회로 데이터");
   await page.getByLabel("예제 불러오기").selectOption("led-resistor-connector");
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
-  await page.getByRole("tab", { name: "제안" }).click();
+  await openTab(page, "제안");
   await page.getByLabel("제안할 부품").selectOption({ label: "R1 (330)" });
   await page.getByLabel("새 값").fill("1k");
   await page.getByRole("button", { name: "제안 만들기" }).click();
@@ -107,7 +106,7 @@ test("a proposal is reviewed one stage at a time, like slides", async ({ page })
   await expect(page.getByRole("heading", { name: "7. 결정" })).toBeVisible();
   await expect(page.getByLabel("검토 단계")).toHaveCount(0);
   await page.reload();
-  await page.getByRole("tab", { name: "제안" }).click();
+  await openTab(page, "제안");
   await expect(page.getByRole("heading", { name: "3. 자동 검사" })).toBeVisible();
   await page.getByRole("checkbox", { name: "한 화면에 모두 보기" }).uncheck();
   await expect(page.getByLabel("검토 단계")).toBeVisible();

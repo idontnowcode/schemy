@@ -4,7 +4,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { stage, startBackend, tempWorkspace, type Backend } from "./backend";
+import { newProject, openTab, stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -17,14 +17,13 @@ test("agent: plan → approve scope → sandboxed run → proposal → approve",
   backend = await startBackend(tempWorkspace(), { fakeAi: true });
   await page.goto(backend.url);
   await page.request.put(`${backend.url}/api/ai/settings`, { data: { enabled: true } });
-  await page.getByLabel("새 프로젝트 이름").fill("Agent Demo");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await newProject(page, "Agent Demo");
+  await openTab(page, "회로 데이터");
   await page.getByLabel("예제 불러오기").selectOption("led-resistor-connector");
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
 
-  await page.getByRole("tab", { name: "Agent" }).click();
+  await openTab(page, "Agent");
   await page.getByLabel("Agent 요청").fill("R1을 1k로 바꿔 LED 전류를 줄여줘");
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "계획 만들기 (실행하지 않음)" }).click();
@@ -47,6 +46,6 @@ test("agent: plan → approve scope → sandboxed run → proposal → approve",
   await page.locator(".proposal-detail").getByRole("button", { name: "승인", exact: true }).click();
   await expect(page.getByText(/revision 2으로 저장/)).toBeVisible();
 
-  await page.getByRole("tab", { name: "Agent" }).click();
+  await openTab(page, "Agent");
   await expect(page.locator(".side .chip").filter({ hasText: "반영됨" })).toBeVisible({ timeout: 30_000 });
 });

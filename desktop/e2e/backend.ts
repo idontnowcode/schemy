@@ -80,3 +80,27 @@ export function startBackend(workspace: string, opts: { fakeAi?: boolean } = {})
 export async function stage(page: import("@playwright/test").Page, name: string): Promise<void> {
   await page.getByLabel("검토 단계").getByRole("button", { name: new RegExp(`\\d ${name}`) }).click();
 }
+
+/** Create a project from the sidebar: 「+ 새 프로젝트」 → name → 만들기. */
+export async function newProject(page: import("@playwright/test").Page, name: string): Promise<void> {
+  await page.getByRole("button", { name: "새 프로젝트" }).click();
+  await page.getByLabel("새 프로젝트 이름").fill(name);
+  await page.getByRole("button", { name: "만들기" }).click();
+}
+
+const GROUP_OF: Record<string, string> = {
+  요구사항: "설계", 템플릿: "설계", 제안: "설계", "회로 데이터": "설계",
+  "회로도 · 검증": "검증", 검토: "검증", Agent: "검증",
+  자재: "자료", 데이터시트: "자료", "문서 · BOM": "자료",
+  이력: "기록",
+};
+
+/** Open one tab of the advanced screen: switch to it (from the step screens) and to the tab's group first. */
+export async function openTab(page: import("@playwright/test").Page, name: string): Promise<void> {
+  const advanced = page.getByRole("button", { name: "고급 화면(탭)" });
+  const groups = page.getByRole("tablist", { name: "묶음" });
+  await advanced.or(groups).first().waitFor(); // the project screen has rendered, in either mode
+  if (await advanced.isVisible()) await advanced.click();
+  await groups.getByRole("tab", { name: GROUP_OF[name], exact: true }).click();
+  await page.getByRole("tab", { name, exact: true }).click();
+}

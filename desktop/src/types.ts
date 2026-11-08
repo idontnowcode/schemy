@@ -22,6 +22,7 @@ export interface AppSettings {
   last_project_id: string | null;
   last_board_id: string | null;
   last_tab: string | null;
+  last_view?: "flow" | "advanced" | null;
 }
 
 export interface BoardSummary {
@@ -271,6 +272,39 @@ export interface Job {
   /** Shape depends on kind: export, pdf_import, inventory_suggest. */
   result: any;
   error: ApiErrorBody | null;
+  /** Steps a long job has reached (AI design: parts → pins → check → proposal → review; auto review: rounds). */
+  progress?: JobStep[];
+}
+
+export interface JobStep {
+  at: string;
+  step: string;
+  text: string;
+  data?: AutoReviewRound;
+}
+
+/** One round of the automatic review loop (POST /ai/auto-review). */
+export interface AutoReviewRound {
+  round: number;
+  proposal_id: string;
+  errors: number;
+  warnings: number;
+  check: string;
+  check_failed: boolean;
+  said: string[];
+  repeated?: string[];
+  revised_to?: string;
+  fix?: { summary: string; diff: ProposalDiff["summary"] | null };
+}
+
+export interface AutoReviewResult {
+  rounds: AutoReviewRound[];
+  stop: "met" | "max_rounds" | "repeated" | "check_failed" | "revise_failed" | "ai_failed";
+  message: string;
+  proposal_id: string;
+  met: boolean;
+  max_warnings: number;
+  max_rounds: number;
 }
 
 export interface Example {
@@ -810,6 +844,8 @@ export interface DesignPreview {
   datasheets: number;
   current_circuit: boolean;
   library: boolean;
+  /** Adopted design guides the AI will be given for these requirements. */
+  guides?: { id: string; title: string }[];
 }
 
 export interface BoardReview {

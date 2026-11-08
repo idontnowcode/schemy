@@ -2,7 +2,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { kicadExpected, stage, startBackend, tempWorkspace, type Backend } from "./backend";
+import { kicadExpected, newProject, openTab, stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -14,14 +14,13 @@ test.afterEach(async () => {
 test("import the KiCad layout as a proposal, approve, then go back to automatic placement", async ({ page }) => {
   backend = await startBackend(tempWorkspace());
   await page.goto(backend.url);
-  await page.getByLabel("새 프로젝트 이름").fill("Layout");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await newProject(page, "Layout");
+  await openTab(page, "회로 데이터");
   await page.getByLabel("예제 불러오기").selectOption("ne555-led-board");
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
 
-  await page.getByRole("tab", { name: "회로도 · 검증" }).click();
+  await openTab(page, "회로도 · 검증");
   await page.getByRole("button", { name: "회로도 생성" }).click();
   await expect(page.locator(".card").getByText(kicadExpected() ? "Automated checks passed" : "Not checked"))
     .toBeVisible({ timeout: 180_000 });
@@ -44,7 +43,7 @@ test("import the KiCad layout as a proposal, approve, then go back to automatic 
   await detail.getByRole("button", { name: "승인", exact: true }).click();
   await expect(detail.locator(".chip").filter({ hasText: "승인됨" })).toBeVisible({ timeout: 60_000 });
 
-  await page.getByRole("tab", { name: "회로도 · 검증" }).click();
+  await openTab(page, "회로도 · 검증");
   await expect(page.getByText("고정된 부품: 12개")).toBeVisible();
   await expect(page.getByRole("button", { name: "자동 배치로 되돌리기" })).toBeVisible();
 });

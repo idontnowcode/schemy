@@ -102,14 +102,16 @@ def test_restart_restores_projects_settings_and_circuit(tmp_path):
     save_ir(first, pid)
     first.put(f"/api/projects/{pid}/requirements", json={"text": "# R\n\n5V input\n"})
     first.post(f"/api/projects/{pid}/open")
-    first.put("/api/settings", json={"last_project_id": pid, "last_board_id": "a", "last_tab": "schematic"})
+    first.put("/api/settings", json={"last_project_id": pid, "last_board_id": "a", "last_tab": "schematic",
+                                     "last_view": "advanced"})
     before = first.get(f"/api/projects/{pid}/boards/a/circuit").json()
     first.close()
 
     second = make_client(tmp_path)  # a new app instance on the same workspace = app restart
     assert [p["id"] for p in second.get("/api/projects").json()] == [pid]
     assert second.get("/api/settings").json() == {"last_project_id": pid, "last_board_id": "a",
-                                                  "last_tab": "schematic"}
+                                                  "last_tab": "schematic", "last_view": "advanced"}
+    assert second.put("/api/settings", json={"last_view": "tabs"}).status_code == 422
     assert second.get(f"/api/projects/{pid}/boards/a/circuit").json() == before
     assert second.get(f"/api/projects/{pid}/requirements").json()["text"] == "# R\n\n5V input\n"
     assert second.get(f"/api/projects/{pid}/boards/a").json()["current_revision"] == 1

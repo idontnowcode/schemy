@@ -248,6 +248,8 @@ export const api = {
   aiReview: (p: string, b: string, proposalId?: string, writeNote = false) =>
     request<Job>("POST", `${board(p, b)}/ai/review`, { proposal_id: proposalId ?? null, write_note: writeNote }),
   boardReview: (p: string, b: string) => request<{ review: BoardReview | null }>("GET", `${board(p, b)}/ai/review`),
+  autoReview: (p: string, b: string, body: { proposal_id: string; max_warnings: number; max_rounds: number }) =>
+    request<Job>("POST", `${board(p, b)}/ai/auto-review`, body),
   revisePreview: (p: string, b: string, proposalId?: string | null) =>
     request<RevisionInputs>("GET", `${board(p, b)}/ai/revise/preview${proposalId ? `?proposal_id=${enc(proposalId)}` : ""}`),
   aiRevise: (p: string, b: string, body: {

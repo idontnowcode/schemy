@@ -3,7 +3,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { stage, startBackend, tempWorkspace, type Backend } from "./backend";
+import { newProject, openTab, stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -34,13 +34,12 @@ test("design guide grows from people's feedback and is checked on a board", asyn
   await expect(guide.getByLabel("지침 G-0001")).toContainText("모터 전원 입력에 TVS");
 
   // A board with the motor example: the 검토 tab shows the guides that apply.
-  await page.getByLabel("새 프로젝트 이름").fill("Guide Demo");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await newProject(page, "Guide Demo");
+  await openTab(page, "회로 데이터");
   await page.getByLabel("예제 불러오기").selectOption("dc-motor-drv8871");
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
-  await page.getByRole("tab", { name: "검토" }).click();
+  await openTab(page, "검토");
   const checklist = page.getByLabel("설계 지침 확인");
   await expect(checklist).toContainText("G-PRT-03"); // TVS: a person checks it
   await checklist.getByRole("checkbox", { name: "자동 검사를 통과한 것도 보기" }).check();
@@ -72,7 +71,7 @@ test("design guide grows from people's feedback and is checked on a board", asyn
     data: { title: "LED 빼기", ops: [{ op: "remove_component", component_id: "d-led", expect_reference: "D3" }] },
   });
   await page.getByRole("button", { name: "Guide Demo" }).first().click();
-  await page.getByRole("tab", { name: "제안" }).click();
+  await openTab(page, "제안");
   await page.getByText("LED 빼기").first().click();
   await stage(page, "결정");
   await page.getByRole("button", { name: "거부", exact: true }).click();
@@ -98,13 +97,12 @@ test("a guide a board does not follow is an exception; company guides come in fr
   await expect(guide).toContainText("전원 커넥터 극성 표시");
 
   // The I2C example records that it has no reverse-polarity diode on purpose (decision dec-norev waives G-PRT-01).
-  await page.getByLabel("새 프로젝트 이름").fill("Exception Demo");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await newProject(page, "Exception Demo");
+  await openTab(page, "회로 데이터");
   await page.getByLabel("예제 불러오기").selectOption("i2c-sensor-3v3");
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
-  await page.getByRole("tab", { name: "검토" }).click();
+  await openTab(page, "검토");
   const checklist = page.getByLabel("설계 지침 확인");
   const waived = checklist.getByRole("listitem").filter({ hasText: "G-PRT-01" });
   await expect(waived).toContainText("예외");
@@ -117,7 +115,7 @@ test("a guide a board does not follow is an exception; company guides come in fr
   await expect(page.getByRole("heading", { name: /지침 예외: G-/ })).toBeVisible();
 
   // The BOM names the pin column for what it is; stock lookup asks for distributor keys first.
-  await page.getByRole("tab", { name: "문서 · BOM" }).click();
+  await openTab(page, "문서 · BOM");
   await expect(page.getByRole("columnheader", { name: "핀 검토(엔지니어)" })).toBeVisible();
   const stock = page.getByLabel("유통사 재고·가격");
   await expect(stock.getByRole("button", { name: "유통사 재고·가격 조회" })).toBeDisabled();

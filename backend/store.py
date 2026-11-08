@@ -171,6 +171,8 @@ class ProjectStore:
             columns = {row["name"] for row in db.execute("PRAGMA table_info(jobs)")}
             if "board_id" not in columns:  # index created before boards existed
                 db.execute("ALTER TABLE jobs ADD COLUMN board_id TEXT")
+            if "progress" not in columns:  # index created before jobs reported their steps
+                db.execute("ALTER TABLE jobs ADD COLUMN progress TEXT")
 
     def rescan(self) -> None:
         """Rebuild the project index from the folders on disk (and upgrade old layouts)."""
@@ -592,7 +594,7 @@ class ProjectStore:
         cols, values = [], []
         for key, value in fields.items():
             cols.append(f"{key} = ?")
-            values.append(json.dumps(value, ensure_ascii=False) if key in ("result", "error") else value)
+            values.append(json.dumps(value, ensure_ascii=False) if key in ("result", "error", "progress") else value)
         with self._db() as db:
             db.execute(f"UPDATE jobs SET {', '.join(cols)} WHERE id = ?", (*values, job_id))
 
@@ -600,6 +602,7 @@ class ProjectStore:
         data = dict(row)
         for key in ("result", "error"):
             data[key] = json.loads(data[key]) if data[key] else None
+        data["progress"] = json.loads(data["progress"]) if data.get("progress") else []
         return Job(**data)
 
     def get_job(self, job_id: str) -> Job:

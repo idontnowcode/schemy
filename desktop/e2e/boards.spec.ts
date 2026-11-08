@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { kicadExpected, repoRoot, startBackend, tempWorkspace, type Backend } from "./backend";
+import { kicadExpected, newProject, openTab, repoRoot, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -35,11 +35,10 @@ test("inventory → Markdown import → pages → generate → apply stocked par
   await expect(page.getByText("3종을 저장했습니다.")).toBeVisible();
 
   // Project with the default board A; import the Copilot-style Markdown.
-  await page.getByLabel("새 프로젝트 이름").fill("Board Demo");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
+  await newProject(page, "Board Demo");
   await expect(page.getByRole("heading", { name: "Board Demo" })).toBeVisible();
+  await openTab(page, "회로 데이터");
   await expect(page.getByRole("tab", { name: /보드 A/ })).toHaveAttribute("aria-selected", "true");
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
   await page.locator('input[accept^=".md"]').setInputFiles(path.join(repoRoot, "examples", "led-resistor-connector", "schematic.md"));
   await expect(page.getByRole("heading", { name: "가져오기 결과" })).toBeVisible();
   await expect(page.getByText("부품 3개 · Net 3개 · 페이지 1")).toBeVisible();
@@ -51,7 +50,7 @@ test("inventory → Markdown import → pages → generate → apply stocked par
   await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
 
   // Generate: two pages.
-  await page.getByRole("tab", { name: "회로도 · 검증" }).click();
+  await openTab(page, "회로도 · 검증");
   await page.getByRole("button", { name: "회로도 생성" }).click();
   if (kicadExpected()) {
     await expect(page.locator(".card").getByText("Automated checks passed")).toBeVisible({ timeout: 180_000 });
@@ -62,11 +61,11 @@ test("inventory → Markdown import → pages → generate → apply stocked par
   await expect(page.getByRole("cell", { name: "board-demo-a-p2-p2.kicad_sch" })).toBeVisible();
 
   // Materials: R1 and D1 are stocked; apply writes their part numbers as a new revision.
-  await page.getByRole("tab", { name: "자재" }).click();
+  await openTab(page, "자재");
   await expect(page.getByText("보유 2 · 대체 가능 0 · 미보유 1", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "보유 자재 적용" }).click();
   await expect(page.getByText(/revision 2으로 저장했습니다: .*R1 품번 → RC0603FR-07330RL/)).toBeVisible();
-  await page.getByRole("tab", { name: "이력" }).click();
+  await openTab(page, "이력");
   await expect(page.getByRole("cell", { name: /보유 자재 적용/ }).first()).toBeVisible();
 
   // A second board starts empty and keeps its own history.
@@ -80,9 +79,8 @@ test("inventory → Markdown import → pages → generate → apply stocked par
 test("AI buttons stay off until AI is enabled with a key", async ({ page }) => {
   backend = await startBackend(tempWorkspace());
   await page.goto(backend.url);
-  await page.getByLabel("새 프로젝트 이름").fill("No AI");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await newProject(page, "No AI");
+  await openTab(page, "회로 데이터");
   await expect(page.getByRole("button", { name: "PDF 가져오기 (AI)" })).toBeDisabled();
   await page.getByRole("button", { name: "설정" }).click();
   await expect(page.getByLabel("AI 기능 사용")).not.toBeChecked();

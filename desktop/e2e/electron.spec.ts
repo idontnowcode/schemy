@@ -5,7 +5,7 @@ import { _electron as electron, expect, test } from "@playwright/test";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import { backendPython, desktopDir, symbolDirs, tempWorkspace } from "./backend";
+import { backendPython, desktopDir, newProject, symbolDirs, tempWorkspace } from "./backend";
 
 test.skip(process.platform === "linux" && !process.env.DISPLAY, "Electron needs a display (use xvfb-run)");
 
@@ -38,8 +38,7 @@ test("desktop shell runs the app with token auth and an isolated renderer", asyn
     // The backend rejects requests without the token…
     expect(await win.evaluate(async () => (await fetch("/api/projects")).status)).toBe(401);
     // …and the UI, which sends it, works.
-    await win.getByLabel("새 프로젝트 이름").fill("Electron Smoke");
-    await win.getByRole("button", { name: "새 프로젝트" }).click();
+    await newProject(win, "Electron Smoke");
     await expect(win.getByRole("heading", { name: "Electron Smoke" })).toBeVisible();
 
     // openPath refuses anything outside the workspace.

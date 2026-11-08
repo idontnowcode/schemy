@@ -6,7 +6,7 @@ import { GuidesPage } from "./components/Guides";
 import { EvalPage } from "./components/EvalPage";
 import { NotesPage } from "./components/Notes";
 import { InventoryPage } from "./components/InventoryPage";
-import { isTab, ProjectView, type TabId } from "./components/ProjectView";
+import { isTab, ProjectView, type ProjectMode, type TabId } from "./components/ProjectView";
 import { SettingsPage } from "./components/SettingsPage";
 import { Sidebar, type View } from "./components/Sidebar";
 import type { ProjectSummary, SystemInfo } from "./types";
@@ -17,6 +17,7 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [boardId, setBoardId] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("requirements");
+  const [mode, setMode] = useState<ProjectMode>("flow");
   const [view, setView] = useState<View>("projects");
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -42,6 +43,7 @@ export function App() {
             ? settings.last_board_id
             : project.boards[0] ?? null);
           if (isTab(settings.last_tab)) setTab(settings.last_tab);
+          if (settings.last_view === "advanced") setMode("advanced");
         }
       } catch (e) {
         setError(errorText(e));
@@ -51,8 +53,13 @@ export function App() {
     })();
   }, []);
 
-  const persist = (projectId: string | null, board: string | null, nextTab: TabId) =>
-    api.saveSettings({ last_project_id: projectId, last_board_id: board, last_tab: nextTab }).catch(() => undefined);
+  const persist = (projectId: string | null, board: string | null, nextTab: TabId, nextMode: ProjectMode = mode) =>
+    api.saveSettings({ last_project_id: projectId, last_board_id: board, last_tab: nextTab, last_view: nextMode }).catch(() => undefined);
+
+  const changeMode = (next: ProjectMode) => {
+    setMode(next);
+    void persist(selected, boardId, tab, next);
+  };
 
   const select = async (id: string) => {
     setView("projects");
@@ -153,6 +160,8 @@ export function App() {
             system={system}
             tab={tab}
             onTab={changeTab}
+            mode={mode}
+            onMode={changeMode}
             onProjectChanged={refreshProjects}
             onError={setError}
           />

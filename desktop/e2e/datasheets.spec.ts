@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { repoRoot, startBackend, tempWorkspace, type Backend } from "./backend";
+import { newProject, openTab, repoRoot, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -20,18 +20,17 @@ const fixtures = path.join(repoRoot, "tests", "fixtures", "datasheets");
 test("upload a datasheet, import its summary and see the checks", async ({ page }) => {
   backend = await startBackend(tempWorkspace());
   await page.goto(backend.url);
-  await page.getByLabel("새 프로젝트 이름").fill("CAN Node");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
+  await newProject(page, "CAN Node");
   await expect(page.getByRole("heading", { name: "CAN Node" })).toBeVisible();
 
   // Save the CAN circuit (U1 = SN65HVD230 with maker and part number).
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await openTab(page, "회로 데이터");
   await page.getByLabel("Circuit IR JSON").fill(readFileSync(path.join(fixtures, "can-node.circuit.json"), "utf-8"));
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
 
   // Datasheet tab: U1 is listed (passives are hidden), its KiCad symbol has a link.
-  await page.getByRole("tab", { name: "데이터시트" }).click();
+  await openTab(page, "데이터시트");
   const parts = page.getByRole("table", { name: "부품별 데이터시트" });
   const u1 = parts.getByRole("row").filter({ hasText: "SN65HVD230DR" });
   await expect(u1).toContainText("제조사·품번 확정");

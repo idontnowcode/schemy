@@ -34,6 +34,11 @@ interface Props {
   circuit: CircuitIR | null;
   focusId?: string | null;
   onChanged(): Promise<unknown>;
+  /** One proposal only (no list or manual form), opened at ``initialStage`` — the step screens' 「자세히」. */
+  single?: boolean;
+  initialStage?: string;
+  onBack?(): void;
+  backLabel?: string;
 }
 
 const FIELDS = [
@@ -43,7 +48,7 @@ const FIELDS = [
   ["manufacturer_part_number", "제조사 품번"],
 ] as const;
 
-export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, onChanged }: Props) {
+export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, onChanged, single, initialStage, onBack, backLabel }: Props) {
   const [list, setList] = useState<Proposal[] | null>(null);
   const [selected, setSelected] = useState<string | null>(focusId ?? null);
   const [detail, setDetail] = useState<Proposal | null>(null);
@@ -213,6 +218,55 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
       await load();
     });
 
+  const detailEl = detail && (
+    <ProposalDetail
+      key={detail.id}
+      p={detail}
+      projectId={projectId}
+      boardId={boardId}
+      busy={busy !== null}
+      onApprove={() => approve(detail)}
+      onReject={(note, toGuide) => reject(detail, note, toGuide)}
+      onRecheck={() => recheck(detail)}
+      aiReady={aiReady}
+      boardRevision={revision}
+      onAiReview={() => reviewProposal(detail)}
+      revising={revising === detail.id}
+      onToggleRevise={() => (revising === detail.id ? setRevising(null) : openRevise(detail.id, null))}
+      onRevise={(preset) => openRevise(detail.id, preset)}
+      onFixed={async (id) => {
+        await load();
+        setSelected(id);
+        await onChanged();
+      }}
+      initialStage={initialStage}
+      revisionPanel={
+        <RevisionPanel key={JSON.stringify(revisePreset)} projectId={projectId} boardId={boardId} proposalId={detail.id}
+          provider={ai?.settings.provider ?? "gemini"} model={ai?.settings.model ?? ""} preset={revisePreset}
+          onCancel={() => setRevising(null)} onCreated={onRevised} />
+      }
+    />
+  );
+
+  if (single) {
+    return (
+      <div className="proposals single">
+        {onBack && (
+          <button className="link back-link" onClick={onBack}>
+            ← {backLabel ?? "돌아가기"}
+          </button>
+        )}
+        {busy && <p className="small">{busy}</p>}
+        {message && (
+          <p className="small" role="status">
+            {message}
+          </p>
+        )}
+        {detailEl}
+      </div>
+    );
+  }
+
   return (
     <div className="proposals">
       <div className="card">
@@ -294,34 +348,7 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
               );
             })}
           </ul>
-          {detail && (
-            <ProposalDetail
-              key={detail.id}
-              p={detail}
-              projectId={projectId}
-              boardId={boardId}
-              busy={busy !== null}
-              onApprove={() => approve(detail)}
-              onReject={(note, toGuide) => reject(detail, note, toGuide)}
-              onRecheck={() => recheck(detail)}
-              aiReady={aiReady}
-              boardRevision={revision}
-              onAiReview={() => reviewProposal(detail)}
-              revising={revising === detail.id}
-              onToggleRevise={() => (revising === detail.id ? setRevising(null) : openRevise(detail.id, null))}
-              onRevise={(preset) => openRevise(detail.id, preset)}
-              onFixed={async (id) => {
-                await load();
-                setSelected(id);
-                await onChanged();
-              }}
-              revisionPanel={
-                <RevisionPanel key={JSON.stringify(revisePreset)} projectId={projectId} boardId={boardId} proposalId={detail.id}
-                  provider={ai?.settings.provider ?? "gemini"} model={ai?.settings.model ?? ""} preset={revisePreset}
-                  onCancel={() => setRevising(null)} onCreated={onRevised} />
-              }
-            />
-          )}
+          {detailEl}
         </div>
       )}
     </div>
@@ -413,7 +440,11 @@ interface DetailProps {
   onRevise(preset: RevisePreset): void;
   onFixed(proposalId: string): Promise<void>;
   revisionPanel: React.ReactNode;
+  /** Slide to open first (overview, changes, checks, review, datasheets, guides, decision). */
+  initialStage?: string;
 }
+
+const SLIDE_KEYS = ["overview", "changes", "checks", "review", "datasheets", "guides", "decision"];
 
 /** What the AI revision form starts with: chosen review findings (indexes, or all) and the check problems. */
 export interface RevisePreset {
@@ -453,12 +484,12 @@ interface Slide {
  * stages; "한 화면에 모두 보기" shows every stage stacked, for people who prefer one long page.
  */
 function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRecheck, aiReady, boardRevision, onAiReview, revising,
-  onToggleRevise, onRevise, onFixed, revisionPanel }: DetailProps) {
+  onToggleRevise, onRevise, onFixed, revisionPanel, initialStage }: DetailProps) {
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState("");
   const [noteToGuide, setNoteToGuide] = useState(false);
   const [view, setViewState] = useState(readView);
-  const [stage, setStage] = useState(0);
+  const [stage, setStage] = useState(() => Math.max(0, SLIDE_KEYS.indexOf(initialStage ?? "overview")));
   const st = proposalStatusLabel(p.status);
   const ev = p.evidence;
   const check = ev?.automated_check ? automatedLabel(ev.automated_check.status) : null;

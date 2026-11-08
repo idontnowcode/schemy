@@ -3,7 +3,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { stage, startBackend, tempWorkspace, type Backend } from "./backend";
+import { newProject, openTab, stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -15,9 +15,8 @@ test.afterEach(async () => {
 test("floating inputs get a one-click fix as a follow-up proposal", async ({ page }) => {
   backend = await startBackend(tempWorkspace());
   await page.goto(backend.url);
-  await page.getByLabel("새 프로젝트 이름").fill("Fix Demo");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await newProject(page, "Fix Demo");
+  await openTab(page, "회로 데이터");
   await page.getByLabel("예제 불러오기").selectOption("dc-motor-drv8871");
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
@@ -30,7 +29,7 @@ test("floating inputs get a one-click fix as a follow-up proposal", async ({ pag
   });
   expect(created.ok()).toBeTruthy();
 
-  await page.getByRole("tab", { name: "제안" }).click();
+  await openTab(page, "제안");
   await page.getByText("제어 헤더 빼기").first().click();
   // Before approval the proposal's parts can get their datasheets too (TI's DRV8871: symbol link and TI's pattern).
   await stage(page, "데이터시트");
@@ -56,9 +55,8 @@ test("floating inputs get a one-click fix as a follow-up proposal", async ({ pag
 test("an approved proposal keeps its fix actions, and the schematic tab offers them too", async ({ page }) => {
   backend = await startBackend(tempWorkspace());
   await page.goto(backend.url);
-  await page.getByLabel("새 프로젝트 이름").fill("Approved Fix");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await newProject(page, "Approved Fix");
+  await openTab(page, "회로 데이터");
   await page.getByLabel("예제 불러오기").selectOption("dc-motor-drv8871");
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
@@ -77,7 +75,7 @@ test("an approved proposal keeps its fix actions, and the schematic tab offers t
   expect(approved.ok()).toBeTruthy();
 
   await page.reload();
-  await page.getByRole("tab", { name: "제안" }).click();
+  await openTab(page, "제안");
   await page.getByText("제어 헤더 빼기").first().click();
   await expect(page.getByText("승인").first()).toBeVisible();
   // The fixes stay: the AI ones visible and disabled with the reason (AI is off here), AI-free ones on the saved circuit.
@@ -94,7 +92,7 @@ test("an approved proposal keeps its fix actions, and the schematic tab offers t
   await expect(page.getByText(/기준 revision 2/).first()).toBeVisible(); // started from the saved circuit, not undone
 
   // The same quick fixes are on the schematic tab's check card, for the saved circuit.
-  await page.getByRole("tab", { name: "회로도 · 검증" }).click();
+  await openTab(page, "회로도 · 검증");
   await page.getByRole("button", { name: /회로도 생성|다시 생성/ }).first().click();
   await expect(page.getByLabel("바로 고치기")).toBeVisible({ timeout: 120_000 });
 });

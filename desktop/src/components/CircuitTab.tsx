@@ -38,6 +38,9 @@ export function CircuitTab({ projectId, boardId, circuit, revision, onSaved, onO
   const [busy, setBusy] = useState<string | null>(null);
   const [examples, setExamples] = useState<Example[]>([]);
   const [ai, setAi] = useState<AiStatus | null>(null);
+  // The raw JSON is for imports and hand edits; the parts table is what most people read. Open it when there is
+  // nothing saved yet, or when something was just loaded into it.
+  const [jsonOpen, setJsonOpen] = useState(!circuit);
   const fileInput = useRef<HTMLInputElement>(null);
   const mdInput = useRef<HTMLInputElement>(null);
   const pdfInput = useRef<HTMLInputElement>(null);
@@ -106,6 +109,7 @@ export function CircuitTab({ projectId, boardId, circuit, revision, onSaved, onO
   };
 
   const loadText = (value: string, note: string) => {
+    setJsonOpen(true);
     setText(value);
     setSource("import");
     setReport(null);
@@ -244,14 +248,18 @@ export function CircuitTab({ projectId, boardId, circuit, revision, onSaved, onO
           {busy ?? (dirty ? "저장되지 않은 변경" : revision ? `revision ${revision}` : "저장된 회로 없음")}
           {!aiReady && " · PDF 가져오기는 설정에서 AI(Gemini 또는 Claude)를 켜면 쓸 수 있습니다. 코파일럿으로 만든 회로도 Markdown은 「회로도 MD 가져오기」로 바로 넣을 수 있습니다."}
         </div>
-        <textarea
-          className="editor code"
-          aria-label="Circuit IR JSON"
-          spellCheck={false}
-          placeholder={PLACEHOLDER}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-        />
+        {circuit && <CircuitSummary circuit={circuit} />}
+        <details className="json-raw" open={jsonOpen || dirty} onToggle={(e) => setJsonOpen((e.target as HTMLDetailsElement).open)}>
+          <summary>JSON 원문 보기{dirty ? " · 저장되지 않은 변경" : ""}</summary>
+          <textarea
+            className="editor code"
+            aria-label="Circuit IR JSON"
+            spellCheck={false}
+            placeholder={PLACEHOLDER}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+        </details>
       </div>
 
       <div className="side">
@@ -277,7 +285,6 @@ export function CircuitTab({ projectId, boardId, circuit, revision, onSaved, onO
         {parsedIr && (
           <PagesCard ir={parsedIr} onChange={editPages} />
         )}
-        {circuit && <CircuitSummary circuit={circuit} />}
       </div>
     </div>
   );
@@ -351,14 +358,38 @@ function PagesCard({ ir, onChange }: { ir: CircuitIR; onChange(next: CircuitIR):
 function CircuitSummary({ circuit }: { circuit: CircuitIR }) {
   const refs = new Map(circuit.components.map((c) => [c.id, c.reference]));
   return (
-    <div className="card">
-      <h3>저장된 회로</h3>
-      <table className="table">
+    <div className="circuit-summary">
+      <h3>저장된 회로 · 부품 {circuit.components.length} · Net {circuit.nets.length}</h3>
+      <table className="table parts-table">
         <thead>
           <tr>
             <th>Ref</th>
             <th>값</th>
             <th>심볼</th>
+            <th>풋프린트</th>
+          </tr>
+        </thead>
+        <tbody>
+          {circuit.components.map((c) => (
+            <tr key={c.id} title={c.pins.map((p) => (p.name ? `${p.number}=${p.name}` : p.number)).join(", ")}>
+              <td className="mono">{c.reference}</td>
+              <td className="mono">{c.value}</td>
+              <td>
+                <code>{c.symbol_id}</code>
+              </td>
+              <td>
+                <code>{c.footprint_id ?? "—"}</code>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <details>
+        <summary className="small">핀과 Net 연결 보기</summary>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Ref</th>
             <th>핀</th>
           </tr>
         </thead>
@@ -366,10 +397,6 @@ function CircuitSummary({ circuit }: { circuit: CircuitIR }) {
           {circuit.components.map((c) => (
             <tr key={c.id}>
               <td>{c.reference}</td>
-              <td>{c.value}</td>
-              <td>
-                <code>{c.symbol_id}</code>
-              </td>
               <td>{c.pins.map((p) => (p.name ? `${p.number}=${p.name}` : p.number)).join(", ")}</td>
             </tr>
           ))}
@@ -391,6 +418,7 @@ function CircuitSummary({ circuit }: { circuit: CircuitIR }) {
           ))}
         </tbody>
       </table>
+      </details>
     </div>
   );
 }

@@ -645,7 +645,10 @@ def place_templates(plan: dict, pins_of: PinsOf | None, taken_refs: set[str]) ->
 
 def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *, project_id: str,
                    max_repairs: int = 2, max_output_tokens: int = 32768,
-                   pins_of: PinsOf | None = None) -> DesignResult:
+                   pins_of: PinsOf | None = None, on_step: Callable[[str, str], None] | None = None) -> DesignResult:
+    """``on_step(step, text)`` reports progress: step "parts" (choosing parts) then "pins" (connecting them)."""
+    step = on_step or (lambda _step, _text: None)
+    step("parts", "AI에 부품 계획 요청")
     plan_call = provider.generate(prompt=plan_prompt(inp), json_schema=PLAN_SCHEMA, max_output_tokens=max_output_tokens)
     plan = _json(plan_call, "부품 계획")
     result = DesignResult(circuit=None, plan=plan, calls=[plan_call])
@@ -672,11 +675,15 @@ def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *
     result.unresolved += template_problems
     if result.unresolved:
         result.problems = list(result.unresolved)
+        step("parts", f"부품 {len(result.unresolved)}개를 KiCad 심볼로 찾지 못함")
         return result
+    used = f", 검토된 템플릿 {', '.join(b.title for b in blocks)}" if blocks else ""
+    step("parts", f"부품 {len(result.parts) + sum(len(b.components) for b in blocks)}개 선택{used}")
 
     prompt = connect_prompt(inp, plan, result.parts, blocks)
     title = str(plan.get("title") or "AI 설계안")
     for attempt in range(max_repairs + 1):
+        step("pins", "KiCad 심볼의 핀 표로 연결 요청" if attempt == 0 else f"연결 문제를 고쳐 다시 요청 ({attempt}회째)")
         call = provider.generate(prompt=prompt, json_schema=CONNECT_SCHEMA, max_output_tokens=max_output_tokens)
         result.calls.append(call)
         result.attempts = attempt + 1
@@ -686,7 +693,10 @@ def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *
                                           model=call.model, blocks=blocks)
         result.circuit, result.problems = circuit, problems
         if not problems:
+            fixed = f", {attempt}회 고침" if attempt else ""
+            step("pins", f"연결 완료: Net {len(circuit.nets)}개{fixed}" if circuit else "연결 완료")
             break
+        step("pins", f"연결 문제 {len(problems)}개")
         prompt = connect_prompt(inp, plan, result.parts, blocks) + "\n\n" + repair_prompt(connections, problems)
     return result
 

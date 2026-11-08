@@ -3,7 +3,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { stage, startBackend, tempWorkspace, type Backend } from "./backend";
+import { newProject, openTab, stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -15,15 +15,14 @@ test.afterEach(async () => {
 test("voltage range and part specs drive the technical review", async ({ page }) => {
   backend = await startBackend(tempWorkspace());
   await page.goto(backend.url);
-  await page.getByLabel("새 프로젝트 이름").fill("Specs Demo");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await newProject(page, "Specs Demo");
+  await openTab(page, "회로 데이터");
   await page.getByLabel("예제 불러오기").selectOption("i2c-sensor-3v3");
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
 
   // The example already says +5V is 4.7~5.25 V: the dropout check works at 4.7 V.
-  await page.getByRole("tab", { name: "검토" }).click();
+  await openTab(page, "검토");
   const review = page.getByLabel("기술 검토");
   await expect(review).toContainText("최저 입력 4.7 V에서 입출력 전압 차 1.4 V");
 
@@ -40,7 +39,7 @@ test("voltage range and part specs drive the technical review", async ({ page })
   await page.locator(".proposal-detail").getByRole("button", { name: "승인", exact: true }).click();
   await expect(page.locator(".proposal-detail .chip").filter({ hasText: "승인됨" })).toBeVisible({ timeout: 60_000 });
 
-  await page.getByRole("tab", { name: "검토" }).click();
+  await openTab(page, "검토");
   await expect(page.getByLabel("기술 검토")).toContainText("최저 입력 4.4 V에서 입출력 전압 차 1.1 V");
   const specs = page.getByLabel("부품 사양");
   await specs.getByText("부품 사양", { exact: true }).click();

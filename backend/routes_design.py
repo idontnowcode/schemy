@@ -54,12 +54,51 @@ class ReviewBody(_Model):
     """Also write a research note (연구노트) from this review: a second AI call, saved as a draft."""
 
 
+class AutoReviewBody(_Model):
+    """Review → revise → review again until the stop condition holds (step 5 of the step screens)."""
+
+    proposal_id: str
+    max_warnings: int = Field(default=1, ge=0, le=9, description="Stop when 수정 필요 is 0 and 수정 권장 is at most this.")
+    max_rounds: int = Field(default=3, ge=1, le=5, description="Reviews at most this many proposals (revisions = rounds − 1).")
+
+
 class ReviseBody(_Model):
     proposal_id: str | None = None
     instructions: str | None = Field(default=None, max_length=10_000)
     finding_indexes: list[int] | None = Field(default=None, description="AI review findings to address; None = all.")
     include_checks: bool = Field(default=True, description="Also address problems from the automated checks.")
     review: bool = True
+
+
+def _norm(title) -> str:
+    return " ".join(str(title or "").split()).lower()
+
+
+def _count_text(findings: list[dict]) -> str:
+    n = {s: sum(1 for f in findings if f.get("severity") == s) for s in ("error", "warning", "info")}
+    return f"수정 필요 {n['error']} · 수정 권장 {n['warning']} · 참고 {n['info']}"
+
+
+def _check_text(p: Proposal) -> str:
+    ev = p.evidence
+    if ev is None:
+        return "검사 전"
+    ac = ev.automated_check
+    if ac is None:
+        return "규칙 오류" if ev.blocking else "생성 실패"
+    status = {"passed": "통과", "failed": "실패", "not_checked": "검사 안 함"}.get(ac.status, ac.status)
+    if ac.erc_errors is None:
+        return status + (" (KiCad 없음)" if ac.status == "not_checked" else "")
+    return f"{status}, ERC 오류 {ac.erc_errors} · 경고 {ac.erc_warnings}"
+
+
+STOP_TEXT = {"met": "조건 충족", "max_rounds": "최대 횟수에 도달", "repeated": "같은 의견이 다시 나옴",
+             "check_failed": "수정안이 KiCad 검사를 통과하지 못함", "revise_failed": "수정안을 만들지 못함",
+             "ai_failed": "AI 검토 실패"}
+
+
+def _stop_text(stop: str, message: str) -> str:
+    return "멈춤: " + STOP_TEXT.get(stop, stop) + (f" ({message})" if message else "")
 
 
 def proposal_evidence_text(p: Proposal) -> str:
@@ -234,12 +273,14 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                 "requirements_chars": len(store.get_requirements(project_id).strip()),
                 "spec": store.get_requirements_spec(project_id) is not None,
                 "inventory_parts": len(inventory_rows()), "datasheets": len(datasheets.entries()),
-                "current_circuit": circuit is not None, "library": bool(settings.symbol_dirs)}
+                "current_circuit": circuit is not None, "library": bool(settings.symbol_dirs),
+                "guides": [{"id": e.id, "title": e.title} for e in applicable_guides(project_id, circuit)]}
 
-    def submit_design(project_id: str, board_id: str, *, instructions: str | None, use_inventory: bool,
-                      review: bool, base: CircuitIR | None, findings: list[dict] | None, source: str, parent: str | None):
-        """``base`` is the design being revised (None for a new design); the result's diff against it is
-        recorded so the user sees what the revision changed."""
+    def design_task(project_id: str, board_id: str, *, instructions: str | None, use_inventory: bool,
+                    review: bool, base: CircuitIR | None, findings: list[dict] | None, source: str, parent: str | None):
+        """Check the inputs now and return the design work as ``run(job_id)``. ``base`` is the design being revised
+        (None for a new design); the result's diff against it is recorded so the user sees what the revision changed.
+        Steps (parts, pins, check, proposal, review) are recorded on the job for the step screens."""
         board = store.get_board(project_id, board_id)
         text = store.get_requirements(project_id)
         spec = store.get_requirements_spec(project_id)
@@ -252,6 +293,9 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
         rows = inventory_rows() if use_inventory else []
 
         def run(job_id: str) -> dict:
+            def step(name: str, text: str) -> None:
+                jobs.step(job_id, name, text)
+
             index = symbol_index(settings.symbol_dirs, settings.workspace / "cache" / "symbol_index.json")
             resolver = PartResolver(lib, index, inventory.get() if use_inventory else None, datasheets)
             entries = applicable_guides(project_id, base, instructions or "")
@@ -263,7 +307,7 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                                                       "findings": len(findings or [])})
             try:
                 result = design_circuit(provider, inp, resolver, project_id=project_id,
-                                        max_output_tokens=cfg.max_output_tokens, pins_of=_pins_of(lib))
+                                        max_output_tokens=cfg.max_output_tokens, pins_of=_pins_of(lib), on_step=step)
             except AiError as exc:
                 record.update(status="failed", error={"code": exc.code, "message": exc.message})
                 save_run(project_id, board_id, record)
@@ -304,15 +348,21 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             if guides is not None and ai["guides"]["applied"]:
                 guides.record("cited", ai["guides"]["applied"], by="AI 설계", project_id=project_id, board_id=board_id,
                               proposal_id=p.id)
+            step("check", "KiCad로 회로도를 만들어 ERC 실행")
             p = service.check_now(p)
+            step("check", f"KiCad 검사: {_check_text(p)}")
+            step("proposal", f"제안 #{int(p.id)} 만듦 (승인 전에는 회로가 바뀌지 않음)")
             if review:
+                step("review", "AI 검토 중")
                 try:
                     findings_out, call = run_review(cfg, provider, project_id, result.circuit, proposal_evidence_text(p),
                                                     {"project_id": project_id, "board_id": board_id,
                                                      "proposal_id": p.id})
                     record.setdefault("usage", []).append(call.usage)
                     p = proposals.update(p, ai={**(p.ai or {}), "review": findings_out})
+                    step("review", "AI 검토: " + _count_text(findings_out["findings"]))
                 except AiError as exc:
+                    step("review", f"AI 검토 실패: {exc.message}")
                     p = proposals.update(p, ai={**(p.ai or {}), "review": {"summary": f"AI 검토 실패: {exc.message}",
                                                                            "findings": []}})
             record.update(status="succeeded", output={"proposal": p.id, "status": p.status})
@@ -320,7 +370,10 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             return {"proposal_id": p.id, "status": p.status, "attempts": result.attempts,
                     "remaining_problems": result.problems}
 
-        return jobs.submit(project_id, source, run, board_id=board_id)
+        return run
+
+    def submit_design(project_id: str, board_id: str, **kw):
+        return jobs.submit(project_id, kw["source"], design_task(project_id, board_id, **kw), board_id=board_id)
 
     @router.post(BOARD + "/ai/design", status_code=202)
     def design(project_id: str, board_id: str, body: DesignBody):
@@ -368,6 +421,87 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
         return submit_design(project_id, board_id, instructions=body.instructions, use_inventory=True,
                              review=body.review, base=base, findings=chosen, source="ai_revision",
                              parent=body.proposal_id)
+
+    # --- automatic review loop (step 5) ---------------------------------------------------------
+
+    @router.post(BOARD + "/ai/auto-review", status_code=202)
+    def auto_review(project_id: str, board_id: str, body: AutoReviewBody):
+        """Review the proposal; while 수정 필요 > 0 or 수정 권장 > max_warnings, make a revision from the findings
+        and review that. Stops when the condition holds, after max_rounds reviews, when a finding comes back after
+        a revision meant to fix it, when a revision fails KiCad checks, or when the AI fails. Every round is a
+        separate proposal; nothing on the board changes until a person approves one."""
+        first = proposals.get(project_id, board_id, body.proposal_id)
+        if first.status in ("approved", "rejected", "stale"):
+            raise ApiError(409, "PROPOSAL_CLOSED", "이미 결정된 제안은 자동 검토할 수 없습니다.",
+                           recovery_hint="열려 있는 제안(승인 대기)을 고르세요.")
+        cfg = access.settings()
+        provider = access.provider_for(cfg)
+        library()  # revisions need the symbol library; fail now rather than in round 2
+
+        def run(job_id: str) -> dict:
+            rounds: list[dict] = []
+            p = first
+            asked: set[str] = set()
+            stop, message = "max_rounds", ""
+            for k in range(1, body.max_rounds + 1):
+                p = proposals.get(project_id, board_id, p.id)
+                review = (p.ai or {}).get("review")
+                if not review or "findings" not in review or str(review.get("summary", "")).startswith("AI 검토 실패"):
+                    jobs.step(job_id, "review", f"{k}회차: 제안 #{int(p.id)} AI 검토 중")
+                    try:
+                        review, _ = run_review(cfg, provider, project_id, proposals.candidate(p), proposal_evidence_text(p),
+                                               {"project_id": project_id, "board_id": board_id, "proposal_id": p.id})
+                    except AiError as exc:
+                        stop, message = "ai_failed", exc.message
+                        break
+                    p = proposals.update(proposals.get(project_id, board_id, p.id), ai={**(p.ai or {}), "review": review})
+                findings = review["findings"]
+                needs = [f for f in findings if f.get("severity") == "error"]
+                recommended = [f for f in findings if f.get("severity") == "warning"]
+                failed_check = p.status in ("invalid", "check_failed")
+                entry = {"round": k, "proposal_id": p.id, "errors": len(needs) + (1 if failed_check else 0),
+                         "warnings": len(recommended), "check": _check_text(p), "check_failed": failed_check,
+                         "said": [str(f.get("title", "")) for f in [*needs, *recommended]][:4]}
+                rounds.append(entry)
+                if entry["errors"] == 0 and entry["warnings"] <= body.max_warnings:
+                    stop = "met"
+                elif failed_check and k > 1:
+                    stop = "check_failed"
+                elif k == body.max_rounds:
+                    stop = "max_rounds"
+                elif {_norm(f.get("title")) for f in [*needs, *recommended]} & asked:
+                    stop = "repeated"
+                    entry["repeated"] = sorted({str(f.get("title")) for f in [*needs, *recommended]
+                                                if _norm(f.get("title")) in asked})
+                else:
+                    stop = ""
+                jobs.step(job_id, "round", f"{k}회차: 제안 #{int(p.id)} 수정 필요 {entry['errors']} · 수정 권장 "
+                                            f"{entry['warnings']}", data=entry)
+                if stop:
+                    break
+                chosen = [{**f, "source": "ai"} for f in [*needs, *recommended]] + proposal_check_findings(p)
+                asked |= {_norm(f.get("title")) for f in [*needs, *recommended]}
+                jobs.step(job_id, "revise", f"{k}회차: 의견 {len(chosen)}개를 반영한 수정안 만드는 중")
+                try:
+                    out = design_task(project_id, board_id, instructions=None, use_inventory=True, review=True,
+                                      base=proposals.candidate(p), findings=chosen, source="ai_revision",
+                                      parent=p.id)(job_id)
+                except ApiError as exc:
+                    stop, message = "revise_failed", exc.message
+                    break
+                revised = proposals.get(project_id, board_id, out["proposal_id"])
+                diff = ((revised.ai or {}).get("diff_from_parent") or {}).get("summary")
+                entry["revised_to"] = revised.id
+                entry["fix"] = {"summary": str((revised.ai or {}).get("summary") or "")[:300], "diff": diff}
+                jobs.step(job_id, "revised", f"{k}회차: 수정안 #{int(revised.id)} 만듦", data=entry)
+                p = revised
+            last = proposals.get(project_id, board_id, p.id)
+            result = {"rounds": rounds, "stop": stop, "message": message, "proposal_id": last.id,
+                      "met": stop == "met", "max_warnings": body.max_warnings, "max_rounds": body.max_rounds}
+            jobs.step(job_id, "done", _stop_text(stop, message))
+            return result
+
+        return jobs.submit(project_id, "ai_auto_review", run, board_id=board_id)
 
     # --- review --------------------------------------------------------------------------------
 

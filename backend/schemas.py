@@ -97,6 +97,8 @@ class AppSettings(_Model):
     last_project_id: str | None = None
     last_board_id: str | None = None
     last_tab: str | None = Field(default=None, max_length=40)
+    last_view: Literal["flow", "advanced"] | None = None
+    """Project screen: the seven-step flow (default) or the advanced tabs (ADR-017)."""
 
 
 class ExportRequest(_Model):
@@ -171,6 +173,8 @@ class Job(_Model):
     finished_at: str | None = None
     result: dict | None = None
     error: dict | None = None
+    progress: list[dict] = Field(default_factory=list)
+    """Steps a long job has reached, oldest first: {at, step, text, data?}. The step screens show them live."""
 
 
 class FileUpload(_Model):

@@ -23,6 +23,9 @@
 
 ## 지금 할 수 있는 것
 
+- **단계 화면 (기본).** 프로젝트를 열면 한 장씩 넘기며 진행합니다([ADR-017](docs/adr/ADR-017-step-screens.md)): **1 아이디어**(평소 말로 적기) → **2 요구사항**(AI가 정리한 카드 확인·고치기, AI의 질문에 답) → **3 설계 준비**(적용할 설계 지침·검토된 템플릿·보유 자재·보낼 데이터) → **4 AI 설계**(부품 고르기 → 핀 연결 → KiCad 검사 → 제안 만들기 진행 기록) → **5 검토**(자동 반복 검토) → **6 확인·승인**(마지막 제안 요약 표, 「자세히」는 제안 슬라이드) → **7 회로도·출력**(미리보기, KiCad에서 열기, BOM·데이터시트·연구노트).
+  - **자동 반복 검토**: 「수정 필요 0건 · 수정 권장 n건 이하」가 될 때까지 AI 검토 → 의견을 반영한 수정안 → 다시 검토를 반복합니다. 최대 횟수, 같은 의견이 다시 나옴, 수정안의 KiCad 검사 실패에서 멈추고, AI 호출 상한을 미리 보여 줍니다. 회차마다 새 제안이 생기며 회로는 사람이 승인해야만 바뀝니다.
+  - 오른쪽 위 **고급 화면(탭)**에 기존 기능이 모두 있습니다. 탭 11개를 **설계**(요구사항·템플릿·제안·회로 데이터)·**검증**(회로도 · 검증·검토·Agent)·**자료**(자재·데이터시트·문서 · BOM)·**기록**(이력) 4묶음으로 정리했습니다. 아래 설명의 탭 이름은 고급 화면 기준입니다.
 - **요구사항 → AI 회로 설계 → 제안 → 승인.** 「요구사항」 탭에 만들 회로를 적고 **AI로 회로 설계**를 누릅니다(AI 기능 필요).
   1. AI가 부품을 고르면 앱이 설치된 KiCad 라이브러리에서 실제 심볼과 핀 번호로 바꿉니다.
   2. AI가 그 핀 번호로만 연결을 정합니다. 앱이 모든 핀을 검사하고, 틀리면 AI에게 다시 고치게 합니다(최대 2회).
@@ -49,7 +52,7 @@
   - 채점은 모두 코드가 하고, 예제 보드만 보냅니다. 호출 수·토큰·시간도 기록하고, 이전 평가와 지표별로 비교한 보고서를 내려받을 수 있습니다.
 - **제한된 AI Agent.** 「Agent」 탭에 변경을 요청하면 AI가 먼저 계획과 변경 범위(연산·대상)만 제안합니다. 범위를 승인하면 허용된 EDA 도구(회로 읽기·검증·patch·회로도 생성·ERC·Netlist 비교)만으로 격리된 폴더에서 실행하고, 앱이 코드로 다시 검증한 뒤 결과를 제안으로 올립니다. 호출 수·토큰·시간 상한이 있고 모든 단계가 기록됩니다.
 - **프로젝트 → 보드(A, B, …) → 페이지.** 보드 하나가 회로 하나, revision 이력 하나, KiCad 프로젝트 하나입니다. 보드 안의 회로는 여러 페이지로 나눌 수 있고, 페이지를 오가는 Net은 자동으로 연결됩니다.
-- **회로 편집과 검사.** Circuit IR(JSON)을 넣거나 편집하면 규칙 검사와 KiCad 라이브러리 핀 대조를 하고, 저장할 때마다 revision을 남깁니다.
+- **회로 편집과 검사.** 「회로 데이터」 탭에서 부품 표를 보고, 「JSON 원문 보기」를 펼쳐 Circuit IR(JSON)을 넣거나 편집하면 규칙 검사와 KiCad 라이브러리 핀 대조를 하고, 저장할 때마다 revision을 남깁니다.
 - **KiCad 생성과 자동 검사.** 보드마다 `.kicad_pro`와 페이지별 `.kicad_sch`를 만들고 ERC, Netlist ↔ IR 비교, SVG 미리보기를 실행합니다. 같은 입력이면 같은 파일이 나옵니다.
 - **PDF 회로도 카피.**
   - 1단계(AI 없음): 코파일럿 등으로 PDF를 "회로도 MD v0.1"로 옮겨 적고([프롬프트](docs/prompts/pdf-schematic-to-markdown.md)), **회로도 MD 가져오기**로 넣습니다.
@@ -85,7 +88,7 @@ npm start                                 # 빌드 후 Electron 실행 (백엔�
 ```
 
 - 프로젝트는 `문서/AI Circuit Studio/projects/<id>/`에 저장됩니다. 위치를 바꾸려면 `AICS_WORKSPACE`를 설정하세요.
-- 앱을 처음 쓸 때는 **회로 (IR)** 탭의 **예제 불러오기**에서 LED 예제를 저장하고, **회로도 · 검증** 탭에서 생성해 보세요. **회로도 MD 가져오기**로 [`examples/led-resistor-connector/schematic.md`](examples/led-resistor-connector/schematic.md)를 넣어 봐도 됩니다.
+- 앱을 처음 쓸 때는 단계 화면의 **1 아이디어**에 만들 보드를 적어 보세요(AI 기능 필요). AI 없이 해 보려면 **고급 화면(탭)** → **설계 → 회로 데이터**의 **예제 불러오기**에서 LED 예제를 저장하고, **검증 → 회로도 · 검증**에서 생성해 보세요. **회로도 MD 가져오기**로 [`examples/led-resistor-connector/schematic.md`](examples/led-resistor-connector/schematic.md)를 넣어 봐도 됩니다.
 - 조금 더 큰 예제로 **ATmega328P 상태 LED 보드**([`examples/atmega328p-led-board/`](examples/atmega328p-led-board/))와 MCU 없는 **NE555 LED 점멸 보드**([`examples/ne555-led-board/`](examples/ne555-led-board/)), **24V → 5V 레귤레이터 (7805)**([`examples/lm7805-24v-to-5v/`](examples/lm7805-24v-to-5v/)), **12V DC 모터 드라이버 (DRV8871)**([`examples/dc-motor-drv8871/`](examples/dc-motor-drv8871/), 설계 검토 리포트 포함), **3.3V I2C 센서 연결 보드 (LM1117)**([`examples/i2c-sensor-3v3/`](examples/i2c-sensor-3v3/), 앱으로 처음부터 끝까지 돌린 결과와 실제 TI 데이터시트 요약 포함)가 있습니다. 실무에서 자주 쓰는 블록으로 **USB-C 5V→3.3V 전원**([`examples/usbc-5v-3v3/`](examples/usbc-5v-3v3/)), **24V 절연 디지털 입력**([`examples/iso-24v-input/`](examples/iso-24v-input/)), **12V 릴레이 구동**([`examples/relay-driver-12v/`](examples/relay-driver-12v/)), **RS-485 인터페이스**([`examples/rs485-3v3/`](examples/rs485-3v3/)), **0~10V 아날로그 입력**([`examples/analog-0-10v/`](examples/analog-0-10v/))도 있습니다. 가장 큰 예제는 **차세대 CT SCU 메인 제어보드**([`examples/scu-main-board/`](examples/scu-main-board/), STM32H743, 부품 212개·7페이지, KiCad ERC 0/0, 개념 회로)입니다. 실무 블록들은 앱의 설계 경로로 만들고 모든 검사를 돌린 뒤, 점검하며 고친 것과 엔지니어 연구노트(`research-note.md`)를 남겼습니다(점검 보고: [`docs/practical-circuits-report.md`](docs/practical-circuits-report.md)). 앞의 다섯은 임의로 정한 요구사항으로 제안을 거쳐 만든 샘플 보드이고, 회로도에 영문 주석(블록 설명·사양·Net 설명)이 들어 있고, 폴더마다 근거 리포트(`rationale.md`)가 있습니다. 같은 **예제 불러오기**에서 고를 수 있습니다.
 - 생성 결과는 **KiCad에서 열기** 버튼이나 보드 폴더의 `outputs/<프로젝트>-<보드>.kicad_pro`로 엽니다.
 - KiCad에서 회로도를 고치고 저장했다면 **회로도 · 검증** 탭의 **고친 것 모두 가져오기**를 누르세요. 바꾼 연결, 값·풋프린트, 추가·삭제한 부품, 옮긴 부품의 위치가 제안으로 만들어지고, 승인하면 회로에 들어갑니다(연결은 kicad-cli로 읽음, ADR-012).

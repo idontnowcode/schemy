@@ -31,8 +31,41 @@ NOTE = {"title": "5V→3.3V LDO 보드: 드롭아웃 여유", "summary": "최저
         "open_questions": [{"text": "호스트 5V의 실제 최저 전압을 측정한다.", "evidence": []}]}
 
 
+# The step screens (아이디어 → 회로도): requirements, a CAN-node design on the test symbol library, and reviews that
+# need one revision before 「수정 필요 0 · 수정 권장 ≤ 1」 holds.
+SPEC = {"summary": "3.3V CAN 노드", "functions": ["CAN 통신", "MCU와 UART 연결"],
+        "power": [{"name": "입력", "source": "외부", "voltage": "3.3 V", "current": "50 mA", "notes": ""}],
+        "interfaces": [{"name": "CAN", "kind": "CAN", "details": "버스 끝단"}, {"name": "UART", "kind": "UART", "details": ""}],
+        "parts_preferences": ["트랜시버 SN65HVD230"], "constraints": ["칩 부품 0603"], "open_questions": ["CAN 버스 속도는?"]}
+REVIEWS = [
+    [{"severity": "error", "title": "종단 저항 값 확인", "detail": "120Ω인지 확인", "references": ["R1"], "suggestion": None},
+     {"severity": "warning", "title": "ESD 보호 없음", "detail": "CAN 라인에 TVS가 없습니다.", "references": ["J2"],
+      "suggestion": "TVS 추가"}],
+    [{"severity": "warning", "title": "CAN 라인 TVS 권장", "detail": "버스 쪽 서지 보호", "references": ["J2"], "suggestion": None},
+     {"severity": "info", "title": "디커플링 적절", "detail": "100nF가 VCC 가까이에 있습니다.", "references": ["C1"],
+      "suggestion": None}],
+]
+
+
+def design_reply(prompt: str, state: dict) -> str | None:
+    from tests.test_design import GOOD, PLAN
+
+    if "정해진 항목으로 정리" in prompt:
+        return json.dumps(SPEC, ensure_ascii=False)
+    if "부품 목록을 정하세요" in prompt:
+        return json.dumps(PLAN, ensure_ascii=False)
+    if "핀 표만 써서" in prompt:
+        return json.dumps(GOOD, ensure_ascii=False)
+    if "검토자" in prompt:
+        findings = REVIEWS[min(state.setdefault("reviews", 0), len(REVIEWS) - 1)]
+        state["reviews"] += 1
+        return json.dumps({"summary": f"검토 {state['reviews']}", "findings": findings}, ensure_ascii=False)
+    return None
+
+
 class ScriptedAi:
     name = "gemini"
+    state: dict = {}
 
     def __init__(self, model: str):
         self.model = model
@@ -47,8 +80,10 @@ class ScriptedAi:
         elif "승인한 범위 안에서만" in prompt:
             tool, args = STEPS[min(prompt.count("→ <data>"), len(STEPS) - 1)]
             text = json.dumps({"thought": "다음 단계", "tool": tool, "args_json": json.dumps(args)}, ensure_ascii=False)
+        elif (reply := design_reply(prompt, ScriptedAi.state)) is not None:
+            text = reply
         else:
-            raise RuntimeError("the e2e fake AI only answers agent prompts, research notes and the connection test")
+            raise RuntimeError("the e2e fake AI only answers agent prompts, research notes, design steps and the connection test")
         return LlmResult(text=text, model=self.model, usage={"total_token_count": 100}, finish_reason="STOP")
 
     def list_models(self):

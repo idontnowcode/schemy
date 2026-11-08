@@ -2,7 +2,7 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { kicadExpected, stage, startBackend, tempWorkspace, type Backend } from "./backend";
+import { kicadExpected, newProject, openTab, stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -12,8 +12,7 @@ test.afterEach(async () => {
 });
 
 async function createProject(page: Page, name: string) {
-  await page.getByLabel("새 프로젝트 이름").fill(name);
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
+  await newProject(page, name);
   await expect(page.getByRole("heading", { name })).toBeVisible();
 }
 
@@ -24,7 +23,7 @@ test("create → import example → save → generate → documents, then restor
   await createProject(page, "LED Demo");
 
   // Circuit IR: load the bundled example, check, save.
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await openTab(page, "회로 데이터");
   await page.getByLabel("예제 불러오기").selectOption("led-resistor-connector");
   await page.getByRole("button", { name: "검사" }).click();
   await expect(page.getByText("검사 통과: 오류가 없습니다.")).toBeVisible();
@@ -33,7 +32,7 @@ test("create → import example → save → generate → documents, then restor
   await expect(page.getByRole("cell", { name: "Device:LED" })).toBeVisible();
 
   // Schematic: generate and see the automated check result.
-  await page.getByRole("tab", { name: "회로도 · 검증" }).click();
+  await openTab(page, "회로도 · 검증");
   await page.getByRole("button", { name: "회로도 생성" }).click();
   if (kicadExpected()) {
     await expect(page.locator(".card").getByText("Automated checks passed")).toBeVisible({ timeout: 180_000 });
@@ -45,14 +44,14 @@ test("create → import example → save → generate → documents, then restor
   await expect(page.getByRole("cell", { name: "led-demo-a.kicad_pro" })).toBeVisible();
 
   // Documents: BOM and Markdown come from the saved IR.
-  await page.getByRole("tab", { name: "문서 · BOM" }).click();
+  await openTab(page, "문서 · BOM");
   await expect(page.getByRole("cell", { name: "Resistor_SMD:R_0603_1608Metric" }).first()).toBeVisible();
   await expect(page.locator("article.markdown")).toContainText("LED_A");
   await page.getByRole("tab", { name: "근거 리포트" }).click();
   await expect(page.locator("article.markdown")).toContainText("근거 리포트: ");
   await expect(page.locator("article.markdown")).toContainText("기술 검토 (자동 계산)");
   await page.getByRole("tab", { name: "설계 문서" }).click();
-  await page.getByRole("tab", { name: "검토" }).click();
+  await openTab(page, "검토");
   await expect(page.getByRole("heading", { name: "기술 검토 (자동 계산)" })).toBeVisible();
   // VIN has no voltage in its name: write one; it becomes a proposal (nothing changes until approved).
   await expect(page.getByText("전압을 알 수 없는 전원 Net: VIN")).toBeVisible();
@@ -62,7 +61,7 @@ test("create → import example → save → generate → documents, then restor
   await stage(page, "바뀌는 내용");
   await expect(page.getByRole("heading", { name: "전원 조건 (기술 검토용)" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "20 mA" })).toBeVisible();
-  await page.getByRole("tab", { name: "문서 · BOM" }).click();
+  await openTab(page, "문서 · BOM");
 
   // Phase 1 gate: restart the backend and reload — project, revision and last tab come back.
   await backend.stop();
@@ -78,7 +77,7 @@ test("rule errors are shown and nothing is saved", async ({ page }) => {
   backend = await startBackend(tempWorkspace());
   await page.goto(backend.url);
   await createProject(page, "Broken");
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await openTab(page, "회로 데이터");
   await page.getByLabel("예제 불러오기").selectOption("led-resistor-connector");
   const editor = page.getByLabel("Circuit IR JSON");
   const text = await editor.inputValue();
@@ -97,7 +96,7 @@ test("history restores an earlier revision", async ({ page }) => {
   backend = await startBackend(tempWorkspace());
   await page.goto(backend.url);
   await createProject(page, "History");
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await openTab(page, "회로 데이터");
   await page.getByLabel("예제 불러오기").selectOption("led-resistor-connector");
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
@@ -107,7 +106,7 @@ test("history restores an earlier revision", async ({ page }) => {
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 2으로 저장했습니다.")).toBeVisible();
 
-  await page.getByRole("tab", { name: "이력" }).click();
+  await openTab(page, "이력");
   page.once("dialog", (d) => d.accept());
   await page.getByRole("row", { name: /^1 / }).getByRole("button", { name: "복원" }).click();
   await expect(page.getByText("revision 3으로 복원했습니다.")).toBeVisible();

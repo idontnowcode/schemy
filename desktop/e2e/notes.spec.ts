@@ -3,7 +3,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { startBackend, tempWorkspace, type Backend } from "./backend";
+import { newProject, openTab, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -16,15 +16,14 @@ test("AI writes a research note from the review; people review it and reuse it",
   backend = await startBackend(tempWorkspace(), { fakeAi: true });
   await page.goto(backend.url);
   await page.request.put(`${backend.url}/api/ai/settings`, { data: { enabled: true } });
-  await page.getByLabel("새 프로젝트 이름").fill("Notes Demo");
-  await page.getByRole("button", { name: "새 프로젝트" }).click();
-  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await newProject(page, "Notes Demo");
+  await openTab(page, "회로 데이터");
   await page.getByLabel("예제 불러오기").selectOption("i2c-sensor-3v3");
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
 
   // 검토 tab: the AI writes a draft; the confirmation lists what is sent.
-  await page.getByRole("tab", { name: "검토" }).click();
+  await openTab(page, "검토");
   const card = page.getByLabel("연구노트", { exact: true });
   await card.getByLabel("노트에서 다룰 것").fill("전원 입력");
   let asked = "";
