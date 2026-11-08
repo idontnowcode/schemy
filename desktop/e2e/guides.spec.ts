@@ -3,7 +3,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { startBackend, tempWorkspace, type Backend } from "./backend";
+import { stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -74,6 +74,7 @@ test("design guide grows from people's feedback and is checked on a board", asyn
   await page.getByRole("button", { name: "Guide Demo" }).first().click();
   await page.getByRole("tab", { name: "제안" }).click();
   await page.getByText("LED 빼기").first().click();
+  await stage(page, "결정");
   await page.getByRole("button", { name: "거부", exact: true }).click();
   await page.getByLabel("거부 이유").fill("전원 표시 LED는 항상 남긴다.");
   await page.getByRole("checkbox", { name: "설계 지침 후보로도 남기기" }).check();

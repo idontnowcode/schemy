@@ -3,7 +3,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { startBackend, tempWorkspace, type Backend } from "./backend";
+import { stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -28,8 +28,10 @@ test("template → proposal → approve → engineering review", async ({ page }
 
   await expect(page.getByRole("heading", { name: /템플릿: CAN 트랜시버/ }).first()).toBeVisible();
   await expect(page.locator(".proposal-detail .chip").filter({ hasText: "승인 대기" })).toBeVisible({ timeout: 120_000 });
+  await stage(page, "바뀌는 내용");
   await expect(page.getByRole("cell", { name: "템플릿 can-sn65hvd230@1" }).first()).toBeVisible();
   page.once("dialog", (d) => d.accept());
+  await stage(page, "결정");
   await page.locator(".proposal-detail").getByRole("button", { name: "승인", exact: true }).click();
   await expect(page.locator(".proposal-detail .chip").filter({ hasText: "승인됨" })).toBeVisible({ timeout: 60_000 });
   await expect(page.locator(".chips").getByText("검토 필요")).toBeVisible();

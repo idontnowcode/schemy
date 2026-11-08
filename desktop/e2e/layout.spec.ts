@@ -2,7 +2,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { kicadExpected, startBackend, tempWorkspace, type Backend } from "./backend";
+import { kicadExpected, stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -37,8 +37,10 @@ test("import the KiCad layout as a proposal, approve, then go back to automatic 
   const detail = page.locator(".proposal-detail");
   await expect(detail.getByText("KiCad 배치")).toBeVisible();
   await expect(detail.locator(".chip").filter({ hasText: "승인 대기" })).toBeVisible({ timeout: 180_000 });
-  await expect(detail.getByText("배치 12")).toBeVisible();
+  await stage(page, "바뀌는 내용");
+  await expect(detail.getByText(/대비: 배치 12/)).toBeVisible();
   page.once("dialog", (d) => d.accept());
+  await stage(page, "결정");
   await detail.getByRole("button", { name: "승인", exact: true }).click();
   await expect(detail.locator(".chip").filter({ hasText: "승인됨" })).toBeVisible({ timeout: 60_000 });
 

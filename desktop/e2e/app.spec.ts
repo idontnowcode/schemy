@@ -2,7 +2,7 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { kicadExpected, startBackend, tempWorkspace, type Backend } from "./backend";
+import { kicadExpected, stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -59,6 +59,7 @@ test("create → import example → save → generate → documents, then restor
   await page.getByLabel("VIN 전압").fill("5");
   await page.getByLabel("VIN 부하 전류").fill("20");
   await page.getByRole("button", { name: "전원 조건 제안 만들기" }).click();
+  await stage(page, "바뀌는 내용");
   await expect(page.getByRole("heading", { name: "전원 조건 (기술 검토용)" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "20 mA" })).toBeVisible();
   await page.getByRole("tab", { name: "문서 · BOM" }).click();

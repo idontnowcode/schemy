@@ -3,7 +3,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { startBackend, tempWorkspace, type Backend } from "./backend";
+import { stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -32,9 +32,11 @@ test("voltage range and part specs drive the technical review", async ({ page })
   await review.getByLabel("+5V 최저 전압").fill("4.4");
   await review.getByRole("button", { name: "전원 조건 제안 만들기" }).click();
   await expect(page.getByRole("heading", { name: /전원 조건: \+5V/ })).toBeVisible();
+  await stage(page, "바뀌는 내용");
   await expect(page.getByRole("cell", { name: "최저 전압" })).toBeVisible();
   await expect(page.locator(".proposal-detail .chip").filter({ hasText: "승인 대기" })).toBeVisible({ timeout: 120_000 });
   page.once("dialog", (d) => d.accept());
+  await stage(page, "결정");
   await page.locator(".proposal-detail").getByRole("button", { name: "승인", exact: true }).click();
   await expect(page.locator(".proposal-detail .chip").filter({ hasText: "승인됨" })).toBeVisible({ timeout: 60_000 });
 
@@ -46,5 +48,6 @@ test("voltage range and part specs drive the technical review", async ({ page })
   await specs.getByLabel("C3 정격 전압 (V)").fill("25");
   await specs.getByRole("button", { name: "부품 사양 제안 만들기 (1)" }).click();
   await expect(page.getByRole("heading", { name: /부품 사양: C3/ })).toBeVisible();
+  await stage(page, "바뀌는 내용");
   await expect(page.getByText("사양: 종류")).toBeVisible();
 });

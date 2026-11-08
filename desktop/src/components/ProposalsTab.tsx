@@ -421,11 +421,44 @@ export interface RevisePreset {
   checks?: boolean;
 }
 
+const VIEW_KEY = "aics.proposalView";
+
+function readView(): "slides" | "all" {
+  try {
+    return window.localStorage.getItem(VIEW_KEY) === "all" ? "all" : "slides";
+  } catch {
+    return "slides";
+  }
+}
+
+function writeView(view: "slides" | "all"): void {
+  try {
+    window.localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    /* per-viewer convenience only */
+  }
+}
+
+interface Slide {
+  key: string;
+  title: string;
+  /** What this stage found, shown on the step bar and the decision slide. */
+  badge?: { text: string; tone: "ok" | "bad" | "warn" | "muted" | "info" };
+  body: React.ReactNode;
+}
+
+/**
+ * A proposal is reviewed like a slide deck: one stage at a time (overview → changes → checks → AI review →
+ * datasheets → design guides → decision), each with only its own actions. ← / → (or the buttons) move between
+ * stages; "한 화면에 모두 보기" shows every stage stacked, for people who prefer one long page.
+ */
 function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRecheck, aiReady, boardRevision, onAiReview, revising,
   onToggleRevise, onRevise, onFixed, revisionPanel }: DetailProps) {
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState("");
   const [noteToGuide, setNoteToGuide] = useState(false);
+  const [view, setViewState] = useState(readView);
+  const [stage, setStage] = useState(0);
   const st = proposalStatusLabel(p.status);
   const ev = p.evidence;
   const check = ev?.automated_check ? automatedLabel(ev.automated_check.status) : null;
@@ -433,6 +466,267 @@ function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRe
   const open = ["ready", "invalid", "check_failed"].includes(p.status);
   const fix = fixability(p, boardRevision);
   const fixBlocked = !aiReady ? AI_SETUP_HINT : fix.why;
+  const setView = (v: "slides" | "all") => {
+    setViewState(v);
+    writeView(v);
+  };
+  const review = p.ai?.review ?? null;
+  const errors = review?.findings.filter((f) => f.severity === "error").length ?? 0;
+  const warnings = review?.findings.filter((f) => f.severity === "warning").length ?? 0;
+  const dsProblems = (ev?.datasheets ?? []).filter((r) => r.pin_map === "mismatch" || r.ratings_problems.length > 0
+    || r.external_missing.length > 0).length;
+  const parentDiff = p.ai?.diff_from_parent ?? (p.parent ? p.diff_from_parent : null);
+
+  const slides: Slide[] = [
+    {
+      key: "overview",
+      title: "개요",
+      body: (
+        <>
+          {p.rationale && <p className="small pre">{p.rationale}</p>}
+          {p.decision_note && <p className="small warn-text">{p.decision_note}</p>}
+          {p.template && (
+            <>
+              <h4>템플릿: {p.template.title} <span className="muted small">{p.template.ref}</span></h4>
+              <p className="small">{p.template.summary}</p>
+              <p className="small muted">템플릿은 검토의 시작점입니다. 승인 후 「검토」 탭에서 아래 체크리스트를 데이터시트와 대조해 기록하세요.</p>
+              <TemplateEvidence template={p.template} />
+            </>
+          )}
+          {p.ai && <AiMemo p={p} />}
+          {!p.rationale && !p.template && !p.ai && <p className="small muted">설명이 없는 제안입니다. 다음 장에서 바뀌는 내용을 보세요.</p>}
+        </>
+      ),
+    },
+    {
+      key: "changes",
+      title: "바뀌는 내용",
+      badge: { text: diffSummaryText(d.summary).split(" · ")[0] || "변경 없음", tone: "info" },
+      body: (
+        <>
+          {parentDiff && (
+            <details open>
+              <summary className="small">
+                {p.parent ? `제안 #${Number(p.parent)}` : "이전 회로"} 대비 바뀐 점: {diffSummaryText(parentDiff.summary)}
+              </summary>
+              <DiffView d={parentDiff} />
+            </details>
+          )}
+          <p className="small muted">{p.base_revision ? `저장된 회로(revision ${p.base_revision}) 대비` : "새 회로"}: {diffSummaryText(d.summary)}</p>
+          <DiffView d={d} />
+          {p.ai?.parts && p.ai.parts.length > 0 && (
+            <details>
+              <summary className="small">부품 선택 근거 {p.ai.parts.length}개</summary>
+              <table className="table compact">
+                <thead><tr><th>기호</th><th>역할</th><th>KiCad 심볼</th><th>고른 방법</th></tr></thead>
+                <tbody>{p.ai.parts.map((x) => <tr key={x.key}><td>{x.key}</td><td>{x.role}</td><td>{x.symbol_id}</td><td>{x.how}</td></tr>)}</tbody>
+              </table>
+            </details>
+          )}
+          {p.ai?.citations && p.ai.citations.length > 0 && (
+            <details>
+              <summary className="small">데이터시트 인용 {p.ai.citations.length}개</summary>
+              <ul className="small">{p.ai.citations.map((c, i) => <li key={i}>{c.reference} p.{c.page ?? "?"}: {c.text}</li>)}</ul>
+            </details>
+          )}
+          {ev && <Preview p={p} projectId={projectId} boardId={boardId} />}
+        </>
+      ),
+    },
+    {
+      key: "checks",
+      title: "자동 검사",
+      badge: !ev ? { text: "검사 중", tone: "muted" }
+        : check ? { text: check.text, tone: check.tone } : { text: ev.blocking ? "규칙 오류" : "생성 실패", tone: "bad" },
+      body: !ev ? <p className="small muted">KiCad로 검사하는 중입니다…</p> : (
+        <>
+          <p className="small">
+            자동 검사:{" "}
+            {check ? <Chip text={check.text} tone={check.tone} /> : <Chip text={ev.blocking ? "규칙 오류로 생략" : "생성 실패"} tone="bad" />}
+            {ev.automated_check?.kicad_version && <> · KiCad {ev.automated_check.kicad_version}</>}
+            {ev.automated_check?.erc_errors !== undefined && ev.automated_check?.erc_errors !== null && (
+              <> · ERC 오류 {ev.automated_check.erc_errors}, {ercWarningText(ev.automated_check.erc_warnings, ev.automated_check.violations)}</>
+            )}
+            {ev.automated_check?.netlist_matches_ir !== undefined && ev.automated_check?.netlist_matches_ir !== null && (
+              <> · Netlist {ev.automated_check.netlist_matches_ir ? "= IR" : "≠ IR"}</>
+            )}
+            {ev.automated_check?.reason && <span className="muted"> ({ev.automated_check.reason})</span>}
+            <span className="muted"> · {formatTime(ev.checked_at)}</span>
+          </p>
+          {ev.power_flags.length > 0 && (
+            <p className="small muted">PWR_FLAG 자동 추가: {ev.power_flags.join(", ")} (커넥터로 전원이 들어오는 Net)</p>
+          )}
+          <IssueList issues={[...ev.ir_issues, ...(ev.generation_error?.issues ?? [])]} />
+          {ev.generation_error && !ev.generation_error.issues && <p className="small bad-text">{ev.generation_error.message}</p>}
+          {ev.automated_check?.violations && ev.automated_check.violations.length > 0 && (
+            <ErcViolations violations={ev.automated_check.violations}
+              refresh={open ? { label: "다시 검사해 설정 경고 없애기", run: onRecheck, disabled: busy } : undefined} />
+          )}
+          {fix.ok && (
+            <QuickFixPanel projectId={projectId} boardId={boardId} proposalId={fix.quickFixOn} checkedAt={ev.checked_at} busy={busy}
+              onFixed={onFixed} />
+          )}
+          <div className="toolbar">
+            {(ev.ir_issues.length > 0 || (ev.automated_check?.violations ?? []).some((v) => ERC_EXPLAIN[String(v.type)]?.kind !== "setup")) && (
+              <button className="ghost small-btn" disabled={busy || !aiReady || !fix.ok} onClick={() => onRevise({ checks: true })}
+                title={fixBlocked ?? "검사에서 나온 문제를 AI가 고친 새 제안을 만듭니다"}>
+                AI로 검사 문제 고치기
+              </button>
+            )}
+            {open && <button className="ghost small-btn" onClick={onRecheck} disabled={busy}>다시 검사</button>}
+          </div>
+        </>
+      ),
+    },
+    {
+      key: "review",
+      title: "AI 검토",
+      badge: !review ? { text: "안 함", tone: "muted" } : errors ? { text: `오류 ${errors}`, tone: "bad" }
+        : warnings ? { text: `주의 ${warnings}`, tone: "warn" } : { text: review.findings.length ? `참고 ${review.findings.length}` : "지적 없음", tone: "ok" },
+      body: (
+        <>
+          {review ? (
+            <AiReview p={p} aiReady={aiReady} busy={busy} fix={fix} onRevise={onRevise} />
+          ) : (
+            <p className="small muted">
+              아직 AI 검토를 하지 않았습니다.{" "}
+              {open ? (aiReady ? "아래 버튼으로 검토하면 의견마다 「이 의견 반영하기」가 생깁니다." : AI_SETUP_HINT) : "열린 제안만 AI로 검토할 수 있습니다."}
+            </p>
+          )}
+          {open && aiReady && (
+            <div className="toolbar">
+              <button className="ghost small-btn" onClick={onAiReview} disabled={busy}>{review ? "AI 다시 검토" : "AI 검토"}</button>
+            </div>
+          )}
+          <p className="muted small">AI 설계와 검토는 틀릴 수 있습니다. 검사 결과와 데이터시트 원문으로 확인한 뒤 승인하세요.</p>
+        </>
+      ),
+    },
+    {
+      key: "datasheets",
+      title: "데이터시트",
+      badge: !ev || ev.datasheets.length === 0 ? { text: "대조 없음", tone: "muted" }
+        : dsProblems ? { text: `확인 ${dsProblems}`, tone: "warn" } : { text: `${ev.datasheets.length}개 대조`, tone: "ok" },
+      body: !ev ? <p className="small muted">검사가 끝나면 데이터시트 대조가 나옵니다.</p> : (
+        <>
+          {ev.datasheets.length > 0 ? (
+            <table className="table compact">
+              <thead><tr><th>부품</th><th>핀맵</th><th>전압</th><th>외부 부품</th></tr></thead>
+              <tbody>
+                {ev.datasheets.map((r) => (
+                  <tr key={r.reference}>
+                    <td>{r.reference}{!r.reviewed && <span className="muted small"> (요약 미확인)</span>}</td>
+                    <td>{r.pin_map === "match" ? "일치" : r.pin_map === "mismatch" ? "불일치" : "확인 불가"}</td>
+                    <td>{r.ratings_problems.length ? r.ratings_problems.join("; ") : r.ratings === "ok" ? "정상" : "확인 불가"}</td>
+                    <td>{r.external_missing.length ? r.external_missing.join("; ") : r.external === "ok" ? "모두 있음" : "확인 불가"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="small muted">대조할 데이터시트가 아직 없습니다. 아래에서 받거나 올리면 핀맵·전압·외부 부품을 대조합니다.</p>
+          )}
+          {(open || p.status === "approved") && (
+            <ProposalDatasheets projectId={projectId} boardId={boardId} proposalId={p.id} checkedAt={ev.checked_at} busy={busy}
+              aiReady={aiReady} onRechecked={() => onFixed(p.id)} />
+          )}
+        </>
+      ),
+    },
+    {
+      key: "guides",
+      title: "설계 지침",
+      body: !ev ? <p className="small muted">검사가 끝나면 설계 지침 확인이 나옵니다.</p> : p.status === "stale"
+        ? <p className="small muted">기준 회로가 바뀐 낡은 제안이라 지침 확인을 하지 않습니다.</p>
+        : <GuideChecklistPanel projectId={projectId} boardId={boardId} proposalId={p.id} refreshKey={ev.checked_at} aiReady={aiReady} />,
+    },
+  ];
+  const decision: Slide = {
+    key: "decision",
+    title: "결정",
+    badge: { text: st.text, tone: st.tone },
+    body: (
+      <>
+        <table className="table compact" aria-label="단계별 결과">
+          <tbody>
+            {slides.slice(1).map((s, i) => (
+              <tr key={s.key}>
+                <td>{s.title}</td>
+                <td>{s.badge ? <Chip text={s.badge.text} tone={s.badge.tone} /> : <span className="muted small">직접 확인</span>}</td>
+                <td>
+                  {view === "slides" && (
+                    <button className="link" onClick={() => setStage(i + 1)} aria-label={`${s.title} 다시 보기`}>다시 보기</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {open ? (
+          <>
+            <div className="toolbar">
+              <button onClick={onApprove} disabled={busy || p.status !== "ready"}
+                title={p.status === "ready" ? "새 revision으로 저장하고 회로도를 다시 생성합니다" : "자동 검사가 끝나지 않았거나 규칙 오류가 있어 승인할 수 없습니다"}>
+                승인
+              </button>
+              <button className="ghost" onClick={() => setRejecting(!rejecting)} disabled={busy}>
+                거부
+              </button>
+              <button className={revising ? "small-btn" : "ghost small-btn"} onClick={onToggleRevise} disabled={busy || !aiReady || !fix.ok}
+                title={fixBlocked ?? "검토 의견·검사 문제·직접 요청을 반영한 새 제안을 AI가 만듭니다"}>
+                검토 반영 수정안 만들기
+              </button>
+            </div>
+            {rejecting && (
+              <form className="toolbar" onSubmit={(e) => { e.preventDefault(); setRejecting(false); onReject(note, noteToGuide); }}>
+                <input aria-label="거부 이유" placeholder="거부 이유 (선택)" value={note} onChange={(e) => setNote(e.target.value)} style={{ minWidth: 260 }} />
+                <label className="small" title="다음 설계에서도 같은 실수를 하지 않도록 설계 가이드에 후보로 남깁니다">
+                  <input type="checkbox" checked={noteToGuide} disabled={!note.trim()} onChange={(e) => setNoteToGuide(e.target.checked)} /> 설계 지침 후보로도 남기기
+                </label>
+                <button type="submit" className="ghost">거부 확정</button>
+                <button type="button" className="ghost" onClick={() => setRejecting(false)}>취소</button>
+              </form>
+            )}
+            <p className="small muted">승인하기 전에는 회로가 바뀌지 않습니다. 승인하면 새 revision으로 저장하고 회로도를 다시 만듭니다.</p>
+          </>
+        ) : (
+          <>
+            <p className="small">
+              {p.status === "approved" ? `승인했습니다 → revision ${p.result_revision}.` : p.status === "rejected" ? "거부한 제안입니다. 회로는 바뀌지 않았습니다."
+                : p.status === "checking" ? "검사가 끝나면 승인할 수 있습니다." : "기준 회로가 바뀐 낡은 제안입니다."}
+            </p>
+            {p.decision_note && <p className="small warn-text">{p.decision_note}</p>}
+            {p.status !== "checking" && (
+              <div className="toolbar">
+                <button className={revising ? "small-btn" : "ghost small-btn"} onClick={onToggleRevise} disabled={busy || !aiReady || !fix.ok}
+                  title={fixBlocked ?? "지금 회로(이 제안을 승인한 revision)에 검토 의견·검사 문제·직접 요청을 반영한 새 제안을 AI가 만듭니다"}>
+                  검토 반영 수정안 만들기
+                </button>
+                {fixBlocked && <span className="small muted">{fixBlocked}</span>}
+              </div>
+            )}
+          </>
+        )}
+      </>
+    ),
+  };
+  slides.push(decision);
+  const last = slides.length - 1;
+  const current = Math.min(stage, last);
+
+  // ← / → move between stages like a slide deck (not while typing).
+  useEffect(() => {
+    if (view !== "slides") return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.altKey || e.ctrlKey || e.metaKey || (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)))) return;
+      if (e.key === "ArrowRight") setStage((s) => Math.min(s + 1, last));
+      if (e.key === "ArrowLeft") setStage((s) => Math.max(s - 1, 0));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [view, last]);
+
   return (
     <div className="proposal-detail">
       <div className="card">
@@ -441,165 +735,67 @@ function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRe
             #{Number(p.id)} {p.title}
           </h3>
           <Chip text={st.text} tone={st.tone} />
+          <span className="spacer" />
+          <label className="small" title="모든 단계를 한 페이지에 이어서 봅니다">
+            <input type="checkbox" checked={view === "all"} onChange={(e) => setView(e.target.checked ? "all" : "slides")} /> 한 화면에 모두 보기
+          </label>
         </div>
         <p className="small muted">
           {proposalSourceLabel(p.source)} · 기준 revision {p.base_revision ?? "없음 (새 회로)"} · {formatTime(p.created_at)}
           {p.result_revision ? ` · 승인 → revision ${p.result_revision}` : ""}
           {p.ai?.model ? ` · 모델 ${p.ai.model}` : ""}
+          {p.status === "checking" && " · KiCad로 검사하는 중…"}
         </p>
-        {p.rationale && <p className="small pre">{p.rationale}</p>}
-        {p.decision_note && <p className="small warn-text">{p.decision_note}</p>}
-        <div className="toolbar">
-          <button onClick={onApprove} disabled={busy || p.status !== "ready"}>
-            승인
-          </button>
-          <button className="ghost" onClick={() => setRejecting(!rejecting)} disabled={busy || !open}>
-            거부
-          </button>
-          <button className="ghost" onClick={onRecheck} disabled={busy || !open}>
-            다시 검사
-          </button>
-          {p.status === "checking" && <span className="small">KiCad로 검사하는 중…</span>}
-        </div>
-        {rejecting && (
-          <form className="toolbar" onSubmit={(e) => { e.preventDefault(); setRejecting(false); onReject(note, noteToGuide); }}>
-            <input aria-label="거부 이유" placeholder="거부 이유 (선택)" value={note} onChange={(e) => setNote(e.target.value)} style={{ minWidth: 260 }} />
-            <label className="small" title="다음 설계에서도 같은 실수를 하지 않도록 설계 가이드에 후보로 남깁니다">
-              <input type="checkbox" checked={noteToGuide} disabled={!note.trim()} onChange={(e) => setNoteToGuide(e.target.checked)} /> 설계 지침 후보로도 남기기
-            </label>
-            <button type="submit" className="ghost">거부 확정</button>
-            <button type="button" className="ghost" onClick={() => setRejecting(false)}>취소</button>
-          </form>
-        )}
-        {p.status !== "checking" && (
-          <div className="toolbar">
-            {open && aiReady && (
-              <button className="ghost small-btn" onClick={onAiReview} disabled={busy}>
-                {p.ai?.review ? "AI 다시 검토" : "AI 검토"}
+        {view === "slides" && (
+          <nav className="stage-bar" aria-label="검토 단계">
+            {slides.map((s, i) => (
+              <button key={s.key} className={`stage ${i === current ? "current" : ""} ${i < current ? "seen" : ""}`}
+                aria-current={i === current ? "step" : undefined} onClick={() => setStage(i)}>
+                <span className="stage-no">{i + 1}</span> {s.title}
+                {s.badge && <span className={`stage-dot tone-${s.badge.tone}`} title={s.badge.text} />}
               </button>
-            )}
-            <button className={revising ? "small-btn" : "ghost small-btn"} onClick={onToggleRevise} disabled={busy || !aiReady || !fix.ok}
-              title={fixBlocked ?? (p.status === "approved" ? "지금 회로(이 제안을 승인한 revision)에 검토 의견·검사 문제·직접 요청을 반영한 새 제안을 AI가 만듭니다"
-                : "검토 의견·검사 문제·직접 요청을 반영한 새 제안을 AI가 만듭니다")}>
-              검토 반영 수정안 만들기
-            </button>
-            {fix.why && <span className="small muted">{fix.why}</span>}
-          </div>
-        )}
-        {revising && <div id={`revise-${p.id}`}>{revisionPanel}</div>}
-      </div>
-
-      {p.template && (
-        <>
-          <div className="card">
-            <h3>템플릿: {p.template.title} <span className="muted small">{p.template.ref}</span></h3>
-            <p className="small">{p.template.summary}</p>
-            <p className="small muted">
-              템플릿은 검토의 시작점입니다. 승인 후 「검토」 탭에서 아래 체크리스트를 데이터시트와 대조해 기록하세요.
-            </p>
-          </div>
-          <TemplateEvidence template={p.template} />
-        </>
-      )}
-      {p.ai && <AiInfo p={p} aiReady={aiReady} busy={busy} fix={fix} onRevise={onRevise} />}
-      {!p.ai && p.parent && p.diff_from_parent && (
-        <div className="card">
-          <details open>
-            <summary className="small">제안 #{Number(p.parent)} 대비 바뀐 점: {diffSummaryText(p.diff_from_parent.summary)}</summary>
-            <DiffView d={p.diff_from_parent} />
-          </details>
-        </div>
-      )}
-
-      <div className="card">
-        <h3>바뀌는 내용 <span className="muted small">{diffSummaryText(d.summary)}</span></h3>
-        <DiffView d={d} />
-      </div>
-
-      <div className="card">
-        <h3>검사 결과 {ev && <span className="muted small">{formatTime(ev.checked_at)}</span>}</h3>
-        {!ev && <p className="small muted">검사 중입니다…</p>}
-        {ev && (
-          <>
-            <p className="small">
-              자동 검사:{" "}
-              {check ? <Chip text={check.text} tone={check.tone} /> : <Chip text={ev.blocking ? "규칙 오류로 생략" : "생성 실패"} tone="bad" />}
-              {ev.automated_check?.kicad_version && <> · KiCad {ev.automated_check.kicad_version}</>}
-              {ev.automated_check?.erc_errors !== undefined && ev.automated_check?.erc_errors !== null && (
-                <> · ERC 오류 {ev.automated_check.erc_errors}, {ercWarningText(ev.automated_check.erc_warnings, ev.automated_check.violations)}</>
-              )}
-              {ev.automated_check?.netlist_matches_ir !== undefined && ev.automated_check?.netlist_matches_ir !== null && (
-                <> · Netlist {ev.automated_check.netlist_matches_ir ? "= IR" : "≠ IR"}</>
-              )}
-              {ev.automated_check?.reason && <span className="muted"> ({ev.automated_check.reason})</span>}
-            </p>
-            {ev.power_flags.length > 0 && (
-              <p className="small muted">PWR_FLAG 자동 추가: {ev.power_flags.join(", ")} (커넥터로 전원이 들어오는 Net)</p>
-            )}
-            <IssueList issues={[...ev.ir_issues, ...(ev.generation_error?.issues ?? [])]} />
-            {ev.generation_error && !ev.generation_error.issues && <p className="small bad-text">{ev.generation_error.message}</p>}
-            {ev.automated_check?.violations && ev.automated_check.violations.length > 0 && (
-              <ErcViolations violations={ev.automated_check.violations}
-                refresh={open ? { label: "다시 검사해 설정 경고 없애기", run: onRecheck, disabled: busy } : undefined} />
-            )}
-            {fix.ok && (
-              <QuickFixPanel projectId={projectId} boardId={boardId} proposalId={fix.quickFixOn} checkedAt={ev.checked_at} busy={busy}
-                onFixed={onFixed} />
-            )}
-            {(ev.ir_issues.length > 0 || (ev.automated_check?.violations ?? []).some((v) => ERC_EXPLAIN[String(v.type)]?.kind !== "setup")) && (
-              <div className="toolbar">
-                <button className="ghost small-btn" disabled={busy || !aiReady || !fix.ok} onClick={() => onRevise({ checks: true })}
-                  title={fixBlocked ?? "검사에서 나온 문제를 AI가 고친 새 제안을 만듭니다"}>
-                  AI로 검사 문제 고치기
-                </button>
-                {fixBlocked && <span className="small muted">{fixBlocked}</span>}
-              </div>
-            )}
-            {ev.datasheets.length > 0 && (
-              <>
-                <h4>데이터시트 대조</h4>
-                <table className="table compact">
-                  <thead><tr><th>부품</th><th>핀맵</th><th>전압</th><th>외부 부품</th></tr></thead>
-                  <tbody>
-                    {ev.datasheets.map((r) => (
-                      <tr key={r.reference}>
-                        <td>{r.reference}{!r.reviewed && <span className="muted small"> (요약 미확인)</span>}</td>
-                        <td>{r.pin_map === "match" ? "일치" : r.pin_map === "mismatch" ? "불일치" : "확인 불가"}</td>
-                        <td>{r.ratings_problems.length ? r.ratings_problems.join("; ") : r.ratings === "ok" ? "정상" : "확인 불가"}</td>
-                        <td>{r.external_missing.length ? r.external_missing.join("; ") : r.external === "ok" ? "모두 있음" : "확인 불가"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </>
-            )}
-            {(open || p.status === "approved") && (
-              <ProposalDatasheets projectId={projectId} boardId={boardId} proposalId={p.id} checkedAt={ev.checked_at} busy={busy}
-                aiReady={aiReady} onRechecked={() => onFixed(p.id)} />
-            )}
-            {p.status !== "stale" && (
-              <GuideChecklistPanel projectId={projectId} boardId={boardId} proposalId={p.id} refreshKey={ev.checked_at} aiReady={aiReady} />
-            )}
-            <Preview p={p} projectId={projectId} boardId={boardId} />
-          </>
+            ))}
+          </nav>
         )}
       </div>
+
+      {view === "all" ? (
+        slides.map((s, i) => (
+          <section key={s.key} className="card" aria-label={s.title}>
+            <h3>{i + 1}. {s.title}</h3>
+            {s.body}
+          </section>
+        ))
+      ) : (
+        <section className="card slide" aria-label={slides[current].title}>
+          <div className="toolbar">
+            <h3>{slides[current].title}</h3>
+            <span className="spacer" />
+            <span className="small muted">{current + 1} / {slides.length}</span>
+          </div>
+          {slides[current].body}
+          <div className="slide-nav">
+            <button className="ghost" onClick={() => setStage(current - 1)} disabled={current === 0}>← 이전</button>
+            <span className="small muted">←·→ 키로도 넘길 수 있습니다</span>
+            {current < last ? (
+              <button onClick={() => setStage(current + 1)}>다음: {slides[current + 1].title} →</button>
+            ) : (
+              <button className="ghost" onClick={() => setStage(0)}>처음으로</button>
+            )}
+          </div>
+        </section>
+      )}
+      {revising && <div className="card" id={`revise-${p.id}`}>{revisionPanel}</div>}
     </div>
   );
 }
 
-function AiInfo({ p, aiReady, busy, fix, onRevise }: {
-  p: Proposal;
-  aiReady: boolean;
-  busy: boolean;
-  fix: { ok: boolean; why: string | null };
-  onRevise(preset: RevisePreset): void;
-}) {
+/** What the AI said about its design: summary, templates used, what it was asked to address, open questions. */
+function AiMemo({ p }: { p: Proposal }) {
   const ai = p.ai!;
-  const blocked = !aiReady ? AI_SETUP_HINT : fix.why;
   return (
-    <div className="card">
-      <h3>{ai.parent ? `AI 수정안 메모 — 제안 #${Number(ai.parent)}의 수정안` : "AI 설계 메모"}</h3>
+    <>
+      <h4>{ai.parent ? `AI 수정안 메모 — 제안 #${Number(ai.parent)}의 수정안` : "AI 설계 메모"}</h4>
       {ai.summary && <p className="small">{ai.summary}</p>}
       {ai.templates && ai.templates.length > 0 && (
         <>
@@ -628,14 +824,6 @@ function AiInfo({ p, aiReady, busy, fix, onRevise }: {
           </ul>
         </>
       )}
-      {ai.diff_from_parent && (
-        <details open>
-          <summary className="small">
-            {ai.parent ? `제안 #${Number(ai.parent)}` : "이전 회로"} 대비 바뀐 점: {diffSummaryText(ai.diff_from_parent.summary)}
-          </summary>
-          <DiffView d={ai.diff_from_parent} />
-        </details>
-      )}
       {ai.remaining_problems && ai.remaining_problems.length > 0 && (
         <>
           <h4 className="warn-text">AI가 고치지 못한 연결 문제</h4>
@@ -654,46 +842,41 @@ function AiInfo({ p, aiReady, busy, fix, onRevise }: {
           <ul className="small">{ai.assumptions.map((q, i) => <li key={i}>{q}</li>)}</ul>
         </>
       )}
-      {ai.parts && ai.parts.length > 0 && (
-        <details>
-          <summary className="small">부품 선택 근거 {ai.parts.length}개</summary>
-          <table className="table compact">
-            <thead><tr><th>기호</th><th>역할</th><th>KiCad 심볼</th><th>고른 방법</th></tr></thead>
-            <tbody>{ai.parts.map((x) => <tr key={x.key}><td>{x.key}</td><td>{x.role}</td><td>{x.symbol_id}</td><td>{x.how}</td></tr>)}</tbody>
-          </table>
-        </details>
+    </>
+  );
+}
+
+/** The AI review of a proposal, each finding with its own fix button. */
+function AiReview({ p, aiReady, busy, fix, onRevise }: {
+  p: Proposal;
+  aiReady: boolean;
+  busy: boolean;
+  fix: { ok: boolean; why: string | null };
+  onRevise(preset: RevisePreset): void;
+}) {
+  const review = p.ai!.review!;
+  const blocked = !aiReady ? AI_SETUP_HINT : fix.why;
+  return (
+    <>
+      {review.summary && <p className="small">{review.summary}</p>}
+      <FindingList findings={review.findings}
+        onUse={fix.ok && aiReady && !busy ? (i) => onRevise({ findings: [i] }) : undefined}
+        blocked={blocked}
+        guideRef={{ project_id: p.project_id, board_id: p.board_id, proposal_id: p.id }} guideLabel={`AI 검토 의견 (제안 #${Number(p.id)})`} />
+      {review.findings.length > 0 && (
+        <div className="toolbar">
+          <button className="small-btn" disabled={busy || !aiReady || !fix.ok} onClick={() => onRevise({ findings: "all", checks: true })}
+            title={blocked ?? "모든 의견과 검사 문제를 반영한 새 제안을 AI가 만듭니다"}>
+            의견 모두 반영한 수정안 만들기 (AI)
+          </button>
+          <span className="small muted">
+            {blocked ?? (p.status === "approved"
+              ? "지금 회로(이 제안을 승인한 revision)에서 시작하는 새 제안이 됩니다. 승인하기 전에는 회로가 바뀌지 않습니다."
+              : "새 제안으로 만들어지고, 승인하기 전에는 회로가 바뀌지 않습니다.")}
+          </span>
+        </div>
       )}
-      {ai.citations && ai.citations.length > 0 && (
-        <details>
-          <summary className="small">데이터시트 인용 {ai.citations.length}개</summary>
-          <ul className="small">{ai.citations.map((c, i) => <li key={i}>{c.reference} p.{c.page ?? "?"}: {c.text}</li>)}</ul>
-        </details>
-      )}
-      {ai.review && (
-        <>
-          <h4>AI 검토 {ai.review.findings.length > 0 ? `(${ai.review.findings.length}건)` : ""}</h4>
-          {ai.review.summary && <p className="small">{ai.review.summary}</p>}
-          <FindingList findings={ai.review.findings}
-            onUse={fix.ok && aiReady && !busy ? (i) => onRevise({ findings: [i] }) : undefined}
-            blocked={blocked}
-            guideRef={{ project_id: p.project_id, board_id: p.board_id, proposal_id: p.id }} guideLabel={`AI 검토 의견 (제안 #${Number(p.id)})`} />
-          {ai.review.findings.length > 0 && (
-            <div className="toolbar">
-              <button className="small-btn" disabled={busy || !aiReady || !fix.ok} onClick={() => onRevise({ findings: "all", checks: true })}
-                title={blocked ?? "모든 의견과 검사 문제를 반영한 새 제안을 AI가 만듭니다"}>
-                의견 모두 반영한 수정안 만들기 (AI)
-              </button>
-              <span className="small muted">
-                {blocked ?? (p.status === "approved"
-                  ? "지금 회로(이 제안을 승인한 revision)에서 시작하는 새 제안이 됩니다. 승인하기 전에는 회로가 바뀌지 않습니다."
-                  : "새 제안으로 만들어지고, 승인하기 전에는 회로가 바뀌지 않습니다.")}
-              </span>
-            </div>
-          )}
-        </>
-      )}
-      <p className="muted small">AI 설계와 검토는 틀릴 수 있습니다. 위 검사 결과와 데이터시트 원문으로 확인한 뒤 승인하세요.</p>
-    </div>
+    </>
   );
 }
 

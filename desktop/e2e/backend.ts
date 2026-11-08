@@ -75,3 +75,8 @@ export function startBackend(workspace: string, opts: { fakeAi?: boolean } = {})
     });
   });
 }
+
+/** Open one stage of the proposal review (the slides: 개요, 바뀌는 내용, 자동 검사, AI 검토, 데이터시트, 설계 지침, 결정). */
+export async function stage(page: import("@playwright/test").Page, name: string): Promise<void> {
+  await page.getByLabel("검토 단계").getByRole("button", { name: new RegExp(`\\d ${name}`) }).click();
+}

@@ -1146,3 +1146,85 @@ label.block {
 button.danger {
   color: var(--bad);
 }
+
+/* Proposal review as slides: a step bar, one stage at a time, prev / next. */
+.spacer {
+  flex: 1;
+}
+
+.stage-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.stage-bar .stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.stage-bar .stage.seen {
+  color: var(--text);
+}
+
+.stage-bar .stage.current {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--bg-elev);
+}
+
+.stage-no {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--border);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.stage.current .stage-no {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.stage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.stage-dot.tone-ok { background: var(--ok); }
+.stage-dot.tone-bad { background: var(--bad); }
+.stage-dot.tone-warn { background: var(--warn); }
+.stage-dot.tone-info { background: var(--info); }
+
+.slide {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+}
+
+.slide-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.slide > .slide-nav {
+  margin-top: 16px;
+}

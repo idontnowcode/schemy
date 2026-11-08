@@ -4,7 +4,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { startBackend, tempWorkspace, type Backend } from "./backend";
+import { stage, startBackend, tempWorkspace, type Backend } from "./backend";
 
 let backend: Backend | null = null;
 
@@ -43,6 +43,7 @@ test("agent: plan → approve scope → sandboxed run → proposal → approve",
   await expect(page.getByText(/AI Agent/).first()).toBeVisible();
   await expect(page.locator(".proposal-detail .chip").filter({ hasText: "승인 대기" })).toBeVisible({ timeout: 60_000 });
   page.once("dialog", (d) => d.accept());
+  await stage(page, "결정");
   await page.locator(".proposal-detail").getByRole("button", { name: "승인", exact: true }).click();
   await expect(page.getByText(/revision 2으로 저장/)).toBeVisible();
 
