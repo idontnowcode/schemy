@@ -13,6 +13,7 @@ import {
   reviewLabel,
 } from "../format";
 import type {
+  AiFailure,
   AiStatus,
   AutoReviewResult,
   AutoReviewRound,
@@ -708,6 +709,7 @@ function designStage(p: Common & { job: Job | null; latest: Proposal | null; bac
         {failed && job && !canResume(job) && (
           <div className="flow-result stop">
             <p>{jobError(job)}</p>
+            <FailureDetails why={job.error?.details as AiFailure | undefined} />
             {details.problems?.length ? <><b className="small">완성하지 못한 이유</b><ul className="small">{details.problems.map((x, i) => <li key={i}>{x}</li>)}</ul></> : null}
             {details.questions?.length ? <><b className="small">AI의 질문 — 요구사항에 답을 적고 다시 시도하세요</b><ul className="small">{details.questions.map((x, i) => <li key={i}>{x}</li>)}</ul></> : null}
             <button type="button" className="ghost" onClick={p.back}>설계 준비로 돌아가기</button>
@@ -808,13 +810,28 @@ function reviewStage(p: Common & {
             {result.met
               ? `조건 충족: 제안 #${num(result.proposal_id)} (수정 필요 ${last?.errors ?? 0} · 수정 권장 ${last?.warnings ?? 0})`
               : `멈춤 (${STOP_LABEL[result.stop]}${result.message ? `: ${result.message}` : ""}): 마지막 제안 #${num(result.proposal_id)}` +
-                ` (수정 필요 ${last?.errors ?? "?"} · 수정 권장 ${last?.warnings ?? "?"}). 남은 의견은 다음 단계에서 직접 판단하세요.`}
+                ` (수정 필요 ${last?.errors ?? "?"} · 수정 권장 ${last?.warnings ?? "?"}). 다시 실행하거나, 남은 의견은 다음 단계에서 직접 판단하세요.`}
+            <FailureDetails why={result.why} />
           </div>
         )}
       </>
     ),
     next: { label: "다음: 확인·승인 →", onClick: p.next, disabled: running(job) || !p.focus },
   };
+}
+
+/** How an unreadable AI answer ended and its last characters, folded away, for looking into a failure. */
+function FailureDetails({ why }: { why?: AiFailure | null }) {
+  if (!why || (!why.tail && !why.finish_reason)) return null;
+  return (
+    <details className="small failure-details">
+      <summary>자세히 (AI 응답이 끝난 모양)</summary>
+      <p className="muted">
+        종료 이유: {why.finish_reason ?? "알 수 없음"} · 응답 {(why.chars ?? 0).toLocaleString()}자{why.what ? ` · 단계: ${why.what}` : ""}
+      </p>
+      {why.tail && <pre className="failure-tail">…{why.tail}</pre>}
+    </details>
+  );
 }
 
 // --- 6 확인·승인 ------------------------------------------------------------------------------------------------

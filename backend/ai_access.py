@@ -76,4 +76,4 @@ def run_record(job_id: str, kind: str, cfg: AiSettings, input_summary: dict) -> 
 def api_error(exc: AiError) -> ApiError:
     status = {"AI_AUTH_FAILED": 401, "AI_BILLING": 402, "AI_QUOTA": 429, "AI_MODEL_NOT_FOUND": 404, "NOT_A_PDF": 422,
               "AI_BAD_OUTPUT": 502, "AI_NO_KEY": 409, "AI_REFUSED": 422}.get(exc.code, 502)
-    return ApiError(status, exc.code, exc.message, recovery_hint=exc.hint)
+    return ApiError(status, exc.code, exc.message, recovery_hint=exc.hint, details=exc.details)

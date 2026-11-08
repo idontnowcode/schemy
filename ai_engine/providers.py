@@ -54,11 +54,13 @@ class ModelInfo:
 class AiError(Exception):
     """A provider call failed; ``code`` is one of our error codes, ``hint`` says what to do."""
 
-    def __init__(self, code: str, message: str, hint: str | None = None):
+    def __init__(self, code: str, message: str, hint: str | None = None, details: dict | None = None):
         super().__init__(message)
         self.code = code
         self.message = message
         self.hint = hint
+        self.details = details
+        """What helps find out why (e.g. for an unreadable answer: how it ended, its length and its last characters)."""
 
 
 class LlmProvider(Protocol):

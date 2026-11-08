@@ -403,7 +403,8 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                                         max_output_tokens=cfg.max_output_tokens, pins_of=_pins_of(lib), on_step=step,
                                         plan=plan)
             except AiError as exc:
-                record.update(status="failed", error={"code": exc.code, "message": exc.message})
+                record.update(status="failed", error={"code": exc.code, "message": exc.message,
+                                                     **({"details": exc.details} if exc.details else {})})
                 save_run(project_id, board_id, record)
                 raise api_error(exc) from exc
             record.update(usage=[c.usage for c in result.calls], attempts=result.attempts,
@@ -587,7 +588,7 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             rounds: list[dict] = []
             p = first
             asked: set[str] = set()
-            stop, message = "max_rounds", ""
+            stop, message, why = "max_rounds", "", None
             for k in range(1, body.max_rounds + 1):
                 p = proposals.get(project_id, board_id, p.id)
                 review = (p.ai or {}).get("review")
@@ -597,7 +598,7 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                         review, _ = run_review(cfg, provider, project_id, proposals.candidate(p), proposal_evidence_text(p),
                                                {"project_id": project_id, "board_id": board_id, "proposal_id": p.id})
                     except AiError as exc:
-                        stop, message = "ai_failed", exc.message
+                        stop, message, why = "ai_failed", exc.message, exc.details
                         break
                     p = proposals.update(proposals.get(project_id, board_id, p.id), ai={**(p.ai or {}), "review": review})
                 findings = review["findings"]
@@ -632,7 +633,7 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                                       base=proposals.candidate(p), findings=chosen, source="ai_revision",
                                       parent=p.id)(job_id)
                 except ApiError as exc:
-                    stop, message = "revise_failed", exc.message
+                    stop, message, why = "revise_failed", exc.message, exc.details
                     break
                 revised = proposals.get(project_id, board_id, out["proposal_id"])
                 diff = ((revised.ai or {}).get("diff_from_parent") or {}).get("summary")
@@ -641,7 +642,7 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                 jobs.step(job_id, "revised", f"{k}회차: 수정안 #{int(revised.id)} 만듦", data=entry)
                 p = revised
             last = proposals.get(project_id, board_id, p.id)
-            result = {"rounds": rounds, "stop": stop, "message": message, "proposal_id": last.id,
+            result = {"rounds": rounds, "stop": stop, "message": message, "why": why, "proposal_id": last.id,
                       "met": stop == "met", "max_warnings": body.max_warnings, "max_rounds": body.max_rounds}
             jobs.step(job_id, "done", _stop_text(stop, message))
             return result
@@ -696,7 +697,8 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                                           {"project_id": project_id, "board_id": board_id,
                                            **({"proposal_id": body.proposal_id} if body.proposal_id else {})})
             except AiError as exc:
-                record.update(status="failed", error={"code": exc.code, "message": exc.message})
+                record.update(status="failed", error={"code": exc.code, "message": exc.message,
+                                                     **({"details": exc.details} if exc.details else {})})
                 save_run(project_id, board_id, record)
                 raise api_error(exc) from exc
             if p is not None:

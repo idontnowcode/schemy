@@ -216,18 +216,75 @@ class DesignResult:
     """Planned parts with no usable KiCad symbol (the plan's own entry plus ``why``), for choosing alternatives."""
 
 
+_CUT = {"MAX_TOKENS", "LENGTH", "MAX_OUTPUT_TOKENS"}
+_BLOCKED = {"SAFETY": "안전 필터", "RECITATION": "원문 인용(학습 자료를 그대로 옮긴 문장으로 판단)",
+            "BLOCKLIST": "금지어", "PROHIBITED_CONTENT": "금지 내용", "SPII": "개인 정보", "LANGUAGE": "언어",
+            "OTHER": "공급자 사정", "MALFORMED_FUNCTION_CALL": "형식 오류"}
+
+
 def _json(result: LlmResult, what: str) -> dict:
-    text = result.text.strip()
-    fenced = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n```", text, re.S)
-    if fenced:
-        text = fenced.group(1)
+    """The answer's JSON object. Tolerates a ``` fence or a sentence around it. When it cannot be read, the error
+    says why — cut off at the output limit, stopped by the provider, empty, or not JSON — and keeps how the answer
+    ended and its last characters in ``details`` so a failure can be looked into."""
+    raw = result.text or ""
+    text = raw.strip()
+    fenced = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.S)
+    candidates = [fenced.group(1).strip()] if fenced else []
+    candidates.append(text)
+    if "{" in text and "}" in text:
+        candidates.append(text[text.index("{"): text.rindex("}") + 1])
+    data = None
+    for c in candidates:
+        try:
+            data = json.loads(c)
+            break
+        except ValueError:
+            continue
+    if isinstance(data, dict):
+        return data
+    finish = (result.finish_reason or "").upper().replace("FINISHREASON.", "")
+    details = {"finish_reason": result.finish_reason, "chars": len(raw), "tail": raw[-300:], "what": what}
+    if data is not None:
+        raise AiError("AI_BAD_OUTPUT", f"AI 응답({what})의 형식이 맞지 않습니다 (JSON 객체가 아님).", "다시 시도하세요.", details)
+    if finish in _CUT:
+        message = f"AI 응답({what})이 출력 길이 제한에 걸려 중간에 잘렸습니다 (응답 {len(raw):,}자)."
+        hint = "설정에서 최대 출력 토큰을 늘리거나, 부품이 적어지게 보드를 나누세요."
+    elif finish in _BLOCKED:
+        message = f"AI 공급자가 응답({what})을 중간에 막았습니다 (이유: {_BLOCKED[finish]})."
+        hint = "다시 시도하거나 다른 모델을 고르세요."
+    elif not text:
+        message = f"AI 응답({what})이 비어 있습니다" + (f" (종료 이유: {result.finish_reason})." if result.finish_reason else ".")
+        hint = "다시 시도하세요."
+    else:
+        message = f"AI 응답({what})이 JSON이 아닙니다 (응답 {len(raw):,}자, 종료 이유: {result.finish_reason or '알 수 없음'})."
+        hint = "다시 시도하세요."
+    raise AiError("AI_BAD_OUTPUT", message, hint, details)
+
+
+def _retry_note(exc: AiError) -> str:
+    return (f"\n\n[다시 요청] 앞 응답을 읽지 못했습니다: {exc.message}\n"
+            "- JSON 객체 하나만 답하세요. 앞뒤에 설명이나 ``` 를 붙이지 마세요.\n"
+            "- 짧게 답하세요: citations는 3개 이하로, 데이터시트 문장을 그대로 옮기지 말고 짧게 풀어 쓰세요. "
+            "notes·detail·summary는 2문장 이하로.")
+
+
+def _ask_json(provider: LlmProvider, *, prompt: str, schema: dict, what: str, max_output_tokens: int,
+              calls: list | None = None, on_retry: Callable[[str], None] | None = None) -> tuple[dict, LlmResult]:
+    """One JSON answer; an unreadable one is asked again once, shorter, before giving up."""
+    call = provider.generate(prompt=prompt, json_schema=schema, max_output_tokens=max_output_tokens)
+    if calls is not None:
+        calls.append(call)
     try:
-        data = json.loads(text)
-    except ValueError as exc:
-        raise AiError("AI_BAD_OUTPUT", f"AI 응답({what})이 JSON이 아닙니다.", "다시 시도하세요.") from exc
-    if not isinstance(data, dict):
-        raise AiError("AI_BAD_OUTPUT", f"AI 응답({what})의 형식이 맞지 않습니다.")
-    return data
+        return _json(call, what), call
+    except AiError as exc:
+        if exc.code != "AI_BAD_OUTPUT":
+            raise
+        if on_retry is not None:
+            on_retry(f"AI 응답({what})을 읽지 못해 한 번 더 요청: {exc.message}")
+        again = provider.generate(prompt=prompt + _retry_note(exc), json_schema=schema, max_output_tokens=max_output_tokens)
+        if calls is not None:
+            calls.append(again)
+        return _json(again, what), again
 
 
 def _strs(value) -> list[str]:
@@ -654,9 +711,10 @@ def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *
     step = on_step or (lambda _step, _text: None)
     if plan is None:
         step("parts", "AI에 부품 계획 요청")
-        plan_call = provider.generate(prompt=plan_prompt(inp), json_schema=PLAN_SCHEMA, max_output_tokens=max_output_tokens)
-        plan = _json(plan_call, "부품 계획")
-        result = DesignResult(circuit=None, plan=plan, calls=[plan_call])
+        calls: list[LlmResult] = []
+        plan, _ = _ask_json(provider, prompt=plan_prompt(inp), schema=PLAN_SCHEMA, what="부품 계획",
+                            max_output_tokens=max_output_tokens, calls=calls, on_retry=lambda t: step("parts", t))
+        result = DesignResult(circuit=None, plan=plan, calls=calls)
     else:
         step("parts", "고른 대안으로 부품 계획을 고쳐 이어서 설계")
         result = DesignResult(circuit=None, plan=plan, calls=[])
@@ -693,10 +751,10 @@ def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *
     title = str(plan.get("title") or "AI 설계안")
     for attempt in range(max_repairs + 1):
         step("pins", "KiCad 심볼의 핀 표로 연결 요청" if attempt == 0 else f"연결 문제를 고쳐 다시 요청 ({attempt}회째)")
-        call = provider.generate(prompt=prompt, json_schema=CONNECT_SCHEMA, max_output_tokens=max_output_tokens)
-        result.calls.append(call)
+        connections, call = _ask_json(provider, prompt=prompt, schema=CONNECT_SCHEMA, what="연결",
+                                      max_output_tokens=max_output_tokens, calls=result.calls,
+                                      on_retry=lambda t: step("pins", t))
         result.attempts = attempt + 1
-        connections = _json(call, "연결")
         result.connections = connections
         circuit, problems = build_circuit(result.parts, connections, project_id=project_id, title=title,
                                           model=call.model, blocks=blocks)
@@ -775,10 +833,10 @@ def alternatives_prompt(inp: DesignInput, plan: dict, unresolved: list[dict], li
 def suggest_alternatives(provider: LlmProvider, inp: DesignInput, plan: dict, unresolved: list[dict],
                          library: dict[str, list[str]], *, max_output_tokens: int = 8192) -> tuple[list[dict], LlmResult]:
     """The AI's alternatives for parts with no KiCad symbol. The caller checks each one against the library."""
-    call = provider.generate(prompt=alternatives_prompt(inp, plan, unresolved, library), json_schema=ALTERNATIVES_SCHEMA,
-                             max_output_tokens=max_output_tokens)
+    data, call = _ask_json(provider, prompt=alternatives_prompt(inp, plan, unresolved, library), schema=ALTERNATIVES_SCHEMA,
+                           what="대안", max_output_tokens=max_output_tokens)
     refs = {u["ref"] for u in unresolved}
-    options = [o for o in _json(call, "대안").get("options") or []
+    options = [o for o in data.get("options") or []
                if isinstance(o, dict) and str(o.get("ref", "")).upper() in refs and o.get("kind") in ("replace", "approach")]
     return options, call
 
@@ -830,8 +888,7 @@ def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | Non
 {('[설계 지침 — 이 조직이 채택한 규칙. 지키지 않은 것을 찾으면 그 finding의 guide에 지침 id를 적으세요]' + chr(10) + guides) if guides.strip() else ''}
 
 정해진 JSON 형식으로만 답하세요."""
-    result = provider.generate(prompt=prompt, json_schema=REVIEW_SCHEMA, max_output_tokens=max_output_tokens)
-    data = _json(result, "검토")
+    data, result = _ask_json(provider, prompt=prompt, schema=REVIEW_SCHEMA, what="검토", max_output_tokens=max_output_tokens)
     refs = {c.reference for c in circuit.components}
     findings = []
     for f in data.get("findings") or []:
@@ -860,8 +917,8 @@ def structure_requirements(provider: LlmProvider, text: str, *, max_output_token
 {text.strip()}
 
 정해진 JSON 형식으로만 답하세요."""
-    result = provider.generate(prompt=prompt, json_schema=SPEC_SCHEMA, max_output_tokens=max_output_tokens)
-    data = _json(result, "요구사항 정리")
+    data, result = _ask_json(provider, prompt=prompt, schema=SPEC_SCHEMA, what="요구사항 정리",
+                             max_output_tokens=max_output_tokens)
     spec = {
         "summary": str(data.get("summary", "")).strip(),
         "functions": _strs(data.get("functions")),

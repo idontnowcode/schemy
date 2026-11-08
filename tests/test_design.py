@@ -583,3 +583,79 @@ def test_resume_gates(tmp_path):
         "job_id": job["id"], "choices": [{"ref": "U1", "text": "TI 제품으로"}]}).json())
     r = client.post(board + "/ai/design/resume", json={"job_id": done["id"], "choices": []})
     assert r.status_code == 409 and r.json()["error_code"] == "NOT_RESUMABLE"
+
+
+# --- an unreadable AI answer: say why, ask once more, keep the evidence ----------------------------------------------
+
+def test_unreadable_answers_say_why():
+    from ai_engine import AiError, LlmResult
+    from ai_engine.design import _json
+
+    def res(text, finish="STOP"):
+        return LlmResult(text=text, model="m", usage={}, finish_reason=finish)
+
+    assert _json(res('연결입니다:\n```json\n{"nets": []}\n```\n끝'), "연결") == {"nets": []}
+    assert _json(res('다음과 같습니다 {"nets": [], "no_connect": []} 이상'), "연결")["no_connect"] == []
+    with pytest.raises(AiError) as cut:
+        _json(res('{"nets": [{"name": "GND", "pins": ["U1.', "MAX_TOKENS"), "연결")
+    assert "출력 길이 제한" in cut.value.message and cut.value.details["finish_reason"] == "MAX_TOKENS"
+    assert cut.value.details["tail"].endswith('"U1.') and cut.value.details["chars"] == 39
+    with pytest.raises(AiError) as blocked:
+        _json(res("", "RECITATION"), "연결")
+    assert "막았습니다" in blocked.value.message and "원문 인용" in blocked.value.message
+    with pytest.raises(AiError) as empty:
+        _json(res(""), "검토")
+    assert "비어 있습니다" in empty.value.message
+    with pytest.raises(AiError) as prose:
+        _json(res("죄송하지만 연결을 정할 수 없습니다."), "연결")
+    assert "JSON이 아닙니다" in prose.value.message and "종료 이유: STOP" in prose.value.message
+
+
+def unreadable_connections(times):
+    state = {"connect": 0, "prompts": []}
+
+    def reply(prompt):
+        if "핀 표만 써서" in prompt and "부품 목록을 정하세요" not in prompt:
+            state["connect"] += 1
+            state["prompts"].append(prompt)
+            if state["connect"] <= times:
+                return '{"nets": [{"name": "+3V3", "pins": ["J1.1", "U1.'  # cut off mid-answer
+        return scripted(bad_first=False)(prompt)
+    return reply, state
+
+
+def test_an_unreadable_answer_is_asked_again_once(tmp_path):
+    reply, state = unreadable_connections(1)
+    client, board, job = designed(tmp_path, reply)
+    assert job["status"] == "succeeded", job
+    assert state["connect"] == 2 and "[다시 요청]" in state["prompts"][1] and "[다시 요청]" not in state["prompts"][0]
+    assert any("한 번 더 요청" in s["text"] for s in job["progress"])
+
+
+def test_when_it_stays_unreadable_the_reason_and_answer_tail_are_kept(tmp_path):
+    reply, state = unreadable_connections(5)
+    client, board, job = designed(tmp_path, reply)
+    assert job["status"] == "failed" and job["error"]["error_code"] == "AI_BAD_OUTPUT" and state["connect"] == 2
+    assert "AI 응답(연결)이 JSON이 아닙니다" in job["error"]["message"]
+    assert job["error"]["details"]["tail"].endswith('"U1.') and job["error"]["details"]["finish_reason"] == "STOP"
+    pid = board.split("/")[3]
+    runs = list((tmp_path / "projects" / pid / "boards" / "a" / "ai_runs").glob("*.json"))
+    record = json.loads(runs[0].read_text(encoding="utf-8"))
+    assert record["status"] == "failed" and record["error"]["details"]["what"] == "연결"
+
+
+def test_auto_review_reports_why_a_revision_failed(tmp_path):
+    base, rstate = reviews_in_turn([finding("error", "결함")])
+    state = {"connect": 0}
+
+    def reply(prompt):
+        if "핀 표만 써서" in prompt and "부품 목록을 정하세요" not in prompt:
+            state["connect"] += 1
+            if state["connect"] > 1:  # the revision's connections never come back readable
+                return '{"nets": ['
+        return base(prompt)
+    client, board, job = designed(tmp_path, reply)
+    auto = wait(client, client.post(board + "/ai/auto-review", json={"proposal_id": job["result"]["proposal_id"]}).json())
+    r = auto["result"]
+    assert r["stop"] == "revise_failed" and "AI 응답(연결)이 JSON이 아닙니다" in r["message"]
+    assert r["why"]["what"] == "연결" and r["why"]["tail"] == '{"nets": ['

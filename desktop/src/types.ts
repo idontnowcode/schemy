@@ -305,6 +305,14 @@ export interface DesignChoice {
   options: DesignOption[];
 }
 
+/** Details of an unreadable AI answer (error details of AI_BAD_OUTPUT). */
+export interface AiFailure {
+  finish_reason?: string | null;
+  chars?: number;
+  tail?: string;
+  what?: string;
+}
+
 /** One round of the automatic review loop (POST /ai/auto-review). */
 export interface AutoReviewRound {
   round: number;
@@ -323,6 +331,8 @@ export interface AutoReviewResult {
   rounds: AutoReviewRound[];
   stop: "met" | "max_rounds" | "repeated" | "check_failed" | "revise_failed" | "ai_failed";
   message: string;
+  /** Why the AI step failed, when known: how its answer ended and the answer's last characters. */
+  why?: AiFailure | null;
   proposal_id: string;
   met: boolean;
   max_warnings: number;
