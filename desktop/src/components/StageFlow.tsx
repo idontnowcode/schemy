@@ -31,6 +31,7 @@ import type {
   SystemInfo,
 } from "../types";
 import { Chip } from "./Chip";
+import { canResume, DesignChoices } from "./DesignChoices";
 import { Icon, type IconName } from "./Icons";
 import type { TabId } from "./ProjectView";
 import { ProposalsTab } from "./ProposalsTab";
@@ -342,7 +343,8 @@ export function StageFlow({ project, board, circuit, revision, outputs, review, 
       },
     };
   } else if (stage === 3) {
-    body = designStage({ ...common, job: designJob, latest: aiProposals[aiProposals.length - 1] ?? null, back: () => go(2), next: () => advance(4) });
+    body = designStage({ ...common, job: designJob, latest: aiProposals[aiProposals.length - 1] ?? null, back: () => go(2),
+      next: () => advance(4), onResumed: setDesignJob });
   } else if (stage === 4) {
     body = reviewStage({
       ...common, focus, job: autoJob, maxWarnings: flow.maxWarnings, maxRounds: flow.maxRounds,
@@ -659,17 +661,18 @@ function rowOf(step: string): number {
   return DESIGN_ROWS.findIndex((r) => r.steps.includes(step));
 }
 
-function designStage(p: Common & { job: Job | null; latest: Proposal | null; back(): void; next(): void }): Stage {
+function designStage(p: Common & { job: Job | null; latest: Proposal | null; back(): void; next(): void; onResumed(job: Job): void }): Stage {
   const job = p.job;
   const steps = job?.progress ?? [];
   const lastRow = steps.length ? Math.max(...steps.map((s) => rowOf(s.step))) : -1;
   const ok = job?.status === "succeeded";
   const failed = job?.status === "failed";
   const details = (job?.error?.details ?? {}) as { problems?: string[]; questions?: string[] };
-  const state = (i: number) => (ok || i < lastRow ? "done" : i === lastRow ? (failed ? "failed" : "run") : failed ? "idle" : "idle");
+  const paused = failed && canResume(job);
+  const state = (i: number) => (ok || i < lastRow ? "done" : i === lastRow ? (paused ? "paused" : failed ? "failed" : "run") : "idle");
   return {
     lead: running(job) ? "AI가 설계하는 중입니다 (보통 1~3분)." : ok ? "설계안이 나왔습니다. 다음 단계에서 AI가 검토하고, 필요하면 스스로 고친 안을 다시 만듭니다."
-      : failed ? "AI 설계를 마치지 못했습니다." : p.latest ? `최근 AI 설계안: 제안 #${num(p.latest.id)} 「${p.latest.title}」` : "아직 AI 설계를 하지 않았습니다.",
+      : failed ? (canResume(job) ? "부품 고르기에서 멈췄습니다. 진행할 방법을 고르세요." : "AI 설계를 마치지 못했습니다.") : p.latest ? `최근 AI 설계안: 제안 #${num(p.latest.id)} 「${p.latest.title}」` : "아직 AI 설계를 하지 않았습니다.",
     body: (
       <div className="flow-design">
         {job && (
@@ -697,7 +700,12 @@ function designStage(p: Common & { job: Job | null; latest: Proposal | null; bac
             </div>
           </>
         )}
-        {failed && job && (
+        {failed && job && canResume(job) && (
+          <div className="flow-result stop flow-choices">
+            <DesignChoices key={job.id} job={job} projectId={p.pid} boardId={p.bid} onStarted={p.onResumed} onBack={p.back} />
+          </div>
+        )}
+        {failed && job && !canResume(job) && (
           <div className="flow-result stop">
             <p>{jobError(job)}</p>
             {details.problems?.length ? <><b className="small">완성하지 못한 이유</b><ul className="small">{details.problems.map((x, i) => <li key={i}>{x}</li>)}</ul></> : null}

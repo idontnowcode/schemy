@@ -12,7 +12,14 @@ from fastapi import APIRouter
 from pydantic import Field
 
 from ai_engine import AiError
-from ai_engine.design import DesignInput, circuit_text, design_circuit, review_circuit, structure_requirements
+from ai_engine.design import (
+    DesignInput,
+    circuit_text,
+    design_circuit,
+    review_circuit,
+    structure_requirements,
+    suggest_alternatives,
+)
 from circuit_core import CircuitIR, validate_circuit
 from circuit_core.diff import diff_circuits
 from circuit_core.guides import prompt_text as guide_prompt_text
@@ -60,6 +67,25 @@ class AutoReviewBody(_Model):
     proposal_id: str
     max_warnings: int = Field(default=1, ge=0, le=9, description="Stop when 수정 필요 is 0 and 수정 권장 is at most this.")
     max_rounds: int = Field(default=3, ge=1, le=5, description="Reviews at most this many proposals (revisions = rounds − 1).")
+
+
+class ResumeChoice(_Model):
+    ref: str = Field(max_length=20)
+    option_id: str | None = Field(default=None, max_length=40)
+    text: str | None = Field(default=None, max_length=2000, description="「기타 의견」: the person's own direction.")
+
+
+class ResumeAnswer(_Model):
+    question: str = Field(max_length=1000)
+    answer: str = Field(max_length=2000)
+
+
+class ResumeBody(_Model):
+    """Continue a design that stopped at parts with no KiCad symbol, with what the person chose for each."""
+
+    job_id: str
+    choices: list[ResumeChoice] = Field(default_factory=list)
+    answers: list[ResumeAnswer] = Field(default_factory=list)
 
 
 class ReviseBody(_Model):
@@ -276,8 +302,75 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                 "current_circuit": circuit is not None, "library": bool(settings.symbol_dirs),
                 "guides": [{"id": e.id, "title": e.title} for e in applicable_guides(project_id, circuit)]}
 
+    def part_choices(provider, cfg, inp: DesignInput, plan: dict, unresolved: list[dict], resolve, index, record,
+                     step) -> list[dict]:
+        """Ways forward for parts with no usable KiCad symbol: the AI's alternatives, close library symbols and an
+        external-module header. Every option that changes the part is checked against this machine's library and
+        kept only if it resolves; the AI's other ideas are kept as directions for a new design."""
+        hits, library_text = {}, {}
+        for u in unresolved:
+            terms = [str(t) for t in (u.get("mpn"), u.get("value"), *(u.get("search_terms") or []), u.get("role")) if t]
+            hits[u["ref"]] = index.search(terms, limit=8)
+            library_text[u["ref"]] = [f"{sym.lib_id} — {sym.description[:80]}" for _, sym in hits[u["ref"]]]
+        suggested: list[dict] = []
+        step("parts", "AI에 대안을 묻는 중")
+        try:
+            suggested, call = suggest_alternatives(provider, inp, plan, unresolved, library_text,
+                                                   max_output_tokens=min(cfg.max_output_tokens, 8192))
+            record.setdefault("usage", []).append(call.usage)
+        except AiError as exc:
+            step("parts", f"AI 대안 제안 실패: {exc.message}")
+
+        def offer(options: list, ref: str, u: dict, kind: str, title: str, detail: str, part: dict | None,
+                  source: str) -> bool:
+            option = {"id": f"{ref}-{len(options) + 1}", "kind": kind, "title": title[:200], "detail": detail[:600],
+                      "source": source, "executable": False, "symbol_id": None, "part": None}
+            if part is not None:
+                resolved, _ = resolve({**part, "ref": ref, "role": u.get("role") or ""})
+                if resolved is None:
+                    return False  # names something this library does not have: not offered
+                keep = {k: part[k] for k in ("category", "value", "mpn", "manufacturer", "package", "pin_count",
+                                             "search_terms") if part.get(k)}
+                option.update(executable=True, symbol_id=resolved.symbol_id,
+                              part={**keep, "kicad_symbol": resolved.symbol_id})
+                if any(o["symbol_id"] == resolved.symbol_id and o["kind"] == kind for o in options):
+                    return False
+            options.append(option)
+            return True
+
+        out = []
+        for u in unresolved:
+            ref, options = u["ref"], []
+            for o in suggested:
+                if str(o.get("ref", "")).upper() != ref:
+                    continue
+                raw = {k: v for k, v in (o.get("part") or {}).items() if v not in (None, "", [])}
+                part = ({"category": u.get("category") or "ic", **raw}
+                        if raw.get("kicad_symbol") or raw.get("mpn") or raw.get("category") == "connector" else None)
+                if o["kind"] == "replace" and part is None:
+                    continue  # a replacement must name a part
+                offer(options, ref, u, o["kind"], str(o.get("title", "")), str(o.get("detail", "")), part, "ai")
+            for _, sym in hits[ref]:
+                if sum(1 for o in options if o["kind"] == "replace") >= 4:
+                    break
+                name = sym.lib_id.split(":", 1)[1]
+                offer(options, ref, u, "replace", name, f"KiCad 라이브러리 검색 결과: {sym.description or sym.lib_id}",
+                    {"category": u.get("category") or "ic", "value": name, "kicad_symbol": sym.lib_id}, "library")
+            if not any(o["kind"] == "approach" and o["executable"] for o in options):
+                for n in dict.fromkeys(x for x in (int(u.get("pin_count") or 0), 20, 10) if x):
+                    if offer(options, ref, u, "approach", f"{ref}를 외부 모듈로 두고 {n}핀 헤더로 연결",
+                           "이 보드에는 핀 헤더만 두고 부품은 별도 모듈(개발 보드 등)에 둡니다. 필요한 신호·전원을 헤더 핀으로 연결합니다.",
+                           {"category": "connector", "pin_count": n, "value": f"{u.get('value') or ref} 모듈"}, "app"):
+                        break
+            out.append({"ref": ref, "role": str(u.get("role") or ""), "value": str(u.get("value") or ""),
+                        "mpn": str(u.get("mpn") or ""), "why": str(u.get("why") or ""), "options": options})
+        n = sum(len(c["options"]) for c in out)
+        step("parts", f"대안 {n}개 — 진행할 방법을 고르면 이어서 설계합니다")
+        return out
+
     def design_task(project_id: str, board_id: str, *, instructions: str | None, use_inventory: bool,
-                    review: bool, base: CircuitIR | None, findings: list[dict] | None, source: str, parent: str | None):
+                    review: bool, base: CircuitIR | None, findings: list[dict] | None, source: str, parent: str | None,
+                    plan: dict | None = None):
         """Check the inputs now and return the design work as ``run(job_id)``. ``base`` is the design being revised
         (None for a new design); the result's diff against it is recorded so the user sees what the revision changed.
         Steps (parts, pins, check, proposal, review) are recorded on the job for the step screens."""
@@ -307,26 +400,34 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                                                       "findings": len(findings or [])})
             try:
                 result = design_circuit(provider, inp, resolver, project_id=project_id,
-                                        max_output_tokens=cfg.max_output_tokens, pins_of=_pins_of(lib), on_step=step)
+                                        max_output_tokens=cfg.max_output_tokens, pins_of=_pins_of(lib), on_step=step,
+                                        plan=plan)
             except AiError as exc:
                 record.update(status="failed", error={"code": exc.code, "message": exc.message})
                 save_run(project_id, board_id, record)
                 raise api_error(exc) from exc
             record.update(usage=[c.usage for c in result.calls], attempts=result.attempts,
                           unresolved=result.unresolved, problems=result.problems)
-            plan = result.plan
+            plan_out = result.plan
             if result.circuit is None:
+                details = {"unresolved": result.unresolved, "problems": result.problems,
+                           "questions": plan_out.get("questions") or [], "assumptions": plan_out.get("assumptions") or []}
+                message = "AI 설계안을 완성하지 못했습니다. " + " / ".join(result.problems[:5])
+                hint = "요구사항에 부품 품번이나 조건을 더 적거나, 다시 시도하세요."
+                if result.unresolved_parts and base is None:
+                    # Not a dead end: offer ways forward and keep the plan so the design can continue from here.
+                    details.update(choices=part_choices(provider, cfg, inp, plan_out, result.unresolved_parts, resolver,
+                                                        index, record, step),
+                                   plan=plan_out, instructions=instructions, use_inventory=use_inventory, review=review)
+                    message = (f"부품 {len(result.unresolved_parts)}개를 KiCad 라이브러리에서 찾지 못했습니다. "
+                               "부품마다 진행할 방법을 고르면 이어서 설계합니다.")
+                    hint = "다른 부품으로 대체, 다른 방법으로 진행, 또는 직접 방향을 적을 수 있습니다."
                 record.update(status="incomplete")
                 save_run(project_id, board_id, record)
-                raise ApiError(422, "AI_DESIGN_INCOMPLETE",
-                               "AI 설계안을 완성하지 못했습니다. " + " / ".join(result.problems[:5]),
-                               recovery_hint="요구사항에 부품 품번이나 조건을 더 적거나, 다시 시도하세요.",
-                               details={"unresolved": result.unresolved, "problems": result.problems,
-                                        "questions": plan.get("questions") or [],
-                                        "assumptions": plan.get("assumptions") or []})
-            ai = {"model": result.calls[-1].model, "summary": str(plan.get("summary") or ""),
-                  "assumptions": [str(x) for x in plan.get("assumptions") or []],
-                  "questions": [str(x) for x in plan.get("questions") or []],
+                raise ApiError(422, "AI_DESIGN_INCOMPLETE", message, recovery_hint=hint, details=details)
+            ai = {"model": result.calls[-1].model, "summary": str(plan_out.get("summary") or ""),
+                  "assumptions": [str(x) for x in plan_out.get("assumptions") or []],
+                  "questions": [str(x) for x in plan_out.get("questions") or []],
                   "citations": [{"reference": str(c.get("ref", "")), "page": c.get("page"), "text": str(c.get("text", ""))}
                                 for c in result.connections.get("citations") or [] if isinstance(c, dict)],
                   "parts": [{"key": p.ref, "role": p.role, "symbol_id": p.symbol_id, "how": p.how} for p in result.parts],
@@ -339,10 +440,10 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                   "instructions": instructions,
                   "diff_from_parent": diff_circuits(base, result.circuit) if base is not None else None}
             offered = [e.id for e in entries]
-            said = [str(x).strip() for x in [*(plan.get("guides_applied") or []),
+            said = [str(x).strip() for x in [*(plan_out.get("guides_applied") or []),
                                               *(result.connections.get("guides_applied") or [])]]
             ai["guides"] = {"offered": offered, "applied": [g for g in dict.fromkeys(said) if g in offered]}
-            title = str(plan.get("title") or "AI 설계안")[:150]
+            title = str(plan_out.get("title") or "AI 설계안")[:150]
             p = proposals.create(project_id, board_id, title=title, ops=[ReplaceCircuit(circuit=result.circuit)],
                                  source=source, rationale=ai["summary"][:20_000], ai=ai)
             if guides is not None and ai["guides"]["applied"]:
@@ -379,6 +480,50 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
     def design(project_id: str, board_id: str, body: DesignBody):
         return submit_design(project_id, board_id, instructions=body.instructions, use_inventory=body.use_inventory,
                              review=body.review, base=None, findings=None, source="ai_design", parent=None)
+
+    @router.post(BOARD + "/ai/design/resume", status_code=202)
+    def resume_design(project_id: str, board_id: str, body: ResumeBody):
+        """Continue a design that stopped at parts with no KiCad symbol. A chosen replacement or module header goes
+        into the saved parts plan and the design continues from it (no new parts plan); a direction in words (the
+        AI's idea or the person's own) starts a new design with it. Answers to the AI's questions are appended to
+        the requirements either way."""
+        job = store.get_job(body.job_id)
+        details = (job.error or {}).get("details") or {}
+        if (job.project_id != project_id or job.board_id != board_id or job.status != "failed"
+                or not details.get("plan") or not details.get("choices")):
+            raise ApiError(409, "NOT_RESUMABLE", "이어서 설계할 수 있는 작업이 아닙니다.",
+                           recovery_hint="부품을 찾지 못해 멈춘 AI 설계에서만 이어서 할 수 있습니다.")
+        picked = {c.ref.upper(): c for c in body.choices}
+        plan, notes, parts = details["plan"], [], [dict(x) for x in details["plan"].get("parts") or [] if isinstance(x, dict)]
+        for c in details["choices"]:
+            pick = picked.get(c["ref"])
+            option = next((o for o in c["options"] if pick and o["id"] == pick.option_id), None)
+            text = (pick.text or "").strip() if pick else ""
+            if option is None and not text:
+                raise ApiError(409, "CHOICE_MISSING", f"{c['ref']}({c['role']})를 어떻게 할지 고르세요.",
+                               recovery_hint="다른 부품으로 대체, 다른 방법으로 진행, 기타 의견 중 하나를 고르세요.")
+            original = " ".join(x for x in (c["value"], c["mpn"]) if x)
+            if option is not None and option["executable"] and not text:
+                role = c["role"] + (" (외부 모듈 헤더)" if option["part"].get("category") == "connector" else "")
+                entry = {**option["part"], "ref": c["ref"], "role": role, "basis": "changed", "request": original,
+                         "reason": f"{original}은(는) KiCad 라이브러리에 심볼이 없어 사람이 고른 대안: {option['title']}. "
+                                   f"{option['detail']}"[:600]}
+                parts = [entry if str(x.get("ref", "")).upper() == c["ref"] else x for x in parts]
+            else:
+                direction = text or f"{option['title']} — {option['detail']}"
+                notes.append(f"- {c['ref']} ({c['role']}, 원래 {original}, KiCad 심볼 없음): {direction}")
+        answered = [(a.question.strip(), a.answer.strip()) for a in body.answers if a.answer.strip()]
+        if answered:
+            block = "\n".join(f"- 질문: {q}\n  답: {a}" for q, a in answered)
+            store.put_requirements(project_id, f"{store.get_requirements(project_id).rstrip()}\n\n## AI 질문에 대한 답\n{block}\n")
+        kw = {"use_inventory": bool(details.get("use_inventory", True)), "review": bool(details.get("review", True)),
+              "base": None, "findings": None, "source": "ai_design", "parent": None}
+        if notes:
+            instructions = "\n".join(x for x in (details.get("instructions") or "",
+                                                 "[KiCad 심볼이 없는 부품에 대해 사람이 정한 방향]", *notes) if x)
+            return submit_design(project_id, board_id, instructions=instructions, **kw)
+        return submit_design(project_id, board_id, instructions=details.get("instructions"),
+                             plan={**plan, "parts": parts}, **kw)
 
     def revise_inputs(project_id: str, board_id: str, proposal_id: str | None):
         """(base circuit, AI review findings, automated-check findings) for a revision."""

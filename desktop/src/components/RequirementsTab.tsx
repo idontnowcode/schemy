@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorText, waitForJob } from "../api";
 import { providerLabel } from "../format";
 import type { AiStatus, Job, RequirementsSpec } from "../types";
+import { canResume, DesignChoices } from "./DesignChoices";
 
 interface Props {
   projectId: string;
@@ -32,6 +33,7 @@ export function RequirementsTab({ projectId, boardId, boardName, onSaved, onOpen
   const [busy, setBusy] = useState<string | null>(null);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [failure, setFailure] = useState<{ problems: string[]; questions: string[] } | null>(null);
+  const [stopped, setStopped] = useState<Job | null>(null);
 
   useEffect(() => {
     api
@@ -73,6 +75,7 @@ export function RequirementsTab({ projectId, boardId, boardName, onSaved, onOpen
   const run = async (label: string, fn: () => Promise<void>) => {
     setAiMessage(null);
     setFailure(null);
+    setStopped(null);
     setBusy(label);
     try {
       if (dirty) await save();
@@ -121,6 +124,10 @@ export function RequirementsTab({ projectId, boardId, boardName, onSaved, onOpen
         1500,
       );
       if (job.status === "failed") {
+        if (canResume(job)) {
+          setStopped(job);
+          return;
+        }
         setAiMessage(jobError(job));
         const details = job.error?.details as { problems?: string[]; questions?: string[] } | undefined;
         if (details?.problems?.length || details?.questions?.length) {
@@ -197,6 +204,18 @@ export function RequirementsTab({ projectId, boardId, boardName, onSaved, onOpen
             <p className="small" role="status">
               {aiMessage}
             </p>
+          )}
+          {stopped && (
+            <DesignChoices key={stopped.id} job={stopped} projectId={projectId} boardId={boardId}
+              onStarted={(next) =>
+                run("고른 방법으로 이어서 설계하는 중… (1~3분)", async () => {
+                  const done = await waitForJob(next.id, undefined, 1500);
+                  if (done.status === "failed") {
+                    if (canResume(done)) return setStopped(done);
+                    return setAiMessage(jobError(done));
+                  }
+                  onOpenProposal(done.result.proposal_id);
+                })} />
           )}
           {failure && (
             <div className="small">

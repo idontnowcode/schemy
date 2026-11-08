@@ -96,3 +96,35 @@ test("idea → requirements → design → automatic review → approval → sch
   await page.getByRole("button", { name: "← 단계 화면으로" }).click();
   await expect(rail).toBeVisible();
 });
+
+test("a part with no KiCad symbol: pick another part and the design continues", async ({ page }) => {
+  backend = await startBackend(tempWorkspace(), { fakeAi: true });
+  await page.goto(backend.url);
+  await page.request.put(`${backend.url}/api/ai/settings`, { data: { enabled: true } });
+  await newProject(page, "XYZ 노드");
+  const card = page.locator(".flow-card");
+  await page.getByRole("textbox", { name: "아이디어" }).fill("3.3V CAN 노드. 트랜시버는 XYZ999로, MCU와 UART로 연결.");
+  await page.getByRole("button", { name: "AI로 요구사항 정리 →" }).click();
+  await page.getByRole("button", { name: "다음: 설계 준비 →" }).click();
+  await page.getByRole("button", { name: "AI 설계 시작" }).click();
+
+  // Not a dead end: the design stops at the part and offers ways forward.
+  await expect(card.getByText("부품 고르기에서 멈췄습니다. 진행할 방법을 고르세요.")).toBeVisible({ timeout: 60_000 });
+  const part = page.getByRole("group", { name: /U1 · CAN 트랜시버/ });
+  await expect(part.getByRole("heading", { name: "1) 다른 부품으로 대체" })).toBeVisible();
+  await expect(part.getByRole("heading", { name: "2) 다른 방법으로 진행" })).toBeVisible();
+  await expect(part.getByRole("heading", { name: "3) 기타 의견" })).toBeVisible();
+  await expect(part.getByText("없는 부품")).toHaveCount(0); // an invented part number is not offered
+  const replace = part.locator(".choice-option").filter({ hasText: "SN65HVD230으로 대체" });
+  await expect(replace.getByText("KiCad 심볼 있음")).toBeVisible();
+  await expect(part.locator(".choice-option").filter({ hasText: "CAN 대신 UART만 쓰기" }).getByText("AI가 다시 설계")).toBeVisible();
+  await replace.getByRole("radio").check();
+  await expect(card.getByText(/핀 연결부터 이어서 설계합니다/)).toBeVisible();
+  await page.getByLabel("CAN 커넥터 형태?").fill("2핀 터미널");
+  await page.getByRole("button", { name: "고른 방법으로 이어서 설계" }).click();
+
+  await expect(card.getByText("제안 #1 만듦", { exact: false }).first()).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByLabel("설계 진행 기록")).toContainText("고른 대안으로 부품 계획을 고쳐 이어서 설계");
+  await page.getByRole("button", { name: "다음: 검토 →" }).click();
+  await expect(page.getByRole("button", { name: "자동 반복 검토 시작" })).toBeEnabled();
+});

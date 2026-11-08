@@ -212,6 +212,8 @@ class DesignResult:
     calls: list[LlmResult] = field(default_factory=list)
     connections: dict = field(default_factory=dict)
     templates: list[TemplateBlock] = field(default_factory=list)
+    unresolved_parts: list[dict] = field(default_factory=list)
+    """Planned parts with no usable KiCad symbol (the plan's own entry plus ``why``), for choosing alternatives."""
 
 
 def _json(result: LlmResult, what: str) -> dict:
@@ -645,13 +647,19 @@ def place_templates(plan: dict, pins_of: PinsOf | None, taken_refs: set[str]) ->
 
 def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *, project_id: str,
                    max_repairs: int = 2, max_output_tokens: int = 32768,
-                   pins_of: PinsOf | None = None, on_step: Callable[[str, str], None] | None = None) -> DesignResult:
-    """``on_step(step, text)`` reports progress: step "parts" (choosing parts) then "pins" (connecting them)."""
+                   pins_of: PinsOf | None = None, on_step: Callable[[str, str], None] | None = None,
+                   plan: dict | None = None) -> DesignResult:
+    """``on_step(step, text)`` reports progress: step "parts" (choosing parts) then "pins" (connecting them).
+    ``plan`` continues from a parts plan already made (after the person chose alternatives) without asking again."""
     step = on_step or (lambda _step, _text: None)
-    step("parts", "AI에 부품 계획 요청")
-    plan_call = provider.generate(prompt=plan_prompt(inp), json_schema=PLAN_SCHEMA, max_output_tokens=max_output_tokens)
-    plan = _json(plan_call, "부품 계획")
-    result = DesignResult(circuit=None, plan=plan, calls=[plan_call])
+    if plan is None:
+        step("parts", "AI에 부품 계획 요청")
+        plan_call = provider.generate(prompt=plan_prompt(inp), json_schema=PLAN_SCHEMA, max_output_tokens=max_output_tokens)
+        plan = _json(plan_call, "부품 계획")
+        result = DesignResult(circuit=None, plan=plan, calls=[plan_call])
+    else:
+        step("parts", "고른 대안으로 부품 계획을 고쳐 이어서 설계")
+        result = DesignResult(circuit=None, plan=plan, calls=[])
     raw_parts = [p for p in plan.get("parts") or [] if isinstance(p, dict)]
     if not raw_parts and not plan.get("templates"):
         raise AiError("AI_BAD_OUTPUT", "AI가 부품을 하나도 정하지 않았습니다.", "요구사항을 더 구체적으로 적어 보세요.")
@@ -668,6 +676,7 @@ def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *
         resolved, message = resolve({**raw, "ref": ref})
         if resolved is None:
             result.unresolved.append(f"{ref} ({raw.get('role', '')}, {raw.get('mpn') or raw.get('value', '')}): {message}")
+            result.unresolved_parts.append({**raw, "ref": ref, "why": message})
         else:
             result.parts.append(resolved)
     blocks, template_problems = place_templates(plan, pins_of, seen)
@@ -699,6 +708,79 @@ def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *
         step("pins", f"연결 문제 {len(problems)}개")
         prompt = connect_prompt(inp, plan, result.parts, blocks) + "\n\n" + repair_prompt(connections, problems)
     return result
+
+
+ALTERNATIVES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "options": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "ref": {"type": "string"},
+                    "kind": {"type": "string", "enum": ["replace", "approach"]},
+                    "title": {"type": "string"},
+                    "detail": {"type": "string"},
+                    "part": {
+                        "type": "object",
+                        "properties": {
+                            "category": {"type": "string"}, "value": {"type": "string"}, "mpn": {"type": "string"},
+                            "manufacturer": {"type": "string"}, "package": {"type": "string"},
+                            "kicad_symbol": {"type": "string"}, "pin_count": {"type": "integer"},
+                            "search_terms": {"type": "array", "items": {"type": "string"}},
+                        },
+                    },
+                },
+                "required": ["ref", "kind", "title", "detail"],
+            },
+        },
+    },
+    "required": ["options"],
+}
+
+
+def alternatives_prompt(inp: DesignInput, plan: dict, unresolved: list[dict], library: dict[str, list[str]]) -> str:
+    lines = []
+    for u in unresolved:
+        lines.append(f"- {u['ref']} ({u.get('role', '')}): {u.get('value', '')} {u.get('mpn') or ''} — 찾지 못한 이유: {u.get('why', '')}")
+        hits = library.get(u["ref"]) or []
+        lines.append("  라이브러리에 있는 비슷한 심볼: " + ("; ".join(hits) if hits else "(없음)"))
+    others = ", ".join(f"{p.get('ref')} {p.get('value')}" for p in plan.get("parts") or []
+                       if isinstance(p, dict) and p.get("ref") not in {u["ref"] for u in unresolved})
+    return f"""당신은 회로 설계를 돕는 엔지니어입니다. 아래 부품은 이 컴퓨터의 KiCad 라이브러리에 심볼이 없어 설계를 이어갈 수 없습니다.
+사람이 고를 수 있게, 부품마다 대안을 2~4개 제시하세요.
+
+[대안의 종류]
+- replace: 다른 부품으로 대체. 가능하면 아래 「라이브러리에 있는 비슷한 심볼」 중에서 고르고, part.kicad_symbol에 그 이름을 그대로 적으세요.
+  요구사항의 기능·전압·인터페이스를 만족해야 하고, 바꾸면 무엇이 달라지는지(성능·핀 수·주변 회로) detail에 적으세요.
+- approach: 다른 방법으로 진행. 예: 부품을 별도 모듈(개발 보드 등)에 두고 이 보드에는 헤더만 두기(part.category = "connector",
+  part.pin_count = 필요한 신호·전원 핀 수), 기능을 다른 부품 조합으로 나누기, 요구사항의 일부를 바꾸기.
+- 지어낸 품번이나 KiCad 심볼 이름을 쓰지 마세요. 확실하지 않으면 approach로 설명만 하세요.
+
+{LANGUAGE_RULE}
+
+[요구사항]
+{inp.requirements.strip() or '(없음)'}
+{('[추가 요청]' + chr(10) + inp.instructions) if inp.instructions else ''}
+
+[다른 부품 (이미 정해짐)]
+{others or '(없음)'}
+
+[심볼을 찾지 못한 부품]
+{chr(10).join(lines)}
+"""
+
+
+def suggest_alternatives(provider: LlmProvider, inp: DesignInput, plan: dict, unresolved: list[dict],
+                         library: dict[str, list[str]], *, max_output_tokens: int = 8192) -> tuple[list[dict], LlmResult]:
+    """The AI's alternatives for parts with no KiCad symbol. The caller checks each one against the library."""
+    call = provider.generate(prompt=alternatives_prompt(inp, plan, unresolved, library), json_schema=ALTERNATIVES_SCHEMA,
+                             max_output_tokens=max_output_tokens)
+    refs = {u["ref"] for u in unresolved}
+    options = [o for o in _json(call, "대안").get("options") or []
+               if isinstance(o, dict) and str(o.get("ref", "")).upper() in refs and o.get("kind") in ("replace", "approach")]
+    return options, call
 
 
 def circuit_text(circuit: CircuitIR) -> str:

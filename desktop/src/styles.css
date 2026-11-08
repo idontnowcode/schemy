@@ -1738,6 +1738,11 @@ button.back-link {
   border-color: var(--bad);
 }
 
+.tick.paused {
+  border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 25%, transparent);
+}
+
 .tick.run {
   border-color: var(--accent);
   border-right-color: transparent;
@@ -1986,5 +1991,86 @@ button.back-link {
 .proposals.single {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+}
+
+/* ---- choosing a way forward for parts with no KiCad symbol ---- */
+.design-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.design-choices > p {
+  margin: 0;
+}
+
+.flow-choices {
+  border-left-color: var(--warn);
+}
+
+.choice-part {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  padding: 10px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.choice-part legend {
+  padding: 0 6px;
+  font-weight: 600;
+}
+
+.choice-part > p {
+  margin: 0;
+}
+
+.choice-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.choice-group h4 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.choice-option {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.choice-option.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.choice-option input[type="radio"] {
+  margin-top: 4px;
+}
+
+.choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.choice-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }

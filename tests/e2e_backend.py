@@ -48,12 +48,16 @@ REVIEWS = [
 
 
 def design_reply(prompt: str, state: dict) -> str | None:
-    from tests.test_design import GOOD, PLAN
+    from tests.test_design import ALTERNATIVES, GOOD, MISSING, PLAN
 
     if "정해진 항목으로 정리" in prompt:
         return json.dumps(SPEC, ensure_ascii=False)
+    if "대안을 2~4개 제시하세요" in prompt:
+        return json.dumps(ALTERNATIVES, ensure_ascii=False)
     if "부품 목록을 정하세요" in prompt:
-        return json.dumps(PLAN, ensure_ascii=False)
+        # An idea naming XYZ999 gets a part this library has no symbol for (until the person says otherwise).
+        missing = "XYZ999" in prompt and "사람이 정한 방향" not in prompt
+        return json.dumps(MISSING if missing else PLAN, ensure_ascii=False)
     if "핀 표만 써서" in prompt:
         return json.dumps(GOOD, ensure_ascii=False)
     if "검토자" in prompt:

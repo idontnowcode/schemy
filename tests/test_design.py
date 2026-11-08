@@ -486,3 +486,100 @@ def test_auto_review_limits_and_gates(tmp_path):
     assert client.post(board + "/ai/auto-review", json={"proposal_id": pid, "max_rounds": 9}).status_code == 422
     client.post(f"{board}/proposals/{pid}/reject", json={"note": "다시"})
     assert client.post(board + "/ai/auto-review", json={"proposal_id": pid}).json()["error_code"] == "PROPOSAL_CLOSED"
+
+
+# --- a part with no KiCad symbol: choose a way forward, then continue -----------------------------------------------
+
+MISSING = {**PLAN, "parts": [*PLAN["parts"][:3], {"ref": "U1", "role": "CAN 트랜시버", "category": "ic", "value": "XYZ999",
+                                                  "mpn": "XYZ999-Q1"}, *PLAN["parts"][4:]]}
+ALTERNATIVES = {"options": [
+    {"ref": "U1", "kind": "replace", "title": "SN65HVD230으로 대체", "detail": "3.3 V CAN 트랜시버, 핀 배치 동일 계열",
+     "part": {"value": "SN65HVD230", "mpn": "SN65HVD230DR", "manufacturer": "Texas Instruments"}},
+    {"ref": "U1", "kind": "replace", "title": "없는 부품", "detail": "지어낸 품번", "part": {"mpn": "ABC123ZZ"}},
+    {"ref": "U1", "kind": "approach", "title": "CAN 대신 UART만 쓰기", "detail": "요구사항에서 CAN을 빼고 UART 헤더만 둠"},
+    {"ref": "U1", "kind": "approach", "title": "CAN 모듈 헤더", "detail": "시판 CAN 모듈을 4핀 헤더로 연결",
+     "part": {"category": "connector", "pin_count": 4, "value": "CAN 모듈"}},
+    {"ref": "Q7", "kind": "replace", "title": "다른 부품", "detail": "없는 기호", "part": {"mpn": "SN65HVD230DR"}},
+]}
+
+
+def missing_part_ai(state):
+    def reply(prompt):
+        if "대안을 2~4개 제시하세요" in prompt:
+            state["alternatives"] = state.get("alternatives", 0) + 1
+            return json.dumps(ALTERNATIVES, ensure_ascii=False)
+        if "부품 목록을 정하세요" in prompt:
+            state.setdefault("plans", []).append(prompt)
+            return json.dumps(MISSING if len(state["plans"]) == 1 else PLAN, ensure_ascii=False)
+        return scripted(bad_first=False)(prompt)
+    return reply
+
+
+def stopped_at_missing_part(tmp_path):
+    state: dict = {}
+    client, _, pid = design_client(tmp_path, missing_part_ai(state))
+    board = f"/api/projects/{pid}/boards/a"
+    job = wait(client, client.post(board + "/ai/design", json={"instructions": "커넥터는 JST-XH"}).json())
+    return client, pid, board, job, state
+
+
+def test_a_missing_part_stops_with_checked_choices_not_a_dead_end(tmp_path):
+    client, pid, board, job, state = stopped_at_missing_part(tmp_path)
+    assert job["status"] == "failed" and job["error"]["error_code"] == "AI_DESIGN_INCOMPLETE"
+    assert "진행할 방법을 고르면 이어서 설계" in job["error"]["message"]
+    details = job["error"]["details"]
+    assert details["plan"]["parts"][3]["value"] == "XYZ999" and details["instructions"] == "커넥터는 JST-XH"
+    [choice] = details["choices"]
+    assert (choice["ref"], choice["role"], choice["mpn"]) == ("U1", "CAN 트랜시버", "XYZ999-Q1")
+    options = choice["options"]
+    by_title = {o["title"]: o for o in options}
+    # The AI's replacement is checked against the library; an invented part number is not offered at all.
+    assert by_title["SN65HVD230으로 대체"]["executable"] and "SN65HVD230" in by_title["SN65HVD230으로 대체"]["symbol_id"]
+    assert "없는 부품" not in by_title
+    # A direction in words is kept (it starts a new design); the module header is checked like a part.
+    assert not by_title["CAN 대신 UART만 쓰기"]["executable"] and by_title["CAN 대신 UART만 쓰기"]["part"] is None
+    assert by_title["CAN 모듈 헤더"]["symbol_id"] == "Connector_Generic:Conn_01x04"
+    assert {o["source"] for o in options} >= {"ai"} and len({o["id"] for o in options}) == len(options)
+    assert state["alternatives"] == 1 and len(state["plans"]) == 1
+    assert job["progress"][-1]["text"].startswith("대안 ")
+
+
+def test_resume_with_a_replacement_continues_from_the_saved_plan(tmp_path):
+    client, pid, board, job, state = stopped_at_missing_part(tmp_path)
+    [choice] = job["error"]["details"]["choices"]
+    pick = next(o for o in choice["options"] if o["title"] == "SN65HVD230으로 대체")
+    question = job["error"]["details"]["questions"][0]
+    r = client.post(board + "/ai/design/resume", json={"job_id": job["id"], "choices": [{"ref": "U1", "option_id": pick["id"]}],
+                                                       "answers": [{"question": question, "answer": "2핀 터미널"}]})
+    assert r.status_code == 202, r.json()
+    done = wait(client, r.json())
+    assert done["status"] == "succeeded", done
+    assert len(state["plans"]) == 1  # no second parts plan: the design continued from the saved one
+    assert done["progress"][0]["text"] == "고른 대안으로 부품 계획을 고쳐 이어서 설계"
+    p = client.get(f"{board}/proposals/{done['result']['proposal_id']}").json()
+    u1 = next(c for c in p["candidate"]["components"] if c["reference"] == "U1")
+    assert "SN65HVD230" in u1["symbol_id"] and u1["manufacturer_part_number"] == "SN65HVD230DR"
+    decision = next(d for d in p["candidate"]["decisions"] if "U1" in json.dumps(d, ensure_ascii=False))
+    assert decision["by"] == "changed" and "XYZ999" in json.dumps(decision, ensure_ascii=False)
+    req = client.get(f"/api/projects/{pid}/requirements").json()["text"]
+    assert "## AI 질문에 대한 답" in req and "답: 2핀 터미널" in req
+
+
+def test_resume_with_own_direction_starts_a_new_design_with_it(tmp_path):
+    client, pid, board, job, state = stopped_at_missing_part(tmp_path)
+    r = client.post(board + "/ai/design/resume", json={"job_id": job["id"],
+                                                       "choices": [{"ref": "U1", "text": "TI 트랜시버 중 3.3 V 제품으로"}]})
+    done = wait(client, r.json())
+    assert done["status"] == "succeeded", done
+    assert len(state["plans"]) == 2 and "TI 트랜시버 중 3.3 V 제품으로" in state["plans"][1]
+    assert "커넥터는 JST-XH" in state["plans"][1]  # the original request is kept
+
+
+def test_resume_gates(tmp_path):
+    client, pid, board, job, _ = stopped_at_missing_part(tmp_path)
+    r = client.post(board + "/ai/design/resume", json={"job_id": job["id"], "choices": []})
+    assert r.status_code == 409 and r.json()["error_code"] == "CHOICE_MISSING"
+    done = wait(client, client.post(board + "/ai/design/resume", json={
+        "job_id": job["id"], "choices": [{"ref": "U1", "text": "TI 제품으로"}]}).json())
+    r = client.post(board + "/ai/design/resume", json={"job_id": done["id"], "choices": []})
+    assert r.status_code == 409 and r.json()["error_code"] == "NOT_RESUMABLE"

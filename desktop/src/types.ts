@@ -283,6 +283,28 @@ export interface JobStep {
   data?: AutoReviewRound;
 }
 
+/** A way forward for a part with no KiCad symbol (an AI design stopped there; POST …/ai/design/resume). */
+export interface DesignOption {
+  id: string;
+  kind: "replace" | "approach";
+  title: string;
+  detail: string;
+  /** ai = the AI's alternative, library = close KiCad symbol, app = external-module header. */
+  source: "ai" | "library" | "app";
+  /** True: the part changes to a symbol checked in this library and the design continues from the saved plan. */
+  executable: boolean;
+  symbol_id: string | null;
+}
+
+export interface DesignChoice {
+  ref: string;
+  role: string;
+  value: string;
+  mpn: string;
+  why: string;
+  options: DesignOption[];
+}
+
 /** One round of the automatic review loop (POST /ai/auto-review). */
 export interface AutoReviewRound {
   round: number;
