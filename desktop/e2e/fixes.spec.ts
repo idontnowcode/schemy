@@ -46,3 +46,47 @@ test("floating inputs get a one-click fix as a follow-up proposal", async ({ pag
   await expect(page.getByText(/제안 #1 대비 바뀐 점: 부품 \+2/)).toBeVisible();
   await expect(page.getByLabel("바로 고치기")).toHaveCount(0, { timeout: 120_000 }); // nothing floats any more
 });
+
+test("an approved proposal keeps its fix actions, and the schematic tab offers them too", async ({ page }) => {
+  backend = await startBackend(tempWorkspace());
+  await page.goto(backend.url);
+  await page.getByLabel("새 프로젝트 이름").fill("Approved Fix");
+  await page.getByRole("button", { name: "새 프로젝트" }).click();
+  await page.getByRole("tab", { name: "회로 (IR)" }).click();
+  await page.getByLabel("예제 불러오기").selectOption("dc-motor-drv8871");
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.getByText("revision 1으로 저장했습니다.")).toBeVisible();
+
+  // Approve a change that leaves the driver inputs floating (the board is now that circuit, revision 2).
+  const projects = await (await page.request.get(`${backend.url}/api/projects`)).json();
+  const pid = projects[0].id as string;
+  const base = `${backend.url}/api/projects/${pid}/boards/a`;
+  const created = await (await page.request.post(`${base}/proposals`, {
+    data: { title: "제어 헤더 빼기", ops: [{ op: "remove_component", component_id: "j-ctl", expect_reference: "J2" }] },
+  })).json();
+  await expect.poll(async () => (await (await page.request.get(`${base}/proposals/${created.proposal.id}`)).json()).status,
+    { timeout: 120_000 }).not.toBe("checking");
+  const approved = await page.request.post(`${base}/proposals/${created.proposal.id}/approve`,
+    { data: { accept_failed_checks: true, generate: false } });
+  expect(approved.ok()).toBeTruthy();
+
+  await page.reload();
+  await page.getByRole("tab", { name: "제안" }).click();
+  await page.getByText("제어 헤더 빼기").first().click();
+  await expect(page.getByText("승인").first()).toBeVisible();
+  // The fixes stay: AI-free ones on the saved circuit, the AI ones visible and disabled with the reason (AI is off here).
+  const panel = page.getByLabel("바로 고치기");
+  await expect(panel).toBeVisible({ timeout: 60_000 });
+  const revise = page.getByRole("button", { name: "검토 반영 수정안 만들기" }).first();
+  await expect(revise).toBeVisible();
+  await expect(revise).toBeDisabled();
+  page.once("dialog", (d) => d.accept());
+  await panel.getByRole("button", { name: /선택한 조치로 수정 제안 만들기/ }).click();
+  await expect(page.getByRole("heading", { name: /#2 / })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/기준 revision 2/).first()).toBeVisible(); // started from the saved circuit, not undone
+
+  // The same quick fixes are on the schematic tab's check card, for the saved circuit.
+  await page.getByRole("tab", { name: "회로도 · 검증" }).click();
+  await page.getByRole("button", { name: /회로도 생성|다시 생성/ }).first().click();
+  await expect(page.getByLabel("바로 고치기")).toBeVisible({ timeout: 120_000 });
+});

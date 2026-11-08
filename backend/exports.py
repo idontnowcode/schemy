@@ -42,12 +42,14 @@ _FIXED_TYPES = {
     "symbol_sources.json": "symbol_sources",
     "erc.json": "erc_report",
     "check_report.json": "check_report",
+    "sym-lib-table": "library_table",
+    "fp-lib-table": "library_table",
 }
 _SUFFIX_TYPES = {".kicad_sch": "schematic", ".kicad_pro": "kicad_project", ".net": "netlist", ".svg": "svg"}
 _FROM_KICAD = {"netlist", "svg", "erc_report", "check_report"}
-# KiCad rewrites the project file when a user opens and closes it, so it is not
-# used to detect external edits.
-_NOT_WATCHED = {"kicad_project"}
+# KiCad rewrites the project file when a user opens and closes it (and the library tables when the user changes
+# library settings), so they are not used to detect external edits.
+_NOT_WATCHED = {"kicad_project", "library_table"}
 _SAFE_NAME = re.compile(r"^[^/\\\x00]+$")
 
 

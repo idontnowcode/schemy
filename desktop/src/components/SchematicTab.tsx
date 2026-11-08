@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 
 import { api, ApiError, errorText, outputText, waitForJob } from "../api";
 import { desktop } from "../desktop";
-import { automatedLabel, cropSvg, formatTime, shortHash } from "../format";
-import type { ApiErrorBody, BoardSummary, Issue, Job, OutputsStatus, SystemInfo } from "../types";
+import { AI_SETUP_HINT, automatedLabel, cropSvg, ERC_EXPLAIN, ercWarningText, formatTime, shortHash } from "../format";
+import type { AiStatus, ApiErrorBody, BoardSummary, Issue, Job, OutputsStatus, SystemInfo } from "../types";
 import { Chip } from "./Chip";
 import { IssueList } from "./IssueList";
+import { ErcViolations, QuickFixPanel, RevisionPanel } from "./ProposalsTab";
 
 interface Props {
   projectId: string;
@@ -58,6 +59,14 @@ export function SchematicTab({ projectId, board, revision, outputs, system, fixe
   const [svgUrl, setSvgUrl] = useState<string | null>(null);
   const [zoom, setZoom] = useState<(typeof ZOOMS)[number]["id"]>("fit");
   const [pageIndex, setPageIndex] = useState(0);
+  const [ai, setAi] = useState<AiStatus | null>(null);
+  const [revising, setRevising] = useState(false);
+  const [fixMessage, setFixMessage] = useState<{ text: string; proposal: string | null } | null>(null);
+  const aiReady = Boolean(ai?.settings.enabled && ai.key.configured);
+
+  useEffect(() => {
+    api.aiStatus().then(setAi).catch(() => setAi(null));
+  }, []);
 
   const manifest = outputs?.manifest ?? null;
   const pages = manifest?.pages ?? [];
@@ -112,6 +121,15 @@ export function SchematicTab({ projectId, board, revision, outputs, system, fixe
 
   const check = manifest?.automated_check;
   const label = automatedLabel(check?.status);
+  // Fixes start from the saved circuit, so they are offered only for results of the current revision.
+  const current = Boolean(outputs && manifest && !outputs.stale && manifest.source_revision === revision);
+  const circuitProblems = (check?.violations ?? []).some((v) => ERC_EXPLAIN[String(v.type)]?.kind !== "setup")
+    || (manifest?.warnings ?? []).length > 0;
+  const fixed = async (id: string, how: string) => {
+    setRevising(false);
+    setFixMessage({ text: `${how} 제안 #${Number(id)}을 만들었습니다. 「제안」 탭에서 비교하고 승인하면 반영됩니다.`, proposal: id });
+    await onChanged();
+  };
   const failureIssues = typeof failure === "object" && failure ? ((failure.details as { issues?: Issue[] })?.issues ?? []) : [];
 
   return (
@@ -174,7 +192,7 @@ export function SchematicTab({ projectId, board, revision, outputs, system, fixe
                 <>
                   <dt>ERC</dt>
                   <dd>
-                    오류 {check.erc_errors}, 경고 {check.erc_warnings}
+                    오류 {check.erc_errors}, {ercWarningText(check.erc_warnings, check.violations)}
                   </dd>
                 </>
               )}
@@ -189,14 +207,37 @@ export function SchematicTab({ projectId, board, revision, outputs, system, fixe
             </dl>
             {check?.reason && <p className="muted small">{check.reason}</p>}
             {check && check.violations.length > 0 && (
-              <ul className="issues">
-                {check.violations.map((v, i) => (
-                  <li key={i} className={`issue issue-${v.severity === "error" ? "error" : "warning"}`}>
-                    <span className="issue-code">{v.type}</span> {v.description}
-                    {v.items.length > 0 && <div className="muted small">{v.items.join("; ")}</div>}
-                  </li>
-                ))}
-              </ul>
+              <ErcViolations violations={check.violations}
+                refresh={{ label: "다시 생성해 설정 경고 없애기", run: () => void generate(false), disabled: running || !revision }} />
+            )}
+            {current && revision && (
+              <QuickFixPanel projectId={projectId} boardId={board.id} proposalId={null} checkedAt={manifest!.generated_at}
+                busy={running || layoutBusy} onFixed={(id) => fixed(id, "떠 있는 입력 핀을 고친")} />
+            )}
+            {current && circuitProblems && (
+              <div className="toolbar">
+                <button className={revising ? "small-btn" : "ghost small-btn"} onClick={() => setRevising(!revising)}
+                  disabled={!aiReady || running} title={aiReady ? "검사에서 나온 문제를 AI가 고친 새 제안을 만듭니다(승인 전에는 회로가 바뀌지 않음)" : AI_SETUP_HINT}>
+                  AI로 검사 문제 고치기
+                </button>
+                {!aiReady && <span className="small muted">{AI_SETUP_HINT}</span>}
+              </div>
+            )}
+            {revising && (
+              <RevisionPanel projectId={projectId} boardId={board.id} proposalId={null}
+                provider={ai?.settings.provider ?? "gemini"} model={ai?.settings.model ?? ""} preset={{ checks: true }}
+                onCancel={() => setRevising(false)} onCreated={(id) => fixed(id, "검사 문제를 AI가 고친")} />
+            )}
+            {!current && check && check.violations.length > 0 && (
+              <p className="muted small">지금 회로와 다른 revision의 결과입니다. 다시 생성한 뒤 고치기 버튼을 쓸 수 있습니다.</p>
+            )}
+            {fixMessage && (
+              <p className="small" role="status">
+                {fixMessage.text}{" "}
+                {fixMessage.proposal && onOpenProposal && (
+                  <button className="link" onClick={() => onOpenProposal(fixMessage.proposal!)}>제안 #{Number(fixMessage.proposal)} 열기</button>
+                )}
+              </p>
             )}
             {check?.netlist_diff && <pre className="small">{check.netlist_diff}</pre>}
             <IssueList issues={manifest.warnings} />

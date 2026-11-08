@@ -9,6 +9,7 @@ import type {
   RevisionInfo,
   Sheet as IRSheet,
   VerificationStatus,
+  Proposal,
 } from "./types";
 
 export type Tone = "ok" | "bad" | "warn" | "muted" | "info";
@@ -275,10 +276,23 @@ export const ERC_EXPLAIN: Record<string, { text: string; kind: "circuit" | "draw
   isolated_pin_label: { kind: "circuit", text: "라벨이 핀 하나에만 붙어 있습니다. 연결이 빠졌을 가능성이 큽니다." },
   pin_to_pin: { kind: "circuit", text: "같은 Net에 함께 두면 안 되는 종류의 핀이 있습니다(예: 출력끼리, 양방향 핀과 PWR_FLAG). 출력끼리라면 고쳐야 하고, PWR_FLAG와의 경고는 대개 동작과 무관합니다." },
   multiple_net_names: { kind: "drawing", text: "한 Net에 이름이 둘 붙었습니다." },
-  lib_symbol_issues: { kind: "setup", text: "이 컴퓨터 KiCad의 심볼 라이브러리 표에 해당 라이브러리가 없다는 경고입니다. 회로도 파일에는 심볼이 들어 있어 연결과는 관계없습니다. KiCad를 한 번 실행해 기본 라이브러리 표를 설정하면 사라집니다." },
+  lib_symbol_issues: { kind: "setup", text: "KiCad가 그 심볼 라이브러리를 찾지 못했다는 경고입니다. 회로도 파일에는 심볼이 들어 있어 연결과는 관계없습니다. 앱은 KiCad 기본 라이브러리를 프로젝트의 라이브러리 표(sym-lib-table)에 함께 적으므로, 남아 있다면 KiCad 설치 폴더 밖의 라이브러리이거나 「회로도 · 검증」에서 다시 생성하기 전의 결과입니다." },
   lib_symbol_mismatch: { kind: "setup", text: "설치된 라이브러리의 심볼과 파일 안의 심볼이 조금 다릅니다(KiCad 버전 차이). 연결과는 관계없습니다." },
-  footprint_link_issues: { kind: "setup", text: "풋프린트 라이브러리 표에 없는 풋프린트입니다. PCB로 넘어갈 때 확인하세요." },
+  footprint_link_issues: { kind: "setup", text: "KiCad가 그 풋프린트 라이브러리를 찾지 못했다는 경고입니다(연결과는 관계없음). 앱이 프로젝트의 fp-lib-table에 KiCad 기본 풋프린트 라이브러리를 적으므로, 남아 있다면 다시 생성하기 전의 결과이거나 기본 라이브러리에 없는 풋프린트 이름입니다. PCB로 넘어가기 전에 확인하세요." },
 };
+
+/** ERC warnings split into circuit problems and this computer's KiCad set-up (library tables), for the summary line. */
+export function ercWarningSplit(violations: { severity: string; type: string }[] | undefined): { circuit: number; setup: number } {
+  const warnings = (violations ?? []).filter((v) => v.severity !== "error");
+  const setup = warnings.filter((v) => ERC_EXPLAIN[String(v.type)]?.kind === "setup").length;
+  return { circuit: warnings.length - setup, setup };
+}
+
+/** "경고 26 (회로 0 · KiCad 설정 26)" - the split only when some warnings are about the KiCad set-up. */
+export function ercWarningText(count: number | null | undefined, violations: { severity: string; type: string }[] | undefined): string {
+  const { circuit, setup } = ercWarningSplit(violations);
+  return `경고 ${count ?? 0}` + (setup > 0 ? ` (회로 ${circuit} · 이 컴퓨터 KiCad 설정 ${setup})` : "");
+}
 
 export function proposalSourceLabel(source: string): string {
   return (
@@ -458,4 +472,22 @@ export function priceText(price: number | null, currency: string | null, qty: nu
   if (price == null) return "—";
   const unit = currency === "USD" ? `$${price}` : `${price} ${currency ?? ""}`.trim();
   return qty && qty > 1 ? `${unit} (${qty}개~)` : unit;
+}
+
+/** Whether a proposal's review findings and check problems can still become a fix. An open proposal is fixed itself;
+ * an approved one only while it is still the board's current revision (the fix then starts from the saved circuit);
+ * a rejected or stale one would undo later changes, so the user is pointed at the current circuit instead. */
+export function fixability(p: Proposal, boardRevision: number | null): { ok: boolean; why: string | null; quickFixOn: string | null } {
+  if (["ready", "invalid", "check_failed", "checking"].includes(p.status)) return { ok: true, why: null, quickFixOn: p.id };
+  if (p.status === "approved") {
+    if (p.result_revision !== null && p.result_revision !== undefined && p.result_revision === boardRevision) {
+      return { ok: true, why: null, quickFixOn: null };
+    }
+    return { ok: false, quickFixOn: null,
+      why: `승인 뒤 회로가 다시 바뀌었습니다(지금 revision ${boardRevision ?? "?"}). 위 「현재 회로 AI 검토」로 지금 회로를 검토한 뒤 고치세요.` };
+  }
+  if (p.status === "rejected") {
+    return { ok: false, quickFixOn: null, why: "거부한 제안입니다. 지금 회로를 고치려면 위 「현재 회로 AI 검토」를 쓰세요." };
+  }
+  return { ok: false, quickFixOn: null, why: "기준 회로가 바뀐 낡은 제안입니다. 위 「현재 회로 AI 검토」로 지금 회로를 검토한 뒤 고치세요." };
 }

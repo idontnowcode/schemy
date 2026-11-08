@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import uuid
 from collections import Counter
@@ -63,7 +64,7 @@ from .drawing import (
     wrap_note,
 )
 from .layout import PinGeom, plan_groups
-from .sexpr import num, q
+from .sexpr import child, head, num, q, unquote
 from .symbols import LibField, LibSymbol, SymbolLibrary, SymbolLibraryError
 
 SCHEMATIC_FILE_VERSION = "20260306"
@@ -137,6 +138,8 @@ class GeneratedSchematic:
     symbol_sources: dict[str, dict[str, str]] = field(default_factory=dict)
     power_flags: list[str] = field(default_factory=list)
     """Nets that got an automatic PWR_FLAG (power enters through a connector; nothing on the board drives it)."""
+    footprint_libraries: list[str] = field(default_factory=list)
+    """Footprint library nicknames the parts use (``Resistor_SMD`` of ``Resistor_SMD:R_0603_1608Metric``)."""
 
     @property
     def text(self) -> str:
@@ -163,7 +166,52 @@ class GeneratedSchematic:
             _atomic_write(out_dir / page.filename, page.text)
         pro = out_dir / f"{self.project_name}.kicad_pro"
         _atomic_write(pro, project_file(self.project_name))
+        for name, text in self.library_tables(out_dir).items():
+            _atomic_write(out_dir / name, text)
         return out_dir / self.pages[0].filename
+
+    def library_tables(self, out_dir: Path | None = None) -> dict[str, str]:
+        """``sym-lib-table`` and ``fp-lib-table`` for the project: the KiCad libraries it uses, by KiCad's own path
+        variables. Without them, KiCad that never set up its global tables (installed but not opened, or kicad-cli
+        alone) reports every symbol and footprint as "not in the current configuration" - an ERC warning per part.
+
+        Only libraries in KiCad's install folder are listed (a copy elsewhere is left to the user's own tables, so
+        nothing here points at a path of this computer). An existing table in ``out_dir`` keeps its entries; the
+        missing ones are added."""
+        symbol_libs = sorted({lib_id.partition(":")[0] for lib_id, src in self.symbol_sources.items()
+                              if _in_kicad_library_folder(src.get("path", ""))})
+        footprint_libs = sorted(self.footprint_libraries) if symbol_libs else []
+        out = {}
+        for filename, head_name, libs, folder, suffix in (
+                ("sym-lib-table", "sym_lib_table", symbol_libs, "${KICAD10_SYMBOL_DIR}", ".kicad_sym"),
+                ("fp-lib-table", "fp_lib_table", footprint_libs, "${KICAD10_FOOTPRINT_DIR}", ".pretty")):
+            if not libs:
+                continue
+            path = out_dir / filename if out_dir else None
+            existing = path.read_text(encoding="utf-8") if path and path.is_file() else ""
+            kept = [] if not existing else [n for n in sexpr.parse(existing)[1:] if head(n) == "lib"]
+            names = {unquote(child(n, "name")[1]) for n in kept if child(n, "name")}
+            lines = [f"({head_name}", "\t(version 7)"] + ["\t" + _one_line(n) for n in kept]
+            lines += [f'\t(lib (name "{n}") (type "KiCad") (uri "{folder}/{n}{suffix}") (options "") (descr ""))'
+                      for n in libs if n not in names]
+            out[filename] = "\n".join(lines) + "\n)\n"
+        return out
+
+
+def _one_line(node) -> str:
+    return "(" + " ".join(_one_line(x) for x in node) + ")" if isinstance(node, list) else str(node)
+
+
+def _in_kicad_library_folder(path: str) -> bool:
+    """A library file inside KiCad's installed symbol folder (``.../share/kicad/symbols``, macOS
+    ``.../SharedSupport/symbols``, or ``KICAD10_SYMBOL_DIR``), which ``${KICAD10_SYMBOL_DIR}`` resolves to."""
+    if not path:
+        return False
+    folder = Path(path).resolve().parent
+    env = os.environ.get("KICAD10_SYMBOL_DIR")
+    if env and Path(env).resolve() == folder:
+        return True
+    return folder.name == "symbols" and folder.parent.name.lower() in ("kicad", "sharedsupport")
 
 
 def project_file(project_name: str) -> str:
@@ -894,6 +942,8 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
         anchors=anchors,
         warnings=warnings,
         symbol_sources=dict(sorted(sources.items())),
+        footprint_libraries=sorted({c.footprint_id.partition(":")[0] for c in circuit.components
+                                    if c.footprint_id and ":" in c.footprint_id}),
         power_flags=[v.net for v in virtual],
     )
 

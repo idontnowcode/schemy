@@ -5,7 +5,10 @@ import {
   automatedLabel,
   cropSvg,
   datasheetLabel,
+  ercWarningSplit,
+  ercWarningText,
   externalLabel,
+  fixability,
   identityLabel,
   matchLabel,
   moveToPage,
@@ -21,7 +24,7 @@ import {
   sourceLabel,
   toErrorBody,
 } from "./format";
-import type { CircuitIR, OutputsStatus } from "./types";
+import type { CircuitIR, OutputsStatus, Proposal } from "./types";
 
 function outputs(partial: Partial<OutputsStatus>, status: "passed" | "failed" | "not_checked" = "passed"): OutputsStatus {
   return {
@@ -171,5 +174,33 @@ describe("datasheet labels", () => {
     expect(externalLabel([{ status: "direct", requirement: "recommended" }]).tone).toBe("muted");
     expect(rangeText(-0.3, 6)).toBe("-0.3 ~ 6 V");
     expect(rangeText(null, 3.6)).toBe("최대 3.6 V");
+  });
+});
+
+describe("fix actions on proposals", () => {
+  const p = (status: string, result_revision: number | null = null) => ({ id: "0003", status, result_revision }) as unknown as Proposal;
+
+  it("open proposals fix themselves; an approved one only while it is the board's revision", () => {
+    expect(fixability(p("ready"), 4)).toEqual({ ok: true, why: null, quickFixOn: "0003" });
+    expect(fixability(p("checking"), 4).ok).toBe(true);
+    expect(fixability(p("approved", 4), 4)).toEqual({ ok: true, why: null, quickFixOn: null }); // quick fixes on the saved circuit
+    const moved = fixability(p("approved", 3), 4);
+    expect(moved.ok).toBe(false);
+    expect(moved.why).toContain("지금 revision 4");
+    expect(fixability(p("rejected"), 4).why).toContain("거부한 제안");
+    expect(fixability(p("stale"), 4).ok).toBe(false);
+  });
+
+  it("ERC warnings about this computer's KiCad set-up are counted apart", () => {
+    const v = [
+      { severity: "warning", type: "lib_symbol_issues" },
+      { severity: "warning", type: "footprint_link_issues" },
+      { severity: "warning", type: "pin_to_pin" },
+      { severity: "error", type: "pin_not_connected" },
+    ];
+    expect(ercWarningSplit(v)).toEqual({ circuit: 1, setup: 2 });
+    expect(ercWarningText(3, v)).toBe("경고 3 (회로 1 · 이 컴퓨터 KiCad 설정 2)");
+    expect(ercWarningText(1, [{ severity: "warning", type: "pin_to_pin" }])).toBe("경고 1");
+    expect(ercWarningText(0, undefined)).toBe("경고 0");
   });
 });

@@ -225,3 +225,28 @@ def test_multi_page_export_with_kicad(tmp_path, kicad_cli):
     assert [p["svg"] for p in pages] == ["led-demo-a.svg", "led-demo-a-LED 출력.svg"]
     svg = client.get(f"/api/projects/{pid}/boards/a/outputs/files/led-demo-a-LED 출력.svg")
     assert svg.status_code == 200 and "<svg" in svg.text
+
+
+def test_export_carries_kicad_library_tables(tmp_path):
+    """Symbols from KiCad's install folder get a project sym-lib-table / fp-lib-table, so kicad-cli on a computer whose
+    KiCad never set up its global tables does not warn about every part. KiCad rewrites these files when the user
+    changes library settings, so they are not watched for outside edits."""
+    import shutil
+
+    from .conftest import SYMBOL_DIR
+
+    kicad_symbols = tmp_path / "kicad" / "share" / "kicad" / "symbols"
+    shutil.copytree(SYMBOL_DIR, kicad_symbols)
+    client = make_client(tmp_path / "ws", symbol_dirs=[kicad_symbols])
+    pid = new_project(client)
+    save_ir(client, pid)
+    run_export(client, pid)
+    out = tmp_path / "ws" / "projects" / pid / "boards" / "a" / "outputs"
+    sym = (out / "sym-lib-table").read_text(encoding="utf-8")
+    assert '(lib (name "Device") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Device.kicad_sym")' in sym
+    assert '"${KICAD10_FOOTPRINT_DIR}/Resistor_SMD.pretty"' in (out / "fp-lib-table").read_text(encoding="utf-8")
+    manifest = client.get(f"/api/projects/{pid}/boards/a/outputs").json()["manifest"]
+    types = {a["path"]: a["artifact_type"] for a in manifest["artifacts"]}
+    assert types["sym-lib-table"] == types["fp-lib-table"] == "library_table"
+    (out / "sym-lib-table").write_text(sym.replace("(version 7)", "(version 7)\n\t"), encoding="utf-8")
+    assert client.get(f"/api/projects/{pid}/boards/a/outputs").json()["externally_modified"] == []

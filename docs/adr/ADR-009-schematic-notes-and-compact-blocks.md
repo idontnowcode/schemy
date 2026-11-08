@@ -61,7 +61,13 @@
 - 1페이지의 하위 시트 상자 자리를 잡을 때 상자 아래 「File: …」 글자 폭까지 비워 둔다(옆 상자 글자와 겹쳤음).
 - 골든 시험은 여러 페이지 보드의 모든 페이지 파일을 비교한다.
 
-## 확인
+### 추가 (2026-11, 사용자 화면의 「ERC 오류 0, 경고 26」)
+
+- 생성 프로젝트에 `sym-lib-table`·`fp-lib-table`을 함께 쓴다. KiCad를 설치만 하고 열지 않았거나 kicad-cli만 쓰는 컴퓨터는 전역 라이브러리 표가 없어, ERC가 심볼·풋프린트마다 「현재 설정에 라이브러리가 없음」 경고를 낸다(NE555 예제: 41건 → 0건, KiCad 10.0.8 Docker에서 빈 HOME으로 재현·확인. 설정된 KiCad에서도 0건).
+- 표에는 KiCad 설치 폴더(`…/share/kicad/symbols`, `KICAD10_SYMBOL_DIR`)의 라이브러리만 `${KICAD10_SYMBOL_DIR}`·`${KICAD10_FOOTPRINT_DIR}`로 적는다. 다른 곳의 라이브러리(복사본, 사용자 라이브러리)는 적지 않는다. 그 컴퓨터의 경로가 파일에 들어가거나 사용자 표의 같은 이름을 가리면 안 되기 때문이다. 폴더에 이미 표가 있으면 그 항목을 그대로 두고 없는 것만 더한다.
+- 출력 목록에는 `library_table`로 올리되 외부 수정 감시는 하지 않는다(KiCad가 라이브러리 설정을 바꿀 때 다시 쓴다).
+
+
 
 - 예제 4개(`led-resistor-connector`, `atmega328p-led-board`, `ne555-led-board`, `lm7805-24v-to-5v`)를 golden으로 비교하고, 샘플 보드 3개는 KiCad 10.0.8에서 ERC 0건·Netlist = IR·재저장 무손실을 확인한다.
 - 배치 규칙은 `tests/test_schematic.py`(크리스탈 양단, 555 타이밍 체인, 전원 블록, 주석 위치), 주석은 `tests/test_notes.py`에서 확인한다.

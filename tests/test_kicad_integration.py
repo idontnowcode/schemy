@@ -1,5 +1,7 @@
 """End-to-end checks with a real kicad-cli. Skipped (not passed) when KiCad is absent."""
 
+import json
+import os
 import shutil
 
 import pytest
@@ -191,3 +193,37 @@ def test_ic_circuits_pass_erc_with_no_connect_and_power_flags(library, kicad_cli
             ('\t(generator "ai_circuit_studio")', '\t(generator "eeschema")'),
             ('\t(generator_version "0.1")', '\t(generator_version "10.0")'),
         ]
+
+
+@pytest.mark.skipif(not os.environ.get("AICS_KICAD_DOCKER_IMAGE"),
+                    reason="needs the KiCad Docker image (AICS_KICAD_DOCKER_IMAGE)")
+def test_library_tables_silence_an_unconfigured_kicad(tmp_path, timer_board):
+    """kicad-cli on a computer whose KiCad never set up its global library tables (an empty HOME here) warns about
+    every symbol and footprint; with the project's own tables it does not."""
+    import shutil
+    import subprocess
+
+    from kicad_adapter import SymbolLibrary
+
+    from .conftest import SYMBOL_DIR
+
+    kicad_symbols = tmp_path / "share" / "kicad" / "symbols"
+    shutil.copytree(SYMBOL_DIR, kicad_symbols)
+    project, home = tmp_path / "project", tmp_path / "home"
+    home.mkdir()
+    generate_schematic(timer_board, SymbolLibrary([kicad_symbols]), project_name="timer").write(project)
+
+    def setup_warnings() -> int:
+        docker = ["docker", "run", "--rm", "--network", "none", "--user", f"{os.getuid()}:{os.getgid()}",
+                  "--env", "HOME=/home/empty", "-v", f"{project}:/work", "-v", f"{home}:/home/empty", "-w", "/work"]
+        erc = ["kicad-cli", "sch", "erc", "--format", "json", "--severity-all", "-o", "/work/erc.json",
+               "/work/timer.kicad_sch"]
+        subprocess.run([*docker, os.environ["AICS_KICAD_DOCKER_IMAGE"], *erc], check=True, capture_output=True)
+        report = json.loads((project / "erc.json").read_text(encoding="utf-8"))
+        return sum(v["type"] in ("lib_symbol_issues", "footprint_link_issues")
+                   for sheet in report["sheets"] for v in sheet["violations"])
+
+    assert setup_warnings() == 0
+    for table in ("sym-lib-table", "fp-lib-table"):
+        (project / table).rename(project / f"{table}.off")
+    assert setup_warnings() > 10  # the situation the tables fix: one warning per symbol and footprint

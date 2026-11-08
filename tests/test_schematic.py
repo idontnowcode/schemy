@@ -1,11 +1,12 @@
 import json
 import math
 import os
+import re
 
 import pytest
 
 from circuit_core import CircuitIR
-from kicad_adapter import SCHEMATIC_FILE_VERSION, SchematicGenerationError, generate_schematic, sexpr
+from kicad_adapter import SCHEMATIC_FILE_VERSION, SchematicGenerationError, SymbolLibrary, generate_schematic, sexpr
 from kicad_adapter.schematic import project_file
 from kicad_adapter.sexpr import child, children, head, unquote
 
@@ -158,6 +159,33 @@ def test_internal_regulator_pins_and_sheet_boxes(library):
     for i, a in enumerate(boxes):
         for b in boxes[i + 1:]:
             assert a[1] != b[1] or a[2] <= b[0] or b[2] <= a[0], (a, b)
+
+
+def test_library_tables_point_at_kicad_libraries_only(tmp_path, sample_board):
+    """A project lists the KiCad libraries it uses by KiCad's path variables (no path of this computer); libraries from
+    anywhere else are left to the user's tables; an existing table keeps its entries."""
+    import shutil
+
+    from .conftest import SYMBOL_DIR
+
+    kicad_symbols = tmp_path / "share" / "kicad" / "symbols"
+    shutil.copytree(SYMBOL_DIR, kicad_symbols)
+    g = generate_schematic(sample_board, SymbolLibrary([kicad_symbols]), project_name="atmega")
+    tables = g.library_tables()
+    names = re.findall(r'\(lib \(name "([^"]+)"', tables["sym-lib-table"])
+    assert names == sorted(names) and {"Device", "MCU_Microchip_ATmega", "power"} <= set(names)
+    assert str(tmp_path) not in tables["sym-lib-table"] + tables["fp-lib-table"]
+    assert '(uri "${KICAD10_FOOTPRINT_DIR}/Package_QFP.pretty")' in tables["fp-lib-table"]
+    assert generate_schematic(sample_board, SymbolLibrary([SYMBOL_DIR])).library_tables() == {}  # a copy elsewhere
+
+    out = tmp_path / "project"
+    out.mkdir()
+    own = '(lib (name "Device") (type "KiCad") (uri "/mine/Device.kicad_sym") (options "") (descr "own"))'
+    (out / "sym-lib-table").write_text(f"(sym_lib_table\n\t(version 7)\n\t{own}\n)\n", encoding="utf-8")
+    g.write(out)
+    merged = (out / "sym-lib-table").read_text(encoding="utf-8")
+    assert '(uri "/mine/Device.kicad_sym")' in merged and merged.count('(name "Device")') == 1
+    assert '(name "MCU_Microchip_ATmega")' in merged and (out / "fp-lib-table").is_file()
 
 
 def test_mixed_host_connector_is_the_power_input(library):
