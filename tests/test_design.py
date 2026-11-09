@@ -20,9 +20,12 @@ PLAN = {
     "title": "CAN 노드 (SN65HVD230)", "summary": "3.3V CAN 트랜시버와 디커플링, 종단 저항.",
     "assumptions": ["버스 끝단 노드라서 120Ω 종단을 넣음"], "questions": ["CAN 커넥터 형태?"],
     "parts": [
-        {"ref": "J1", "role": "전원 입력", "category": "connector", "value": "PWR", "pin_count": 2},
-        {"ref": "J2", "role": "CAN 버스", "category": "connector", "value": "CAN", "pin_count": 2},
-        {"ref": "J3", "role": "UART", "category": "connector", "value": "UART", "pin_count": 2},
+        {"ref": "J1", "role": "전원 입력", "category": "connector", "value": "PWR", "pin_count": 2,
+         "package": "2.54mm 헤더"},
+        {"ref": "J2", "role": "CAN 버스", "category": "connector", "value": "CAN", "pin_count": 2,
+         "package": "2.54mm 헤더"},
+        {"ref": "J3", "role": "UART", "category": "connector", "value": "UART", "pin_count": 2,
+         "package": "2.54mm 헤더"},
         {"ref": "U1", "role": "CAN 트랜시버", "category": "ic", "value": "SN65HVD230", "mpn": "SN65HVD230DR",
          "manufacturer": "Texas Instruments", "search_terms": ["CAN transceiver"]},
         {"ref": "C1", "role": "디커플링", "category": "capacitor", "value": "100nF", "package": "0603"},
@@ -876,6 +879,45 @@ def test_a_new_value_takes_its_part_number_and_notes_can_be_fixed(tmp_path, reso
     assert problems and "N99" in problems[0]
 
 
+def test_a_three_pin_diode_is_never_a_two_pin_generic(resolver):
+    """Found in a real-flow run: SM712 (SOT-23, three pins) named with a wrong symbol became Device:D (two pins)."""
+    tvs, _ = resolver({"ref": "D3", "category": "diode", "value": "SM712", "mpn": "SM712.TCT", "package": "SOT-23",
+                       "kicad_symbol": "Power_Protection:SM712", "search_terms": ["SM712"]})
+    assert tvs is not None and tvs.symbol_id == "Diode:SM712_SOT23" and len(tvs.pins) == 3
+    unknown, why = resolver({"ref": "D9", "category": "diode", "value": "XYZ3PIN", "package": "SOT-23"})
+    assert unknown is None and "2핀 일반 심볼" in why
+    plain, _ = resolver({"ref": "D1", "category": "diode", "value": "1N4148", "package": "SOD-123"})
+    assert plain is not None and plain.symbol_id == "Device:D"
+
+
+def test_an_edit_can_set_the_package_and_footprint(tmp_path, resolver):
+    from ai_engine.design import DesignInput, apply_edits, edit_prompt
+
+    base = can_candidate(tmp_path)
+    j2 = next(c for c in base.components if c.reference == "J2")
+    prompt = edit_prompt(DesignInput(requirements=REQUIREMENTS, spec=None, board_name="A", instructions=None), base, [])
+    assert f"- J2 CAN [{j2.symbol_id}] 핀:" in prompt and "· 풋프린트 PinHeader_1x02_P2.54mm_Vertical" in prompt
+    circuit, problems, changes, _ = apply_edits(base, [{"action": "set_value", "ref": "J2",
+                                                        "package": "5.08mm 단자대", "why": "F1"}], resolver)
+    assert problems == [] and any("J2 풋프린트" in c for c in changes)
+    assert next(c for c in circuit.components if c.reference == "J2").footprint_id.endswith("P5.08mm_Horizontal")
+    _, problems, _, _ = apply_edits(base, [{"action": "set_value", "ref": "J2", "package": "모름", "why": "F1"}],
+                                    resolver)
+    assert problems and "풋프린트를 정하지 못했습니다" in problems[0]
+
+
+def test_the_parts_plan_sees_inventory_ratings_and_notes():
+    """Found in a real-flow run: the CSV's 정격 (a capacitor's voltage) and 비고 (a crystal's CL) never reached the AI."""
+    from ai_engine.design import DesignInput, plan_prompt
+
+    inv = [{"id": "inv-1", "category": "capacitor", "value": "10uF", "package": "1206", "mpn": "CL31B106KBHNNNE",
+            "manufacturer": "Samsung", "stock": 300, "rating": "50V", "tolerance": "10%", "notes": None},
+           {"id": "inv-2", "category": "crystal", "value": "16MHz", "package": "3225", "mpn": "ABM8", "manufacturer": "Abracon",
+            "stock": 50, "rating": None, "tolerance": None, "notes": "CL 18pF"}]
+    text = plan_prompt(DesignInput(requirements=REQUIREMENTS, inventory=inv))
+    assert "재고 300 | 정격 50V | 오차 10%" in text and "재고 50 | 비고 CL 18pF" in text
+
+
 def test_a_revision_that_changes_nothing_makes_no_proposal(tmp_path):
     base = scripted(bad_first=False)
 
@@ -944,6 +986,9 @@ def test_guide_violations_are_fixed_before_the_review(tmp_path):
     texts = [s["text"] for s in job["progress"]]
     assert any(t.startswith("설계 지침 자동 점검: 위반 2개 (G-PWR-04, G-PWR-05)") for t in texts)
     assert any(t.startswith("지침 위반 고침: 2 → 0") for t in texts)
+    # The check's own edit steps stay under "check" so the parts/pins rows keep their results.
+    assert all(s["step"] == "check" for s in job["progress"] if s["text"].startswith(("고친 곳", "편집 ")))
+    assert any(s["step"] == "parts" and "부품" in s["text"] and "선택" in s["text"] for s in job["progress"])
     assert "[G-PWR-04]" in prompts[0] and "F1 [error] G-PWR-04" in prompts[0]
     p = client.get(f"{board}/proposals/{job['result']['proposal_id']}").json()
     assert p["ai"]["guide_check"]["before"] == ["G-PWR-04", "G-PWR-05"] and p["ai"]["guide_check"]["after"] == []

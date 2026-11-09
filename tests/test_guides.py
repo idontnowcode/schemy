@@ -68,6 +68,21 @@ def test_negated_requirements_and_the_ai_questions_pick_no_guides():
     assert any(i.startswith("G-ANA") for i in picked("0~10 V 아날로그 센서 입력, ADC"))
 
 
+def test_the_analog_supply_guide_looks_at_analog_pins_only_and_i2c_needs_i2c():
+    """Found in a real-flow run: a missing 100 nF at a regulator's VIN flagged the AVCC-filter guide, and an RS-485
+    board got the I2C pull-up guide."""
+    entry = next(e for e in entries() if e.id == "G-MCU-04")
+    vin = {"rule": "decoupling", "severity": "warn", "title": "U4 +24V: 디커플링 콘덴서 없음 (벌크 C11 680uF만)"}
+    avcc_ok = {"rule": "decoupling", "severity": "ok", "title": "U1 AVCC: 디커플링 콘덴서 있음 (C3)"}
+    avcc_bad = {"rule": "decoupling", "severity": "warn", "title": "U1 AVCC: 디커플링 콘덴서 없음"}
+    assert checklist([entry], [vin, avcc_ok], [])[0]["status"] == "ok"
+    assert checklist([entry], [vin], [])[0]["status"] == "manual"
+    assert checklist([entry], [avcc_bad], [])[0]["status"] == "warn"
+    rs485 = [e.id for e in relevant(entries(), text="0~10V 입력 2채널, RS-485(Modbus RTU), ATmega328P")]
+    assert "G-IF-01" not in rs485 and "G-IF-03" in rs485
+    assert "G-IF-01" in [e.id for e in relevant(entries(), text="3.3V I2C 센서 보드")]
+
+
 def test_library_seeds_once_and_keeps_history(tmp_path):
     lib = GuideLibrary(tmp_path)
     assert len(lib.entries()) == len(SEED) and len(lib.entries()) == len(SEED)  # seeded once

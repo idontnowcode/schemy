@@ -92,12 +92,29 @@ class PartResolver:
             if named:
                 candidates.append((guess, "AI가 제안한 심볼, 라이브러리에서 확인"))
             if category in ("diode", "fuse") and (mpn or value):
-                for score, sym in self.index.search([t for t in (mpn, value) if t], limit=4):
-                    if sym.lib_id.split(":")[-1].upper() in {(mpn or "").upper(), value.upper()}:
+                # A library symbol named like the part: exactly, or with a package suffix ("SM712" → SM712_SOT23),
+                # or the part number with an ordering suffix ("SMAJ33A-13-F" → SMAJ33A).
+                names = {n for n in ((mpn or "").upper(), value.upper(), (mpn or "").upper().split(".")[0],
+                                     guess.split(":")[-1].upper() if guess else "") if len(n) >= 4}
+                terms = [t for t in (mpn, value, guess.split(":")[-1] if guess else None,
+                                     *[str(x) for x in part.get("search_terms") or []]) if t]
+                for score, sym in self.index.search(terms, limit=8):
+                    name = sym.lib_id.split(":")[-1].upper()
+                    if name in names or any(name.startswith(n + "_") or (n.startswith(name) and len(name) >= 5)
+                                            for n in names):
                         candidates.append((sym.lib_id, f"품번과 같은 이름의 라이브러리 심볼 (점수 {score})"))
+            if category == "diode" and re.search(r"(?i)SOT-?23|SOT-?363|SC-?70|SOT-?323|SOT-?143", package or ""):
+                # A diode in a 3+ pin package (a TVS array, a dual diode) has no two-pin generic stand-in: its pads
+                # would not match. Stop here so the design offers a choice instead of a wrong symbol.
+                if not candidates:
+                    return None, (f"{package} 패키지 다이오드인데 맞는 KiCad 심볼을 찾지 못했습니다. 2핀 일반 심볼로는 "
+                                  "핀이 맞지 않아 바꾸지 않았습니다. kicad_symbol을 정확히 적어야 합니다.")
+                candidates.append(("", ""))  # marker: no generic fallback below
             if category == "fuse" and re.search(r"(?i)PTC|poly|리셋|resettable", f"{value} {part.get('role') or ''}"):
                 candidates.append(("Device:Polyfuse", "일반 부품 심볼 (PTC 퓨즈)"))
-            if category in GENERIC_SYMBOLS:
+            if ("", "") in candidates:
+                candidates.remove(("", ""))
+            elif category in GENERIC_SYMBOLS:
                 candidates.append((GENERIC_SYMBOLS[category], "일반 부품 심볼"))
             elif 1 <= count <= 40:
                 candidates.append((f"Connector_Generic:Conn_01x{count:02d}", f"{count}핀 일반 커넥터"))
@@ -118,7 +135,9 @@ class PartResolver:
                 continue
             sym = self.library.get(lib_id)
             if footprint is None:
-                footprint = package_footprint(category, package, len(sym.pins))
+                # A switch's symbol says what kind it is (SW_DIP_x02 with package "SMD" is a 2-way DIP switch).
+                text = f"{package or ''} {lib_id}" if category == "switch" else package
+                footprint = package_footprint(category, text, len(sym.pins))
             if footprint is None and not lib_id.startswith(("Device:", "Connector_Generic:")):
                 default_fp = sym.field("Footprint")  # a specific part's symbol usually names its package
                 footprint = default_fp.value if default_fp and default_fp.value else None

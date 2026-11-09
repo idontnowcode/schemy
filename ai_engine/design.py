@@ -30,6 +30,7 @@ from circuit_core.export import natural_key
 from circuit_core.guides import CHECKS as _GUIDE_CHECKS
 from circuit_core.guides import TOPICS as _GUIDE_TOPICS
 from circuit_core.models import Component, Note
+from circuit_core.parts import category_of, package_footprint
 from circuit_core.templates import TEMPLATES, PinsOf, TemplateError, catalog_text, instantiate, template_sources
 
 from .providers import AiError, LlmProvider, LlmResult
@@ -333,8 +334,12 @@ def _guides_block(text: str, step: str) -> str:
 def plan_prompt(inp: DesignInput) -> str:
     inv = ""
     if inp.inventory:
+        # The rating (a capacitor's voltage) and notes (a crystal's load capacitance) decide whether a part fits.
         rows = "\n".join(f"- id={r['id']} | {r.get('category') or '?'} | {r.get('value') or ''} | "
                          f"{r.get('package') or ''} | {r.get('mpn') or ''} | {r.get('manufacturer') or ''} | 재고 {r.get('stock')}"
+                         + (f" | 정격 {r['rating']}" if r.get("rating") else "")
+                         + (f" | 오차 {r['tolerance']}" if r.get("tolerance") else "")
+                         + (f" | 비고 {str(r['notes'])[:60]}" if r.get("notes") else "")
                          for r in inp.inventory)
         inv = ("\n[보유 자재 — 조건이 맞으면 우선 쓰고 inventory_part_id에 id를 적으세요]\n" + rows)
     return f"""당신은 전자회로 설계 엔지니어입니다. 아래 요구사항을 만족하는 회로의 부품 목록을 정하세요.
@@ -882,7 +887,9 @@ def _circuit_pins(circuit: CircuitIR) -> str:
         pins = ", ".join(f"{p.number}={p.name}" if p.name else p.number for p in c.pins)
         nc = [p.number for p in c.pins if p.no_connect]
         mpn = f" 품번 {c.manufacturer_part_number}" if c.manufacturer_part_number else ""
-        lines.append(f"- {c.reference} {c.value}{mpn} [{c.symbol_id}] 핀: {pins}" + (f" (NC: {','.join(nc)})" if nc else ""))
+        fp = f" · 풋프린트 {c.footprint_id.split(':')[-1]}" if c.footprint_id else " · 풋프린트 없음"
+        lines.append(f"- {c.reference} {c.value}{mpn} [{c.symbol_id}] 핀: {pins}" + (f" (NC: {','.join(nc)})" if nc else "")
+                     + fp)
     lines.append("[Net]")
     names = {c.id: c.reference for c in circuit.components}
     for n in circuit.nets:
@@ -912,8 +919,8 @@ def edit_prompt(inp: DesignInput, base: CircuitIR, findings: list[dict]) -> str:
   근거가 약하거나, 요구사항과 맞지 않거나, 사람이 정해야 하는 의견은 고치지 말고 이유를 적는 것이 맞습니다.
 - 의견과 상관없는 부품·값·연결은 바꾸지 마세요. 있는 부품의 기호(ref)도 바꾸지 마세요.
 - edits 종류 (모든 edit에 why: 어느 의견 때문인지 F 번호와 이유):
-  · set_value: ref, value, 품번이 있으면 mpn — 값(과 품번)을 바꿈 (예: R1을 4.7k로). 값이 바뀌는데 mpn을 적지 않으면
-    이전 품번은 지워집니다(이전 값의 품번이므로).
+  · set_value: ref, value, 품번이 있으면 mpn, 풋프린트를 바꿀 때 package — 값·품번·패키지를 바꿈 (예: R1을 4.7k로,
+    J4를 package "2.54mm 2x3 헤더"로). 값이 바뀌는데 mpn을 적지 않으면 이전 품번은 지워집니다(이전 값의 품번이므로).
   · add_part: 새 ref(겹치지 않게), category(resistor, capacitor, capacitor_polarized, inductor, led, diode, fuse,
     crystal, connector, ic …), value, role, 알면 mpn·kicad_symbol·package, connector면 pin_count
   · remove_part: ref
@@ -1001,6 +1008,8 @@ def apply_edits(base: CircuitIR, edits: list[dict], resolve: Resolver) -> tuple[
         action, ref, why = e.get("action"), str(e.get("ref") or "").strip().upper(), str(e.get("why") or "").strip()
         if action == "set_value":
             c, value = comps.get(ref), str(e.get("value") or "").strip()
+            if c is not None and not value and (e.get("package") or "mpn" in e):
+                value = c["value"]  # only the package or part number changes
             if c is None or not value:
                 problems.append(f"set_value {ref or '?'}: 회로에 없는 기호이거나 값이 비었습니다.")
                 continue
@@ -1017,6 +1026,18 @@ def apply_edits(base: CircuitIR, edits: list[dict], resolve: Resolver) -> tuple[
                 if mpn != c.get("manufacturer_part_number"):
                     changes.append(f"{ref} 품번 {c.get('manufacturer_part_number') or '없음'} → {mpn or '없음'}")
                     c["manufacturer_part_number"] = mpn
+            if str(e.get("package") or "").strip():
+                # A new package sets the footprint (a 2x3 header named as 1x6, a part with none).
+                category = category_of(c["symbol_id"], c["reference"])
+                text = str(e["package"]).strip()
+                fp = package_footprint(category, f"{text} {c['symbol_id']}" if category == "switch" else text,
+                                       len(c.get("pins") or []))
+                if fp is None:
+                    problems.append(f"set_value {ref}: 패키지 「{text}」로 풋프린트를 정하지 못했습니다 "
+                                    "(0603, SOT-23, SOIC-8, 2.54mm 2x3 헤더, 5.08mm 단자대처럼 적으세요).")
+                elif fp != c.get("footprint_id"):
+                    changes.append(f"{ref} 풋프린트 {c.get('footprint_id') or '없음'} → {fp}")
+                    c["footprint_id"] = fp
         elif action == "set_note":
             notes = data.get("notes") or []
             m = re.fullmatch(r"N?(\d+)", str(e.get("note") or "").strip().upper())

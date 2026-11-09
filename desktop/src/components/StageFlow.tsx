@@ -949,12 +949,14 @@ function ApproveStage(p: Common & { target: Proposal | null; revision: number | 
         <button type="button" className="ghost" onClick={() => p.onDetail("review")} disabled={p.busy !== null}>수정안 하나 더</button>
       </div>
       {confirming === "approve" && (
-        <div className={`flow-confirm ${passed ? "" : "warn"}`}>
+        <div className={`flow-confirm ${passed && !errors.length ? "" : "warn"}`}>
           <Icon name="info" />
           <span>
             {passed
               ? `승인하면 revision ${(p.revision ?? 0) + 1}로 저장하고 KiCad 회로도를 만듭니다.`
               : `이 제안은 자동 검사를 통과하지 못했거나 검사하지 않았습니다(${check.text}). 그래도 승인하면 revision ${(p.revision ?? 0) + 1}로 저장하고 회로도를 만듭니다.`}
+            {errors.length > 0 &&
+              ` AI 검토의 수정 필요 ${errors.length}건이 남아 있습니다(${errors.map((f) => f.title).slice(0, 2).join(" / ")}). 승인한 뒤에는 새 제안이나 회로 데이터에서 고쳐야 합니다.`}
           </span>
           <span className="spacer" />
           <button type="button" onClick={() => decide(true)} disabled={p.busy !== null}>승인 확정</button>

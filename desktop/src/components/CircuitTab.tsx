@@ -45,10 +45,14 @@ export function CircuitTab({ projectId, boardId, circuit, revision, onSaved, onO
   const mdInput = useRef<HTMLInputElement>(null);
   const pdfInput = useRef<HTMLInputElement>(null);
   const lastSaved = useRef(savedText);
+  /** The text a successful save sent: when the saved circuit arrives it replaces that text (the server's formatting
+   * may differ), but not edits made since. */
+  const sentText = useRef<string | null>(null);
 
-  // Follow the saved circuit when the editor has no unsaved edits.
+  // Follow the saved circuit when the editor has no unsaved edits (or has just been saved).
   useEffect(() => {
-    if (text === lastSaved.current) setText(savedText);
+    if (text === lastSaved.current || text === sentText.current) setText(savedText);
+    sentText.current = null;
     lastSaved.current = savedText;
   }, [savedText]);
 
@@ -99,6 +103,8 @@ export function CircuitTab({ projectId, boardId, circuit, revision, onSaved, onO
       const head = r.created ? `revision ${r.revision.revision}으로 저장했습니다.` : `변경 없음 (revision ${r.revision.revision}).`;
       setMessage([head, ...r.warnings].join(" "));
       setSource("user_edit");
+      if (r.created) sentText.current = text;
+      else setText(savedText); // same circuit: only the formatting differed
       await onSaved();
     } catch (e) {
       if (e instanceof ApiError && e.body.error_code === "INVALID_CIRCUIT" && e.body.details) {

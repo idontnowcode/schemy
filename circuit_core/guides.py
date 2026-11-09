@@ -41,6 +41,7 @@ TOPICS: dict[str, str] = {
     "protection": "보호 회로",
     "mcu": "MCU",
     "interface": "통신 인터페이스",
+    "i2c": "I2C 버스",
     "motor": "모터 구동",
     "led": "LED·표시",
     "clock": "클럭·크리스탈",
@@ -66,6 +67,7 @@ CHECKS: dict[str, str] = {
     "opto_ctr": "포토커플러 CTR·풀업", "opto_threshold": "포토커플러 켜짐 문턱", "opto_isolation": "포토커플러 절연", "rs485_term": "RS-485 종단",
     "rs485_bias": "RS-485 페일세이프 바이어스", "rs485_dir": "RS-485 DE/RE 기본 상태", "adc_divider": "ADC 입력 분압",
     "adc_clamp": "ADC 입력 클램프", "usb_cc": "USB-C CC 풀다운", "usb_vbus_cap": "USB VBUS 입력 용량",
+    "analog_supply": "아날로그 전원(AVCC·VDDA) 디커플링",
 }
 
 
@@ -110,7 +112,7 @@ class GuideEntry(GuideDraft):
 
 # --- built-in baseline ---------------------------------------------------------------------------------
 
-SEED_VERSION = 4
+SEED_VERSION = 5
 """2: an entry applies by its first topic; LDO entries lead with "ldo". 3: G-PRT-02 checked by the fuse rule."""
 _P = "일반 설계 관행 (앱 기본 지침)"
 
@@ -174,10 +176,10 @@ SEED: list[dict] = [
           "떠 있는 CMOS 입력은 전류를 더 쓰고 오동작한다.", "floating_input"),
     _seed("G-MCU-04", ["mcu", "analog"], "should", "아날로그 전원은 필터와 별도 디커플링",
           "AVCC·VDDA 같은 아날로그 전원은 데이터시트 권장대로 디지털 전원과 필터(페라이트 비드나 저항 + 콘덴서)로 연결하고 따로 디커플링한다.",
-          "ADC 정확도가 디지털 잡음에 영향을 받는다.", "decoupling"),
+          "ADC 정확도가 디지털 잡음에 영향을 받는다.", "analog_supply"),
     _seed("G-MCU-05", ["mcu", "connector"], "consider", "프로그래밍·디버그 커넥터를 둔다",
           "SWD·ISP·UART 부트로더 등 프로그램을 쓰고 디버그할 커넥터나 패드를 둔다.", "조립 후 펌웨어를 쓸 방법이 없으면 보드를 다시 만들어야 한다."),
-    _seed("G-IF-01", ["interface"], "must", "I2C 버스마다 풀업 저항",
+    _seed("G-IF-01", ["i2c", "interface"], "must", "I2C 버스마다 풀업 저항",
           "I2C의 SDA·SCL마다 전원으로 가는 풀업 저항을 버스에 하나씩 둔다(보통 2.2~10 kΩ, 버스 용량과 속도로 계산). "
           "여러 모듈의 풀업이 병렬로 겹쳐 너무 작아지지 않게 한다.", "I2C는 오픈 드레인이라 풀업이 없으면 동작하지 않는다.", "i2c_pullup",
           keywords=["I2C"]),
@@ -300,6 +302,7 @@ _REQ_TOPICS: list[tuple[str, tuple[str, ...]]] = [
     ("protection", ("보호", "역전압", "역극성", "서지", "ESD", "퓨즈", "fuse", "TVS", "외부 전원")),
     ("mcu", ("MCU", "마이컴", "마이크로컨트롤러", "microcontroller", "STM32", "ATmega", "ESP32", "RP2040", "펌웨어")),
     ("interface", ("I2C", "SPI", "UART", "CAN", "USB", "RS485", "RS-485", "통신")),
+    ("i2c", ("I2C", "I²C")),
     ("motor", ("모터", "motor")),
     ("led", ("LED", "표시등", "램프")),
     ("clock", ("크리스탈", "crystal", "클럭", "clock", "발진")),
@@ -399,6 +402,8 @@ def topics_of_circuit(circuit: CircuitIR | None) -> set[str]:
     for net in circuit.nets:
         if re.search(r"(^|_)(SDA|SCL|CAN|TX|RX|MOSI|MISO|USB)", net.name, re.I):
             found.add("interface")
+        if re.search(r"(^|_)(SDA|SCL)($|_|\d)", net.name, re.I):
+            found.add("i2c")
         supply = net.name.startswith("+") or bool(net.voltage) or bool(re.search(r"VIN|VBUS|VCC|PWR", net.name, re.I))
         if supply:
             found.add("power")
@@ -487,6 +492,15 @@ def checklist(entries: list[GuideEntry], findings: list[dict], floating: list[di
                 notes = [f"{f['reference']}.{f['pin']} {f.get('pin_name') or ''}: {f['problem']}" for f in floating][:6]
             else:
                 status, notes = "ok", ["떠 있는 입력 핀 없음"]
+        elif e.check == "analog_supply":
+            # Only what the decoupling check said about analog supply pins (AVCC, VDDA …), not every IC's supply.
+            hits = [f for f in by_rule.get("decoupling", []) if re.search(r"AVCC|AVDD|VDDA|VREF|AREF", f["title"], re.I)]
+            if hits:
+                worst = min(hits, key=lambda f: {"fail": 0, "warn": 1, "info": 2, "ok": 3}[f["severity"]])["severity"]
+                status = {"fail": "fail", "warn": "warn", "info": "manual"}.get(worst, "ok")
+                notes = [f["title"] for f in hits if f["severity"] == worst][:6]
+            else:
+                notes = ["아날로그 전원 핀(AVCC·VDDA)을 찾지 못해 직접 확인하세요."]
         elif e.check and e.check in by_rule:
             hits = by_rule[e.check]
             worst = min(hits, key=lambda f: {"fail": 0, "warn": 1, "info": 2, "ok": 3}[f["severity"]])["severity"]

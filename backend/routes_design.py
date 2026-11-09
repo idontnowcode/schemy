@@ -244,7 +244,8 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             return []
         rows = sorted(inv.parts, key=lambda p: (p.priority, -(p.stock or 0)))[:MAX_INVENTORY_ROWS]
         return [{"id": p.id, "category": p.category, "value": p.value, "package": p.package, "mpn": p.mpn,
-                 "manufacturer": p.manufacturer, "stock": p.stock} for p in rows]
+                 "manufacturer": p.manufacturer, "stock": p.stock, "rating": p.rating, "tolerance": p.tolerance,
+                 "notes": p.notes} for p in rows]
 
     def datasheet_text(circuit: CircuitIR) -> str:
         lib = SymbolLibrary(settings.symbol_dirs) if settings.symbol_dirs else None
@@ -467,8 +468,11 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                 ginp = DesignInput(**{**inp.__dict__, "guides": guide_prompt_text(applicable)})
                 info = {"before": [r["id"] for r in bad], "after": [r["id"] for r in bad]}
                 try:
+                    # Its steps are part of the check: logged under "parts"/"pins" they would replace what the
+                    # design step rows show ("부품 41개 선택", "연결 완료").
                     fixed = revise_by_edits(provider, ginp, circuit, asked, resolver,
-                                            max_output_tokens=cfg.max_output_tokens, max_repairs=1, on_step=step)
+                                            max_output_tokens=cfg.max_output_tokens, max_repairs=1,
+                                            on_step=lambda _s, text, *a, **k: step("check", text, *a, **k))
                 except AiError as exc:
                     step("check", f"지침 위반을 고치지 못함: {exc.message}")
                     return circuit, {**info, "error": exc.message}

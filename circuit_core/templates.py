@@ -313,7 +313,7 @@ TEMPLATES: dict[str, Template] = {t.id: t for t in (
             Check("uart", "UART 신호 레벨이 연결할 장치와 맞는가 (VCC 레벨)", "설계 판단"),
             Check("unused", "쓰지 않는 핀(템플릿에서 no-connect)을 실제 용도에 맞게 다시 정했는가", "설계 판단"),
         ),
-        build=_mcu, caption="MCU core: ATmega328P, {crystal} crystal", limits="VCC 1.8~5.5 V (20 MHz는 4.5 V 이상)"),
+        build=_mcu, caption="MCU core: ATmega328P, {crystal} crystal", limits="VCC 1.8~5.5 V (20 MHz는 4.5 V 이상). UART(RXD·TXD)와 RESET 말고 다른 핀(ADC·GPIO·ISP)은 모두 NC로 고정되어 연결할 수 없음 — ADC나 GPIO가 필요하면 쓰지 마세요"),
 )}
 
 

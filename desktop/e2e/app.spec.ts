@@ -105,6 +105,7 @@ test("history restores an earlier revision", async ({ page }) => {
   await editor.fill((await editor.inputValue()).replace('"value": "330"', '"value": "1k"'));
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByText("revision 2으로 저장했습니다.")).toBeVisible();
+  await expect(page.getByText("저장되지 않은 변경")).toHaveCount(0); // the editor follows what was saved
 
   await openTab(page, "이력");
   page.once("dialog", (d) => d.accept());

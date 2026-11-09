@@ -263,11 +263,23 @@ def package_footprint(category: str | None, package: str | None, pins: int = 0) 
         m = re.search(r"(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)", text)
         if m and f"{m.group(1)}x{m.group(2)}" in _ELEC_SIZES:
             return f"Capacitor_SMD:{_ELEC_SIZES[f'{m.group(1)}x{m.group(2)}']}"
+    if category == "switch" and re.search(r"(?i)DIP|딥", text) and pins % 2 == 0 and 2 <= pins <= 16:
+        n = pins // 2  # SW_DIP_xNN: one pin pair per position
+        if re.search(r"(?i)THT|through|스루|관통", text):
+            return (f"Button_Switch_THT:SW_DIP_SPSTx{n:02d}_Slide_9.78x{round(4.72 + 2.54 * (n - 1), 2):g}mm"
+                    "_W7.62mm_P2.54mm")
+        return (f"Button_Switch_SMD:SW_DIP_SPSTx{n:02d}_Slide_6.7x{round(4.1 + 2.54 * (n - 1), 2):g}mm"
+                "_W8.61mm_P2.54mm_LowProfile")
     if category == "connector" and 1 <= pins <= 40:
         if re.search(r"1[.,]27", text) and pins in (6, 10, 20):  # 2-row 1.27 mm (Cortex debug 2x05)
             return f"Connector_PinHeader_1.27mm:PinHeader_2x{pins // 2:02d}_P1.27mm_Vertical_SMD"
         if re.search(r"(?i)2[.,]54|header|헤더", text):
+            # Two rows ("2x3", "2열", "dual row"): an ISP 2x3 header is not a 1x6 one.
+            if pins % 2 == 0 and pins >= 4 and re.search(r"(?i)\b2\s*[x×]\s*\d+|2\s*열|2\s*row|dual", text):
+                return f"Connector_PinHeader_2.54mm:PinHeader_2x{pins // 2:02d}_P2.54mm_Vertical"
             return f"Connector_PinHeader_2.54mm:PinHeader_1x{pins:02d}_P2.54mm_Vertical"
+        if re.search(r"5[.,]08", text) and 2 <= pins <= 12:  # 5.08 mm pitch is its own part (MKDS 1,5/n-5.08)
+            return (f"TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-{pins}-5.08_1x{pins:02d}_P5.08mm_Horizontal")
         if re.search(r"(?i)5[.,]0|terminal|단자", text) and pins <= 12:
             return f"TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-{pins}_1x{pins:02d}_P5.00mm_Horizontal"
     upper = text.upper()

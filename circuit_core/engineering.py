@@ -873,7 +873,7 @@ def _footprints(b: _Board) -> list[Finding]:
     if not missing:
         return [Finding("footprint_missing", "ok", f"모든 부품에 풋프린트 ({len(b.c.components)}개)",
                         "패키지가 맞는지는 BOM·데이터시트로 확인하세요.")] if b.c.components else []
-    return [Finding("footprint_missing", "info", f"풋프린트 없음: {', '.join(missing)}",
+    return [Finding("footprint_missing", "warn", f"풋프린트 없음: {', '.join(missing)}",
                     "PCB와 BOM에 필요합니다. 부품 패키지(0603, SOD-123, SOIC-8, 2.54mm 헤더 …)를 정해 풋프린트를 넣으세요.",
                     None, tuple(c.id for c in b.c.components if not c.footprint_id))]
 
