@@ -956,3 +956,32 @@ def test_supply_lies_along_its_pin_instead_of_crossing_the_ground_wire(led_circu
     at = [(float(child(s, "at")[1]), float(child(s, "at")[2]), int(float(child(s, "at")[3]))) for s in vin]
     near = min(at, key=lambda a: abs(a[0] - j1[0]) + abs(a[1] - j1[1]))
     assert near[1] == j1[1] and near[2] in (90, 270), near
+
+
+def test_a_blocks_decoupling_capacitor_stays_with_its_own_ic():
+    """Found with a real-model run: the CAN template's 100 nF went to the temperature sensor (the IC on +3V3 with
+    the fewest parts) and its caption followed it. A part named in a block (template or block note) stays there."""
+    from kicad_adapter.layout import PinGeom, plan_groups
+
+    def ic(sig):
+        return [PinGeom("1", -5.08, 0.0, (-1, 0), "input"), PinGeom("2", 0.0, -5.08, (0, -1), "power_in"),
+                PinGeom("3", 0.0, 5.08, (0, 1), "power_in"), PinGeom("4", 5.08, 0.0, (1, 0), sig)]
+    cap = [PinGeom("1", 0.0, -3.81, (0, -1), "passive"), PinGeom("2", 0.0, 3.81, (0, 1), "passive")]
+    pins = {"u1": ic("output"), "u2": ic("output"), "c1": cap}
+    net_of = {("u1", "1"): "A", ("u1", "2"): "+3V3", ("u1", "3"): "GND", ("u1", "4"): "B",
+              ("u2", "1"): "C", ("u2", "2"): "+3V3", ("u2", "3"): "GND", ("u2", "4"): "D",
+              ("c1", "1"): "+3V3", ("c1", "2"): "GND"}
+    net_nodes: dict[str, list[tuple[str, str]]] = {}
+    for key, net in net_of.items():
+        net_nodes.setdefault(net, []).append(key)
+
+    def extent(cid, rotation, quiet, mirror=False, parts=False):
+        return (-6.35, -6.35, 6.35, 6.35) if not parts else [(-6.35, -6.35, 6.35, 6.35)]
+
+    def owner(prefer):
+        groups = plan_groups(["u1", "u2", "c1"], pins, extent, net_of, net_nodes, {}, {"c1": "100nF"},
+                             {"+3V3": (0, -1), "GND": (0, 1)}, {"c1": "rc"}, prefer)
+        return next(g.key for g in groups if "c1" in g.offsets)
+
+    assert owner({}) == "u1"  # no block named: the first IC on the rail
+    assert owner({"c1": "u2"}) == "u2"  # named in u2's block: beside u2

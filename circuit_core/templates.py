@@ -97,6 +97,8 @@ class Template:
     build: Callable[[dict[str, str]], Fragment] = field(repr=False, compare=False)
     caption: str = ""
     """English caption drawn above the block on the schematic; ``{param}`` takes a parameter value."""
+    limits: str = ""
+    """Where the block must not be used (datasheet absolute limits), told to the AI with the catalog."""
 
     @property
     def ref(self) -> str:
@@ -233,7 +235,7 @@ TEMPLATES: dict[str, Template] = {t.id: t for t in (
             Check("thermal", "손실 (Vin − Vout) × Iout이 SOT-223 방열 한계 안인가", "Thermal Considerations"),
             Check("place", "입력·출력 커패시터를 레귤레이터 핀 가까이 배치하는가", "Typical Applications"),
         ),
-        build=_ldo, caption="3.3 V LDO regulator (AMS1117-3.3)"),
+        build=_ldo, caption="3.3 V LDO regulator (AMS1117-3.3)", limits="입력 최대 15 V(절대 최대), 손실 (Vin − 3.3 V) × I가 SOT-223 방열 안. 24 V 입력에는 쓰지 마세요"),
     Template(
         id="buck-lm2596-5v", version=1, title="5V 벅 컨버터 (LM2596S-5)", category="전원",
         summary="7~40V 입력에서 5V를 만드는 스위칭 레귤레이터. 입력 680µF, 33µH, 1N5822, 출력 220µF.",
@@ -258,7 +260,7 @@ TEMPLATES: dict[str, Template] = {t.id: t for t in (
             Check("cout", "출력 커패시터의 ESR·리플 전류 정격이 맞는가", "Output Capacitor Selection"),
             Check("layout", "스위칭 루프(입력 커패시터–VIN–GND–다이오드)를 짧고 굵게 배선하는가", "Layout Guidelines"),
         ),
-        build=_buck, caption="5 V buck regulator (LM2596S-5)"),
+        build=_buck, caption="5 V buck regulator (LM2596S-5)", limits="입력 최대 40 V, 출력 5 V 고정"),
     Template(
         id="can-sn65hvd230", version=1, title="CAN 트랜시버 (SN65HVD230)", category="통신",
         summary="3.3V CAN 트랜시버. VCC 디커플링 100nF, Rs는 GND(고속 모드), 버스 끝단이면 120Ω 종단.",
@@ -281,7 +283,7 @@ TEMPLATES: dict[str, Template] = {t.id: t for t in (
             Check("decoupling", "100nF 디커플링을 VCC 핀 가까이 배치하는가", "Typical Application"),
             Check("protection", "버스 쪽 ESD/과전압 보호(TVS 등)가 필요한지 검토했는가", "설계 판단"),
         ),
-        build=_can, caption="CAN transceiver (SN65HVD230), 3.3 V"),
+        build=_can, caption="CAN transceiver (SN65HVD230), 3.3 V", limits="VCC 3.0~3.6 V, 버스 핀 절대 최대 −4~16 V(24 V 단락에는 보호 소자 필요)"),
     Template(
         id="mcu-atmega328p-min", version=1, title="MCU 최소 회로 (ATmega328P)", category="MCU",
         summary="ATmega328P-AU 최소 회로: VCC·AVCC·AREF 100nF, 크리스탈과 22pF 두 개, RESET 10k 풀업, UART 핀.",
@@ -311,7 +313,7 @@ TEMPLATES: dict[str, Template] = {t.id: t for t in (
             Check("uart", "UART 신호 레벨이 연결할 장치와 맞는가 (VCC 레벨)", "설계 판단"),
             Check("unused", "쓰지 않는 핀(템플릿에서 no-connect)을 실제 용도에 맞게 다시 정했는가", "설계 판단"),
         ),
-        build=_mcu, caption="MCU core: ATmega328P, {crystal} crystal"),
+        build=_mcu, caption="MCU core: ATmega328P, {crystal} crystal", limits="VCC 1.8~5.5 V (20 MHz는 4.5 V 이상)"),
 )}
 
 
@@ -443,5 +445,5 @@ def catalog_text() -> str:
     lines = []
     for t in TEMPLATES.values():
         params = ", ".join(f"{p.name}(기본 {p.default})" for p in t.params)
-        lines.append(f"- {t.id}: {t.title}. {t.summary} 파라미터: {params}")
+        lines.append(f"- {t.id}: {t.title}. {t.summary} 파라미터: {params}" + (f" · 한계: {t.limits}" if t.limits else ""))
     return "\n".join(lines)

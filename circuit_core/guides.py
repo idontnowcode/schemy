@@ -324,8 +324,35 @@ def has_word(text: str, word: str) -> bool:
     return w in text.lower()
 
 
+_NEGATED = re.compile(r"(필요\s*없|없음|없다|없이|안\s*씀|안\s*함|쓰지\s*않|사용하지\s*않|만들지\s*않|하지\s*않|않음|않는다|"
+                      r"불필요|제외|빼고|(?<![A-Za-z])(no|not|without|none)(?![A-Za-z]))", re.I)
+_DIGITAL = re.compile(r"(I2C|I²C|SPI|UART|1-Wire|디지털|digital)", re.I)
+
+
+def requirement_clauses(text: str) -> str:
+    """The parts of a requirements text that ask for something. The AI's questions (the answer decides) and negated
+    clauses ("절연 필요 없음", "5 V 레일 만들지 않음") are left out, so their words do not pick guides."""
+    out = []
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if re.match(r"^[-*]?\s*질문\s*:", s):
+            continue
+        s = re.sub(r"^[-*]?\s*답\s*:\s*", "", s)
+        out.append(" ".join(c for c in re.split(r"[,;·]|(?<!\d)\.(?!\d)|\s/\s", s) if not _NEGATED.search(c)))
+    return "\n".join(out)
+
+
 def topics_of_text(text: str) -> set[str]:
-    return {topic for topic, words in _REQ_TOPICS if any(has_word(text or "", w) for w in words)}
+    """Topics a requirements text asks for. A sensor named with a digital bus ("I2C 디지털 온도 센서") is not an
+    analog front end."""
+    text = requirement_clauses(text)
+    clauses = re.split(r"[\n,;]", text)
+    digital_sensor = any(_DIGITAL.search(c) and re.search(r"센서|sensor", c, re.I) for c in clauses)
+    found = set()
+    for topic, words in _REQ_TOPICS:
+        if any(has_word(text, w) for w in words if not (digital_sensor and w in ("센서", "sensor"))):
+            found.add(topic)
+    return found
 
 
 def topics_of_circuit(circuit: CircuitIR | None) -> set[str]:
@@ -351,8 +378,13 @@ def topics_of_circuit(circuit: CircuitIR | None) -> set[str]:
             found.add("led")
         if cat == "crystal" or lib.startswith("Oscillator"):
             found.add("clock")
-        if lib.startswith("Amplifier") or lib.startswith("Sensor"):
+        if lib.startswith("Amplifier"):
             found.add("analog")
+        elif lib.startswith("Sensor"):
+            # A sensor with a digital bus (LM75B: SDA/SCL) has no analog input to protect.
+            names = {(p.name or "").upper() for p in comp.pins}
+            found.add("interface" if names & {"SDA", "SCL", "SCK", "SCLK", "MOSI", "MISO", "SDI", "SDO", "DQ"}
+                      else "analog")
         if cat == "connector":
             found.add("connector")
         if cat in ("fuse",) or (cat == "diode" and "TVS" in comp.symbol_id.upper()):
@@ -395,6 +427,7 @@ def relevant(entries: Iterable[GuideEntry], *, circuit: CircuitIR | None = None,
     a new design); with a circuit they only match an entry's own keywords and part names ("host MCU" in the text does
     not mean this board has an MCU)."""
     use_text = circuit is None if text_topics is None else text_topics
+    text = requirement_clauses(text)
     topics = topics_of_circuit(circuit) | (topics_of_text(text) if use_text else set())
     low = (text or "").lower()
     out = []

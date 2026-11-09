@@ -308,6 +308,8 @@ button:focus-visible {
   min-height: 0;
   overflow: auto;
   padding: 16px 20px;
+  /* Room to scroll the last fields above the floating work-status panel (bottom right). */
+  padding-bottom: 180px;
 }
 
 .empty {
@@ -1535,7 +1537,7 @@ button.back-link {
 
 .flow-idea {
   width: 100%;
-  min-height: 150px;
+  min-height: 230px;
   resize: vertical;
   background: var(--bg);
   color: var(--text);

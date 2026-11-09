@@ -262,7 +262,7 @@ def test_revision_with_chosen_findings_own_request_and_diff(tmp_path):
     calls = [c for provider in created if hasattr(provider, "calls") for c in provider.calls]
     edit_prompt = [c["prompt"] for c in calls if "회로를 새로 설계하지 마세요" in c["prompt"]][-1]
     assert "F1 [warning] ESD 보호 없음" in edit_prompt and "JST-XH" in edit_prompt and "[현재 회로]" in edit_prompt
-    assert "U1 SN65HVD230 [Interface_CAN_LIN:SN65HVD230] 핀: 1=" in edit_prompt  # the real pin table
+    assert re.search(r"- U1 SN65HVD230( 품번 \S+)? \[Interface_CAN_LIN:SN65HVD230\] 핀: 1=", edit_prompt)  # real pins
     assert sum("부품 목록을 정하세요" in c["prompt"] for c in calls) == 1  # no second parts plan
 
 
@@ -842,6 +842,64 @@ def test_edits_that_cannot_be_made_fall_back_to_a_redesign(tmp_path):
     assert state["plans"] == 2 and job["result"]["attempts"] >= 1
     assert any("고칠 곳만으로는 해결하지 못해 회로를 다시 설계" in s["text"] for s in job["progress"])
     assert client.get(f"{board}/proposals/{job['result']['proposal_id']}").json()["ai"]["method"] == "redesign"
+
+
+def test_a_new_value_takes_its_part_number_and_notes_can_be_fixed(tmp_path, resolver):
+    """Found with a real-model run: L1 10 µH → 33 µH kept the 10 µH part number, so the BOM ordered the old part;
+    and the block note still said 2.1 MHz after the regulator was swapped."""
+    from ai_engine.design import DesignInput, apply_edits, edit_prompt
+    from circuit_core import CircuitIR
+
+    data = can_candidate(tmp_path).model_dump(mode="json")
+    r1 = next(c for c in data["components"] if c["reference"] == "R1")
+    r1["manufacturer_part_number"] = "RC0603FR-07120RL"
+    data["notes"] = [*(data.get("notes") or []), {"id": "note-x", "text": "CAN termination 120R", "components": [r1["id"]]}]
+    base = CircuitIR.model_validate(data)
+    n = next(i for i, nt in enumerate(base.notes) if nt.id == "note-x") + 1
+    prompt = edit_prompt(DesignInput(requirements=REQUIREMENTS, spec=None, board_name="A", instructions=None), base, [])
+    assert "- R1 120 품번 RC0603FR-07120RL [Device:R]" in prompt
+    assert "[회로도 주석]" in prompt and f"- N{n} (R1): CAN termination 120R" in prompt and "set_note" in prompt
+
+    # A new value without a part number drops the old one (it names the old value).
+    circuit, problems, changes, _ = apply_edits(base, [{"action": "set_value", "ref": "R1", "value": "121", "why": "F1"}],
+                                                resolver)
+    assert problems == [] and next(c for c in circuit.components if c.reference == "R1").manufacturer_part_number is None
+    assert "R1 품번 RC0603FR-07120RL 지움 (값이 바뀜)" in changes
+    # With a part number it takes the new one; a note is rewritten; a wrong note number is a problem.
+    circuit, problems, changes, _ = apply_edits(base, [
+        {"action": "set_value", "ref": "R1", "value": "121", "mpn": "RC0603FR-07121RL", "why": "F1"},
+        {"action": "set_note", "note": f"N{n}", "text": "CAN termination 121R", "why": "F1"}], resolver)
+    assert problems == [] and next(c for c in circuit.components if c.reference == "R1").manufacturer_part_number == "RC0603FR-07121RL"
+    assert next(nt for nt in circuit.notes if nt.id == "note-x").text == "CAN termination 121R"
+    assert f"주석 N{n}: CAN termination 120R → CAN termination 121R" in changes
+    _, problems, _, _ = apply_edits(base, [{"action": "set_note", "note": "N99", "text": "x", "why": "F1"}], resolver)
+    assert problems and "N99" in problems[0]
+
+
+def test_a_revision_that_changes_nothing_makes_no_proposal(tmp_path):
+    base = scripted(bad_first=False)
+
+    def reply(prompt):
+        if "회로를 새로 설계하지 마세요" in prompt:  # an "edit" that sets the value R1 already has
+            return json.dumps({"summary": "F1: R1 그대로", "addressed": ["F1"],
+                               "edits": [{"action": "set_value", "ref": "R1", "value": "120", "why": "F1"}]},
+                              ensure_ascii=False)
+        return base(prompt)
+    client, _, pid = design_client(tmp_path, reply)
+    board = f"/api/projects/{pid}/boards/a"
+    first = wait(client, client.post(board + "/ai/design", json={"review": False}).json())["result"]["proposal_id"]
+    job = wait(client, client.post(board + "/ai/revise", json={"proposal_id": first, "instructions": "R1 확인",
+                                                               "review": False}).json())
+    assert job["status"] == "failed" and job["error"]["error_code"] == "AI_NO_CHANGE", job
+    assert [p["id"] for p in client.get(board + "/proposals").json()] == [first]
+
+
+def test_revision_titles_read_like_the_summary():
+    from backend.routes_design import revision_title
+
+    assert revision_title("F1, F2: 2.1 MHz 벅을 0.7 MHz 버전으로 바꿨습니다. 분압도 더했습니다.", ["U1 뺌"]) == \
+        "수정: 2.1 MHz 벅을 0.7 MHz 버전으로 바꿨습니다."
+    assert revision_title("", ["U1 뺌", "U5 추가", "R8 추가", "R9 추가"]) == "수정: U1 뺌, U5 추가, R8 추가 외"
 
 
 # --- designs follow the design guides from the start ------------------------------------------------------------------

@@ -213,15 +213,12 @@ export function StageFlow({ project, board, circuit, revision, outputs, review, 
 
   const aiProposals = useMemo(() => proposals.filter((p) => AI_SOURCES.includes(p.source)).sort((a, b) => num(a.id) - num(b.id)),
     [proposals]);
-  const autoResult = autoJob?.status === "succeeded" ? (autoJob.result as AutoReviewResult) : null;
-  /** The proposal the review and approval stages work on: the loop's last one, else the newest open AI proposal. */
+  // The proposal to approve: the newest open AI proposal. That is the loop's last one, unless a revision was made
+  // after it (e.g. 「이 의견 반영하기」 on its slide), which then supersedes it.
   const focus = useMemo(() => {
-    const byId = (id: string | undefined) => proposals.find((p) => p.id === id);
-    const fromLoop = byId(autoResult?.proposal_id);
-    if (fromLoop && OPEN.includes(fromLoop.status)) return fromLoop;
-    const open = [...aiProposals].reverse().find((p) => OPEN.includes(p.status));
-    return open ?? [...proposals].sort((a, b) => num(b.id) - num(a.id)).find((p) => OPEN.includes(p.status)) ?? null;
-  }, [proposals, aiProposals, autoResult?.proposal_id]);
+    const newest = (list: Proposal[]) => [...list].sort((a, b) => num(b.id) - num(a.id)).find((p) => OPEN.includes(p.status));
+    return newest(aiProposals) ?? newest(proposals) ?? null;
+  }, [proposals, aiProposals]);
 
   // How far this board has come, from its data; the viewer's own furthest stage can only add to it.
   const derived = useMemo(() => {
@@ -698,7 +695,11 @@ function designStage(p: Common & { job: Job | null; latest: Proposal | null; bac
           <>
             <ol className="flow-progress">
               {DESIGN_ROWS.map((r, i) => {
-                const last = [...steps].reverse().find((s) => r.steps.includes(s.step));
+                const mine = steps.filter((s) => r.steps.includes(s.step));
+                const last = mine[mine.length - 1];
+                // A finished row shows its result ("부품 39개 선택"), not its last "doing" line ("…로 연결합니다").
+                const result = [...mine].reverse().find((s) => !/(요청|중|중…|합니다|실행)$/.test(s.text.trim()));
+                const shown = i < lastRow || ok ? result ?? last : last;
                 const st = state(i);
                 return (
                   <li key={r.key} className={`flow-progress-row ${st}`}>
@@ -706,7 +707,7 @@ function designStage(p: Common & { job: Job | null; latest: Proposal | null; bac
                     <span>
                       <b>{r.title}</b>
                       <br />
-                      <span className="muted small">{last?.text ?? r.idle}</span>
+                      <span className="muted small">{shown?.text ?? r.idle}</span>
                     </span>
                   </li>
                 );
@@ -862,12 +863,13 @@ function FailureDetails({ why }: { why?: AiFailure | null }) {
 
 function ApproveStage(p: Common & { target: Proposal | null; revision: number | null; onDetail(stage: string): void; onDecided(approved: boolean): Promise<void> }) {
   const [full, setFull] = useState<Proposal | null>(null);
-  const [guides, setGuides] = useState<GuideChecklist | null>(null);
+  const [guides, setGuides] = useState<GuideChecklist | null | undefined>(undefined); // undefined: loading, null: failed
   const [confirming, setConfirming] = useState<"approve" | "reject" | null>(null);
   const [note, setNote] = useState("");
   useEffect(() => {
     if (!p.target) return;
     api.proposal(p.pid, p.bid, p.target.id).then(setFull).catch(() => setFull(p.target));
+    setGuides(undefined);
     api.boardGuides(p.pid, p.bid, p.target.id).then(setGuides).catch(() => setGuides(null));
   }, [p.pid, p.bid, p.target]);
 
@@ -891,6 +893,7 @@ function ApproveStage(p: Common & { target: Proposal | null; revision: number | 
     ...r.ratings_problems.map((t) => `${r.reference}: ${t}`),
     ...r.external_missing.map((t) => `${r.reference} 외부 부품: ${t}`),
   ]);
+  const compared = (ev?.datasheets ?? []).length;
   const items = guides?.items ?? [];
   const gFail = items.filter((i) => i.status === "fail" || i.status === "warn").length;
   const gOk = items.filter((i) => i.status === "ok").length;
@@ -902,10 +905,14 @@ function ApproveStage(p: Common & { target: Proposal | null; revision: number | 
       text: ac && ac.erc_errors != null ? `KiCad ERC 오류 ${ac.erc_errors} · ${ercWarningText(ac.erc_warnings, ac.violations)}${ac.netlist_matches_ir != null ? ` · Netlist ${ac.netlist_matches_ir ? "일치" : "불일치"}` : ""}` : ac?.reason ?? "", stage: "checks" },
     { name: "AI 검토", chip: <Chip text={x.ai?.review ? `수정 필요 ${errors.length} · 권장 ${warnings.length}` : "검토 전"} tone={errors.length ? "bad" : warnings.length ? "warn" : x.ai?.review ? "ok" : "muted"} />,
       text: [...errors, ...warnings].map((f) => f.title).join(" / ") || (x.ai?.review?.summary ?? ""), stage: "review" },
-    { name: "데이터시트", chip: <Chip text={ds.length ? `확인 ${ds.length}` : "문제 없음"} tone={ds.length ? "warn" : "ok"} />,
-      text: ds[0] ?? `${(ev?.datasheets ?? []).length}개 부품 대조`, stage: "datasheets" },
-    { name: "설계 지침", chip: <Chip text={`주의 ${gFail}`} tone={gFail ? "warn" : "ok"} />,
-      text: `통과 ${gOk} · 직접 확인 ${gManual}`, stage: "guides" },
+    { name: "데이터시트",
+      chip: <Chip text={ds.length ? `확인 ${ds.length}` : compared ? "문제 없음" : "대조 안 함"} tone={ds.length ? "warn" : compared ? "ok" : "muted"} />,
+      text: ds[0] ?? (compared ? `${compared}개 부품 대조` : "받은 데이터시트가 없어 대조하지 않았습니다"), stage: "datasheets" },
+    { name: "설계 지침",
+      chip: guides ? <Chip text={`주의 ${gFail}`} tone={gFail ? "warn" : "ok"} />
+        : <Chip text={guides === undefined ? "확인 중…" : "불러오지 못함"} tone="muted" />,
+      text: guides ? `통과 ${gOk} · 직접 확인 ${gManual}` : guides === undefined ? "지침별 자동 검사를 돌리는 중" : "「자세히」에서 다시 보세요",
+      stage: "guides" },
   ];
   const decide = (approve: boolean) =>
     p.run(approve ? "승인하는 중… 회로도를 만듭니다" : "거부하는 중…", async () => {

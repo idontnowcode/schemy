@@ -143,6 +143,14 @@ STOP_TEXT = {"met": "조건 충족", "max_rounds": "최대 횟수에 도달", "r
              "ai_failed": "AI 검토 실패"}
 
 
+def revision_title(summary: str, changes: list[str]) -> str:
+    """A revision's title for people: the first sentence of the AI's summary (without its "F1, F2:" prefix), else
+    the first changes."""
+    first = re.split(r"(?<=[.。])\s", re.sub(r"^\s*(F\d+\s*[,·/]?\s*)+[:：]\s*", "", summary or "").strip())[0]
+    text = first or (", ".join(changes[:3]) + (" 외" if len(changes) > 3 else ""))
+    return ("수정: " + text)[:150]
+
+
 def _stop_text(stop: str, message: str) -> str:
     return "멈춤: " + STOP_TEXT.get(stop, stop) + (f" ({message})" if message else "")
 
@@ -525,6 +533,14 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                 if er is not None:
                     record.update(usage=[c.usage for c in er.calls], method="edits", edit_attempts=er.attempts,
                                   edit_problems=er.problems)
+                if er is not None and er.circuit is not None and not er.changes:
+                    # Edits that leave the circuit as it was: say so instead of a new proposal identical to its parent.
+                    record.update(status="no_change")
+                    save_run(project_id, board_id, record)
+                    raise ApiError(422, "AI_NO_CHANGE",
+                                   "AI가 낸 편집이 회로를 바꾸지 않았습니다 (모두 지금과 같음). 새 제안을 만들지 않았습니다.",
+                                   recovery_hint="고칠 내용을 직접 적어 다시 요청하거나, 의견을 직접 판단하세요.",
+                                   details={"edits": er.edits[:20]})
                 if er is not None and er.circuit is not None:
                     ai = {"model": er.calls[-1].model, "method": "edits", "summary": er.summary, "edits": er.edits,
                           "changes": er.changes, "assumptions": [], "questions": [], "citations": [],
@@ -536,7 +552,7 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                           "not_addressed": er.not_addressed,
                           "diff_from_parent": diff_circuits(base, er.circuit),
                           "guides": {"offered": [e.id for e in entries], "applied": []}}
-                    title = ("수정: " + ", ".join(er.changes[:3]) + (" 외" if len(er.changes) > 3 else ""))[:150]
+                    title = revision_title(er.summary, er.changes)
                     return finish(er.circuit, ai, title, {"attempts": er.attempts, "remaining_problems": [],
                                                           "method": "edits"})
                 if er is not None and er.declined:
@@ -765,8 +781,8 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                                       base=proposals.candidate(p), findings=chosen, source="ai_revision",
                                       parent=p.id)(job_id)
                 except ApiError as exc:
-                    stop = "declined" if exc.error_code == "AI_NOTHING_TO_FIX" else "revise_failed"
-                    message, why = exc.message, (None if stop == "declined" else exc.details)
+                    stop = {"AI_NOTHING_TO_FIX": "declined", "AI_NO_CHANGE": "no_change"}.get(exc.error_code, "revise_failed")
+                    message, why = exc.message, (exc.details if stop == "revise_failed" else None)
                     break
                 revised = proposals.get(project_id, board_id, out["proposal_id"])
                 diff = ((revised.ai or {}).get("diff_from_parent") or {}).get("summary")

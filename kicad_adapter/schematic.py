@@ -658,7 +658,7 @@ def generate_schematic(circuit: CircuitIR, library: SymbolLibrary,
             lambda cid, rot, quiet, mirror=False, parts=False, by_id=by_id: _part_extent(
                 symbols[cid], by_id[cid], net_of, power, rot, quiet, mirror, parts, feeder_flags.get(cid)),
             net_of, net_nodes, flag_hints, {c.id: c.value for c in free}, up_of,
-            {c.id: _kind(symbols[c.id]) for c in free})
+            {c.id: _kind(symbols[c.id]) for c in free}, _block_owner(circuit, free))
         # A group with notes on its parts keeps a line free above it per note, so a caption always fits.
         lines: Counter[str] = Counter()
         for n in notes_on[sheet.id]:
@@ -1086,3 +1086,29 @@ def _find_collisions(points: dict[tuple[float, float], set[str]],
                                     f"of {', '.join(sorted(nets))}.",
                                     recovery_hint="Move the symbols apart."))
     return issues
+
+
+def _block_owner(circuit: CircuitIR, free: list) -> dict[str, str]:
+    """Two-pin parts mapped to the one IC (3+ pins) of the design block they belong to: the same template, or the
+    same block note. Used so a block's decoupling capacitor is drawn beside that block's IC."""
+    pins = {c.id: len(c.pins) for c in free}
+    is_ic = {c.id for c in free if str(getattr(c, "reference", "")).upper().startswith("U")}
+    groups: list[list[str]] = []
+    by_origin: dict[str, list[str]] = {}
+    for c in free:
+        origin = getattr(c, "origin", None)  # units and virtual parts have none
+        if origin and origin.startswith("template:"):
+            by_origin.setdefault(origin, []).append(c.id)
+    groups += list(by_origin.values())
+    groups += [list(n.components) for n in circuit.notes if len(n.components) > 1]
+    owner: dict[str, str] = {}
+    for members in groups:
+        big = [m for m in members if pins.get(m, 0) >= 3]
+        ics = [m for m in big if m in is_ic]  # the MCU, not its crystal
+        head = ics[0] if len(ics) == 1 else big[0] if len(big) == 1 else None
+        if head is None:
+            continue
+        for m in members:
+            if pins.get(m) == 2:
+                owner.setdefault(m, head)
+    return owner

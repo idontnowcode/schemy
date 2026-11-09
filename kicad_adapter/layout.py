@@ -89,15 +89,19 @@ def plan_groups(order: list[str], pins: dict[str, list[PinGeom]],
                 extent_of: Callable[[str, int, dict[str, float]], Extent],
                 net_of: dict[tuple[str, str], str], net_nodes: dict[str, list[tuple[str, str]]],
                 hints: dict[str, str] | None = None, values: dict[str, str] | None = None,
-                upright: dict[str, Dir] | None = None, kinds: dict[str, str] | None = None) -> list[Group]:
+                upright: dict[str, Dir] | None = None, kinds: dict[str, str] | None = None,
+                prefer: dict[str, str] | None = None) -> list[Group]:
     """Groups with member offsets for the parts in ``order`` (all on one page, none with a fixed position).
 
     ``extent_of(id, rotation, quiet)`` gives the space a part takes at a rotation, where ``quiet`` maps pins
     that will be wired to the room to keep beyond them instead of a label. ``values`` lets bulk capacitors go
     to the regulator that drives a rail and small ones to the IC they decouple. ``upright`` maps each net
     drawn with power symbols to the way its symbol points; ``kinds`` marks parts as ``"rc"`` (a resistor
-    or capacitor, which may stand across a line as a pull-up or decoupling part)."""
+    or capacitor, which may stand across a line as a pull-up or decoupling part). ``prefer`` maps a part only
+    between rails to the IC its design block names (a block note or a template), so a decoupling capacitor stays
+    with the IC it was chosen for instead of whichever IC on the rail has the fewest parts."""
     hints = hints or {}
+    prefer = prefer or {}
     values = values or {}
     upright = upright or {}
     here = set(order)
@@ -208,7 +212,10 @@ def plan_groups(order: list[str], pins: dict[str, list[PinGeom]],
                     score[c] += 1
         if score:
             best = max(score.values())
-            group_of[s] = next(a for a in anchors if score.get(a) == best)
+            own = prefer.get(s)
+            # A tied pull-up (an I2C pull-up shared by the MCU and the sensor) goes to the IC its design block names.
+            first = next(a for a in anchors if score.get(a) == best)
+            group_of[s] = own if kinds.get(s) == "rc" and own in score and score[own] == best else first
     # 2. Through other parts (an LED behind its resistor).
     propagate()
     # 2b. A regulator (a small IC with a supply input and a supply output) is drawn like the textbook: its
@@ -267,6 +274,9 @@ def plan_groups(order: list[str], pins: dict[str, list[PinGeom]],
         if kinds.get(s) == "connector" and not bulk:
             powered_by = [a for a in powered_by if a not in feeds]
         candidates = (drivers or powered_by) if bulk else (powered_by or drivers)
+        own = prefer.get(s)
+        if own in anchors and any(c == own for n in supplies for c, _ in net_nodes[n]):
+            candidates = [own]
         if candidates:
             target = min(candidates, key=lambda a: (load[a], anchors.index(a)))
             group_of[s] = target

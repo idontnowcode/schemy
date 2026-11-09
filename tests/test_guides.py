@@ -52,6 +52,22 @@ def test_which_guides_apply_and_the_checklist():
     assert doc.startswith("# 회로 설계 가이드") and "## 모터 구동" in doc and "### G-MOT-01" in doc
 
 
+def test_negated_requirements_and_the_ai_questions_pick_no_guides():
+    """Found with a real-model run: 「절연 필요 없음」 brought four isolation guides, and an I2C temperature sensor the
+    ADC clamp guides."""
+    text = ("24V CAN 온도 센서 노드.\n- I2C 디지털 온도 센서 1개\n## AI 질문에 대한 답\n"
+            "- 질문: CAN 라인과 전원의 절연이 필요합니까?\n  답: 절연 필요 없음\n"
+            "- 질문: 5 V 트랜시버를 쓸지?\n  답: 3.3 V 트랜시버로 (5 V 레일 만들지 않음)")
+    ids = [e.id for e in relevant(entries(), text=text)]
+    assert not [i for i in ids if i.startswith("G-ISO") or i.startswith("G-ANA")], ids
+    assert "G-IF-02" in [e.id for e in relevant(entries(), text="CAN 노드, SN65HVD230 사용, 절연 없음")]
+    # Asked for, they still apply.
+    def picked(text):
+        return [e.id for e in relevant(entries(), text=text)]
+    assert any(i.startswith("G-ISO") for i in picked("24 V 입력을 포토커플러로 절연"))
+    assert any(i.startswith("G-ANA") for i in picked("0~10 V 아날로그 센서 입력, ADC"))
+
+
 def test_library_seeds_once_and_keeps_history(tmp_path):
     lib = GuideLibrary(tmp_path)
     assert len(lib.entries()) == len(SEED) and len(lib.entries()) == len(SEED)  # seeded once

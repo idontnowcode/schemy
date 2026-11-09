@@ -356,7 +356,7 @@ def plan_prompt(inp: DesignInput) -> str:
 [검토된 회로 템플릿 — 요구사항의 한 블록에 맞으면 직접 고르지 말고 우선 쓰세요]
 - 쓸 템플릿은 templates에 id와 params(name/value)를 적으세요. params는 그 블록이 연결될 Net 이름입니다(예: vin=+12V).
 - 템플릿의 부품은 parts에 다시 넣지 마세요. 템플릿에 없는 부품(커넥터, LED 등)만 parts에 넣으세요.
-- 맞는 템플릿이 없으면 templates를 비워 두세요.
+- 맞는 템플릿이 없으면 templates를 비워 두세요. 요구 조건이 템플릿의 「한계」를 넘으면 그 템플릿은 쓰지 마세요.
 {catalog_text()}
 {_guides_block(inp.guides, "부품 선정")}
 {_requirements_block(inp)}{inv}
@@ -853,7 +853,7 @@ def suggest_alternatives(provider: LlmProvider, inp: DesignInput, plan: dict, un
 
 # --- revisions as edits of the current circuit ---------------------------------------------------------------------
 
-EDIT_ACTIONS = ("set_value", "add_part", "remove_part", "connect", "disconnect", "no_connect")
+EDIT_ACTIONS = ("set_value", "add_part", "remove_part", "connect", "disconnect", "no_connect", "set_note")
 
 EDIT_SCHEMA = {
     "type": "object",
@@ -863,6 +863,8 @@ EDIT_SCHEMA = {
             "action": {"type": "string", "enum": list(EDIT_ACTIONS)},
             "ref": _STR, "value": _STR, "category": _STR, "role": _KO, "mpn": _STR, "package": _STR,
             "kicad_symbol": _STR, "pin_count": {"type": "integer"}, "net": _STR, "pins": _STRS,
+            "note": {"type": "string", "description": "set_note: 고칠 회로도 주석 번호 (N1 …)"},
+            "text": {"type": "string", "description": "set_note: 새 주석, English, at most 40 characters; 빈 값이면 지움"},
             "why": {"type": "string", "description": "어느 의견(F 번호) 때문인지와 이유, 한국어로"},
         }, "required": ["action", "why"]}},
         "addressed": {"type": "array", "items": _STR, "description": "고친 의견 번호 (F1 …)"},
@@ -879,11 +881,17 @@ def _circuit_pins(circuit: CircuitIR) -> str:
     for c in sorted(circuit.components, key=lambda c: natural_key(c.reference)):
         pins = ", ".join(f"{p.number}={p.name}" if p.name else p.number for p in c.pins)
         nc = [p.number for p in c.pins if p.no_connect]
-        lines.append(f"- {c.reference} {c.value} [{c.symbol_id}] 핀: {pins}" + (f" (NC: {','.join(nc)})" if nc else ""))
+        mpn = f" 품번 {c.manufacturer_part_number}" if c.manufacturer_part_number else ""
+        lines.append(f"- {c.reference} {c.value}{mpn} [{c.symbol_id}] 핀: {pins}" + (f" (NC: {','.join(nc)})" if nc else ""))
     lines.append("[Net]")
     names = {c.id: c.reference for c in circuit.components}
     for n in circuit.nets:
         lines.append(f"- {n.name}: " + ", ".join(f"{names.get(x.component_id, x.component_id)}.{x.pin}" for x in n.nodes))
+    if circuit.notes:
+        lines.append("[회로도 주석]")
+        for i, nt in enumerate(circuit.notes):
+            where = ", ".join(names.get(x, x) for x in nt.components) or (f"Net {nt.net}" if nt.net else "페이지")
+            lines.append(f"- N{i + 1} ({where}): {nt.text}")
     return "\n".join(lines)
 
 
@@ -904,13 +912,16 @@ def edit_prompt(inp: DesignInput, base: CircuitIR, findings: list[dict]) -> str:
   근거가 약하거나, 요구사항과 맞지 않거나, 사람이 정해야 하는 의견은 고치지 말고 이유를 적는 것이 맞습니다.
 - 의견과 상관없는 부품·값·연결은 바꾸지 마세요. 있는 부품의 기호(ref)도 바꾸지 마세요.
 - edits 종류 (모든 edit에 why: 어느 의견 때문인지 F 번호와 이유):
-  · set_value: ref, value — 값만 바꿈 (예: R1을 4.7k로)
+  · set_value: ref, value, 품번이 있으면 mpn — 값(과 품번)을 바꿈 (예: R1을 4.7k로). 값이 바뀌는데 mpn을 적지 않으면
+    이전 품번은 지워집니다(이전 값의 품번이므로).
   · add_part: 새 ref(겹치지 않게), category(resistor, capacitor, capacitor_polarized, inductor, led, diode, fuse,
     crystal, connector, ic …), value, role, 알면 mpn·kicad_symbol·package, connector면 pin_count
   · remove_part: ref
   · connect: net, pins — 핀을 그 Net으로 옮김(원래 Net에서는 빠짐). 없는 Net 이름이면 새로 만듦.
   · disconnect: net, pins
   · no_connect: pins — 쓰지 않는 핀
+  · set_note: note(N 번호), text — 회로도 주석을 고침(영어, 40자 이내, 빈 text면 지움). 부품·값을 바꿔 그 블록의
+    주석(부품 이름, 주파수, 전압 등)이 틀리게 되면 함께 고치세요.
 - 핀은 'U1.3'처럼 기호.핀번호로 쓰세요. 있는 부품의 핀 번호는 [현재 회로]의 핀 표를 따르세요.
 - 새 부품의 핀: 저항·콘덴서·인덕터·퓨즈 1, 2 / 극성 콘덴서 1(+), 2(−) / 다이오드·LED 1(K), 2(A).
   그 밖의 새 부품은 핀 표를 모르면 연결을 비워 두세요. 다음 답에서 앱이 실제 핀 표를 줍니다.
@@ -997,6 +1008,32 @@ def apply_edits(base: CircuitIR, edits: list[dict], resolve: Resolver) -> tuple[
                 changes.append(f"{ref} 값 {c['value']} → {value}")
                 c["value"] = value
                 decide(c, f"{ref} 값", value, why)
+                if "mpn" not in e and c.get("manufacturer_part_number"):
+                    # The old part number names the old value: keep it and the BOM orders the wrong part.
+                    changes.append(f"{ref} 품번 {c['manufacturer_part_number']} 지움 (값이 바뀜)")
+                    c["manufacturer_part_number"] = None
+            if "mpn" in e:
+                mpn = str(e.get("mpn") or "").strip() or None
+                if mpn != c.get("manufacturer_part_number"):
+                    changes.append(f"{ref} 품번 {c.get('manufacturer_part_number') or '없음'} → {mpn or '없음'}")
+                    c["manufacturer_part_number"] = mpn
+        elif action == "set_note":
+            notes = data.get("notes") or []
+            m = re.fullmatch(r"N?(\d+)", str(e.get("note") or "").strip().upper())
+            k = int(m.group(1)) - 1 if m else -1
+            if not 0 <= k < len(base.notes):
+                problems.append(f"set_note {e.get('note') or '?'}: 없는 주석 번호입니다.")
+                continue
+            target = next((nt for nt in notes if nt["id"] == base.notes[k].id), None)
+            if target is None:
+                continue  # its parts were removed with it
+            text = " ".join(str(e.get("text") or "").split())[:120]
+            if not text:
+                data["notes"] = [nt for nt in notes if nt is not target]
+                changes.append(f"주석 N{k + 1} 지움: {target['text']}")
+            elif text != target["text"]:
+                changes.append(f"주석 N{k + 1}: {target['text']} → {text}")
+                target["text"] = text
         elif action == "remove_part":
             c = comps.pop(ref, None)
             if c is None:
