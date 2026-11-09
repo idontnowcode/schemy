@@ -345,6 +345,9 @@ export interface AutoReviewRound {
   unverified?: number;
   unverified_said?: string[];
   declined?: string[];
+  /** Findings a person kept as designed: shown, not counted. */
+  decided?: number;
+  decided_said?: string[];
 }
 
 export interface AutoReviewResult {
@@ -792,6 +795,19 @@ export interface AiFinding {
   basis?: "evidence" | "guide" | "requirement" | "circuit" | "judgment";
   evidence?: string | null;
   verified?: boolean | null;
+  /** A person decided to keep this as designed (the reason): not counted, not sent to a revision. */
+  decided?: { id: string; reason: string } | null;
+  /** The AI's reason for not fixing this in a revision (kept here because a refusal makes no new proposal). */
+  ai_declined?: string | null;
+}
+
+export interface ReviewDecision {
+  id: string;
+  title: string;
+  reason: string;
+  proposal_id: string | null;
+  by: string;
+  at: string;
 }
 
 export interface ProposalAi {

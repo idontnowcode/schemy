@@ -200,6 +200,8 @@ class ResolvedPart:
     request: str = ""
     calc: str = ""
     """The plan's rationale for the part: why, who decided (requirement / changed / ai), the asked words, the math."""
+    specs: dict | None = None
+    """Ratings the stock list gives for the stocked part (PartSpecs fields)."""
 
 
 Resolver = Callable[[dict], tuple[ResolvedPart | None, str]]
@@ -563,7 +565,7 @@ def build_circuit(parts: list[ResolvedPart], connections: dict, *, project_id: s
         components.append({
             "id": p.ref.lower(), "reference": p.ref, "value": values.get(p.ref) or p.value or "?",
             "symbol_id": p.symbol_id, "footprint_id": p.footprint_id, "manufacturer": p.manufacturer,
-            "manufacturer_part_number": p.mpn,
+            "manufacturer_part_number": p.mpn, "specs": p.specs,
             "pins": [{"number": n, "name": nm if nm and nm != "~" else None, "no_connect": (p.ref, n) in no_connect}
                      for n, nm, _ in p.pins],
             "pin_map_evidence": {"status": "unverified", "source": f"KiCad 라이브러리 {p.symbol_id} ({p.how})",
@@ -888,8 +890,9 @@ def _circuit_pins(circuit: CircuitIR) -> str:
         nc = [p.number for p in c.pins if p.no_connect]
         mpn = f" 품번 {c.manufacturer_part_number}" if c.manufacturer_part_number else ""
         fp = f" · 풋프린트 {c.footprint_id.split(':')[-1]}" if c.footprint_id else " · 풋프린트 없음"
+        rated = specs_text(c.specs)
         lines.append(f"- {c.reference} {c.value}{mpn} [{c.symbol_id}] 핀: {pins}" + (f" (NC: {','.join(nc)})" if nc else "")
-                     + fp)
+                     + fp + (f" · {rated}" if rated else ""))
     lines.append("[Net]")
     names = {c.id: c.reference for c in circuit.components}
     for n in circuit.nets:
@@ -918,7 +921,8 @@ def edit_prompt(inp: DesignInput, base: CircuitIR, findings: list[dict]) -> str:
 - 의견마다 고칠지 정하세요. 고친 의견 번호(F1 …)는 addressed에, 고치지 않는 의견은 not_addressed에 이유와 함께 적으세요.
   근거가 약하거나, 요구사항과 맞지 않거나, 사람이 정해야 하는 의견은 고치지 말고 이유를 적는 것이 맞습니다.
 - 의견과 상관없는 부품·값·연결은 바꾸지 마세요. 있는 부품의 기호(ref)도 바꾸지 마세요.
-- edits 종류 (모든 edit에 why: 어느 의견 때문인지 F 번호와 이유):
+- summary와 why는 사람이 읽습니다. 의견 번호(F1 …) 대신 의견 제목을 짧게 쓰세요. F1 같은 번호는 퓨즈 기호(F1)와 헷갈립니다.
+- edits 종류 (모든 edit에 why: 어느 의견 때문인지와 이유):
   · set_value: ref, value, 품번이 있으면 mpn, 풋프린트를 바꿀 때 package — 값·품번·패키지를 바꿈 (예: R1을 4.7k로,
     J4를 package "2.54mm 2x3 헤더"로). 값이 바뀌는데 mpn을 적지 않으면 이전 품번은 지워집니다(이전 값의 품번이므로).
   · add_part: 새 ref(겹치지 않게), category(resistor, capacitor, capacitor_polarized, inductor, led, diode, fuse,
@@ -998,10 +1002,15 @@ def apply_edits(base: CircuitIR, edits: list[dict], resolve: Resolver) -> tuple[
             if p["number"] == number:
                 p["no_connect"] = on
 
-    def decide(c: dict, topic: str, choice: str, why: str) -> None:
+    def decide(c: dict, topic: str, choice: str, why: str, keep_calc: bool = False) -> None:
+        """Record the part's choice (replacing its earlier record, which named the old part). The earlier topic says
+        what the part is for, so it stays; the calculation stays only when the value it worked out did not change."""
         did = f"dec-{c['id']}"
-        entry = {"id": did, "topic": topic[:120], "choice": choice[:300] or "?", "by": "ai",
+        old = next((d for d in data.get("decisions") or [] if d["id"] == did), None) or {}
+        entry = {"id": did, "topic": (old.get("topic") or topic)[:120], "choice": choice[:300] or "?", "by": "ai",
                  "reason": (why or "AI 수정안: 이유를 남기지 않았습니다.")[:2000], "components": [c["id"]]}
+        if keep_calc and old.get("calc"):
+            entry["calc"] = old["calc"]
         data["decisions"] = [d for d in data.get("decisions") or [] if d["id"] != did] + [entry]
 
     for e in edits:
@@ -1013,19 +1022,22 @@ def apply_edits(base: CircuitIR, edits: list[dict], resolve: Resolver) -> tuple[
             if c is None or not value:
                 problems.append(f"set_value {ref or '?'}: 회로에 없는 기호이거나 값이 비었습니다.")
                 continue
+            before = (c["value"], c.get("manufacturer_part_number"), c.get("footprint_id"))
             if c["value"] != value:
                 changes.append(f"{ref} 값 {c['value']} → {value}")
                 c["value"] = value
-                decide(c, f"{ref} 값", value, why)
                 if "mpn" not in e and c.get("manufacturer_part_number"):
                     # The old part number names the old value: keep it and the BOM orders the wrong part.
                     changes.append(f"{ref} 품번 {c['manufacturer_part_number']} 지움 (값이 바뀜)")
                     c["manufacturer_part_number"] = None
+                    c["specs"] = None
             if "mpn" in e:
                 mpn = str(e.get("mpn") or "").strip() or None
                 if mpn != c.get("manufacturer_part_number"):
                     changes.append(f"{ref} 품번 {c.get('manufacturer_part_number') or '없음'} → {mpn or '없음'}")
                     c["manufacturer_part_number"] = mpn
+                    # The ratings belonged to the old part: take the new one's from stock, or none (unknown).
+                    c["specs"] = stock_specs(resolve, mpn)
             if str(e.get("package") or "").strip():
                 # A new package sets the footprint (a 2x3 header named as 1x6, a part with none).
                 category = category_of(c["symbol_id"], c["reference"])
@@ -1038,6 +1050,12 @@ def apply_edits(base: CircuitIR, edits: list[dict], resolve: Resolver) -> tuple[
                 elif fp != c.get("footprint_id"):
                     changes.append(f"{ref} 풋프린트 {c.get('footprint_id') or '없음'} → {fp}")
                     c["footprint_id"] = fp
+            if (c["value"], c.get("manufacturer_part_number"), c.get("footprint_id")) != before:
+                # The decision names the part (value and part number): a new part number alone changes it too,
+                # or the rationale report keeps naming the part that was replaced.
+                mpn = c.get("manufacturer_part_number")
+                decide(c, f"{ref} 값", f"{c['value']} ({mpn})" if mpn else c["value"], why,
+                       keep_calc=c["value"] == before[0])
         elif action == "set_note":
             notes = data.get("notes") or []
             m = re.fullmatch(r"N?(\d+)", str(e.get("note") or "").strip().upper())
@@ -1087,7 +1105,7 @@ def apply_edits(base: CircuitIR, edits: list[dict], resolve: Resolver) -> tuple[
             used_ids.add(cid)
             c = {"id": cid, "reference": ref, "value": resolved.value or "?", "symbol_id": resolved.symbol_id,
                  "footprint_id": resolved.footprint_id, "manufacturer": resolved.manufacturer,
-                 "manufacturer_part_number": resolved.mpn,
+                 "manufacturer_part_number": resolved.mpn, "specs": resolved.specs,
                  "pins": [{"number": n, "name": nm if nm and nm != "~" else None, "no_connect": False}
                           for n, nm, _ in resolved.pins],
                  "pin_map_evidence": {"status": "unverified", "source": f"KiCad 라이브러리 {resolved.symbol_id} ({resolved.how})",
@@ -1181,6 +1199,21 @@ class EditResult:
     """The AI decided none of the findings should be changed (each with a reason)."""
 
 
+_FINDING_ID = re.compile(r"(?<![A-Za-z0-9])F(\d{1,2})(?![0-9])")
+
+
+def name_findings(text: str, by_id: dict[str, dict], refs: set[str] = frozenset()) -> str:
+    """The finding numbers the prompt used (F1, F2) written as the findings' titles: the summary and the edit reasons
+    are read later by people (the proposal, the design decisions, the rationale report) who never saw those numbers.
+    A number that is also a part on the board (fuse F1) is left alone: it may mean the fuse."""
+    def title(m: re.Match) -> str:
+        f = by_id.get(f"F{m.group(1)}")
+        if m.group(0) in refs or not f or not f.get("title"):
+            return m.group(0)
+        return f"「{f['title']}」"
+    return _FINDING_ID.sub(title, text)
+
+
 def revise_by_edits(provider: LlmProvider, inp: DesignInput, base: CircuitIR, findings: list[dict], resolve: Resolver, *,
                     max_output_tokens: int = 32768, max_repairs: int = 2,
                     on_step: Callable[[str, str], None] | None = None) -> EditResult:
@@ -1189,6 +1222,7 @@ def revise_by_edits(provider: LlmProvider, inp: DesignInput, base: CircuitIR, fi
     with the real pin tables of any new parts. ``circuit`` is None when it could not be done this way."""
     step = on_step or (lambda _s, _t: None)
     by_id = {f"F{i + 1}": f for i, f in enumerate(findings)}
+    refs = {c.reference.upper() for c in base.components}
     base_prompt = edit_prompt(inp, base, findings)
     prompt = base_prompt
     out = EditResult(circuit=None)
@@ -1197,8 +1231,9 @@ def revise_by_edits(provider: LlmProvider, inp: DesignInput, base: CircuitIR, fi
         answer, _ = _ask_json(provider, prompt=prompt, schema=EDIT_SCHEMA, what="수정 편집",
                               max_output_tokens=max_output_tokens, calls=out.calls, on_retry=lambda t: step("parts", t))
         out.attempts = attempt + 1
-        out.summary = str(answer.get("summary") or "").strip()[:2000]
-        out.edits = [e for e in answer.get("edits") or [] if isinstance(e, dict) and e.get("action") in EDIT_ACTIONS]
+        out.summary = name_findings(str(answer.get("summary") or "").strip(), by_id, refs)[:2000]
+        out.edits = [{**e, "why": name_findings(str(e.get("why") or ""), by_id, refs)} if e.get("why") else e
+                     for e in answer.get("edits") or [] if isinstance(e, dict) and e.get("action") in EDIT_ACTIONS]
         ids = [str(x).strip().upper() for x in answer.get("addressed") or []]
         out.addressed = [by_id[i] for i in dict.fromkeys(ids) if i in by_id]
         out.not_addressed = [{"title": by_id[str(x.get("id", "")).upper()].get("title"), "why": str(x.get("why") or "")[:500]}
@@ -1226,13 +1261,45 @@ def revise_by_edits(provider: LlmProvider, inp: DesignInput, base: CircuitIR, fi
     return out
 
 
+def specs_text(specs) -> str:
+    """A part's known ratings in a few words ("정격 50V · C0G · 오차 1%"), empty when none are known."""
+    if specs is None:
+        return ""
+    d = specs if isinstance(specs, dict) else specs.model_dump(exclude_none=True)
+    out = []
+    if d.get("voltage_rating"):
+        out.append(f"정격 {d['voltage_rating']:g}V")
+    if d.get("current_rating"):
+        out.append(f"{d['current_rating']:g}A")
+    if d.get("power_rating"):
+        out.append(f"{d['power_rating']:g}W")
+    if d.get("dielectric"):
+        out.append(str(d["dielectric"]))
+    if d.get("tolerance"):
+        out.append(f"오차 {d['tolerance']:g}%")
+    return " · ".join(out)
+
+
+def stock_specs(resolve, mpn: str | None) -> dict | None:
+    """The stock list's ratings for a part number, through the resolver's inventory (None when it is not stocked)."""
+    inventory = getattr(resolve, "inventory", None)
+    if not mpn or inventory is None:
+        return None
+    from circuit_core.inventory import normalize_mpn, specs_from_stock
+
+    key = normalize_mpn(mpn)
+    part = next((p for p in inventory.parts if p.mpn and normalize_mpn(p.mpn) == key), None)
+    return specs_from_stock(part) if part is not None else None
+
+
 def circuit_text(circuit: CircuitIR) -> str:
     """A compact, readable description of a circuit for review prompts."""
     lines = ["[부품]"]
     for c in sorted(circuit.components, key=lambda c: natural_key(c.reference)):
         nc = [p.number for p in c.pins if p.no_connect]
+        rated = specs_text(c.specs)
         lines.append(f"- {c.reference} {c.value} [{c.symbol_id}] {c.manufacturer_part_number or ''} "
-                     f"{c.footprint_id or ''}" + (f" NC핀 {','.join(nc)}" if nc else ""))
+                     f"{c.footprint_id or ''}" + (f" ({rated})" if rated else "") + (f" NC핀 {','.join(nc)}" if nc else ""))
     lines.append("[연결]")
     names = {c.id: c.reference for c in circuit.components}
     pin_names = {(c.id, p.number): p.name for c in circuit.components for p in c.pins}
@@ -1304,17 +1371,25 @@ def verify_finding(f: dict, *, ids: set[str], requirements: str, circuit: Circui
 
 def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | None, circuit: CircuitIR,
                    evidence: str, datasheet_notes: str = "", guides: str = "", guide_ids: set[str] | None = None,
-                   max_output_tokens: int = 16384, previous: list[dict] | None = None) -> tuple[dict, LlmResult]:
+                   max_output_tokens: int = 16384, previous: list[dict] | None = None,
+                   decided: list[dict] | None = None) -> tuple[dict, LlmResult]:
     """AI review. Every 수정 필요/권장 must name its basis; code checks it (``verified``). A finding nothing backs is
     kept for people to see but marked, so it does not drive automatic revisions. ``previous``: the findings a
     revision tried to fix, so the review says what is still open instead of starting over."""
     items, passed = review_evidence(circuit, evidence, datasheet_notes)
     listing = "\n".join(f"{i} {t}" for i, t in items) or "(없음)"
     prev_block = ""
+    if decided:
+        lines = "\n".join(f"- {d.get('title')}: {str(d.get('reason') or '')[:200]}" for d in decided[:20])
+        prev_block += f"""
+[사람이 정한 것 — 엔지니어가 의도한 설계로 결정했습니다]
+{lines}
+- 같은 지적을 다시 적지 마세요. 회로가 바뀌어 그 결정의 이유가 더는 맞지 않을 때만 근거와 함께 적으세요.
+"""
     if previous:
         lines = "\n".join(f"- P{k + 1} [{f.get('severity')}] {f.get('title')}: {str(f.get('detail') or '')[:200]}"
                           for k, f in enumerate(previous))
-        prev_block = f"""
+        prev_block += f"""
 [이전 회차 의견 — 이번 수정안이 고치려 한 것]
 {lines}
 - 해결됐으면 다시 적지 마세요. 아직 남았으면 같은 제목으로 다시 적고, evidence에 아직 남은 곳을 적으세요.
@@ -1379,10 +1454,11 @@ def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | Non
 
 def counted(findings: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
     """(수정 필요, 수정 권장, 근거 확인 안 됨) — the first two only with a basis that checked out (older reviews,
-    without the check, count as before)."""
-    needs = [f for f in findings if f.get("severity") == "error" and f.get("verified") is not False]
-    recommended = [f for f in findings if f.get("severity") == "warning" and f.get("verified") is not False]
-    unverified = [f for f in findings if f.get("severity") in ("error", "warning") and f.get("verified") is False]
+    without the check, count as before). A finding a person decided to keep as designed (``decided``) is in none."""
+    open_ = [f for f in findings if not f.get("decided")]
+    needs = [f for f in open_ if f.get("severity") == "error" and f.get("verified") is not False]
+    recommended = [f for f in open_ if f.get("severity") == "warning" and f.get("verified") is not False]
+    unverified = [f for f in open_ if f.get("severity") in ("error", "warning") and f.get("verified") is False]
     return needs, recommended, unverified
 
 

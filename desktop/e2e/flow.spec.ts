@@ -62,13 +62,31 @@ test("idea → requirements → design → automatic review → approval → sch
   await expect(rounds).toHaveCount(2);
   await expect(rounds.nth(0)).toContainText("수정 필요 1");
   await expect(rounds.nth(0)).toContainText("→ 수정안 #2");
-  await expect(rounds.nth(1)).toContainText("조건 충족 → 멈춤");
+  await expect(rounds.nth(1)).toContainText("조건 충족 → 끝");
+
+  // What is left can be kept as designed, with a reason: then nothing is left for the AI to fix.
+  const left = page.getByLabel("남은 의견");
+  await expect(left.getByRole("heading", { name: "남은 의견 1개" })).toBeVisible();
+  await expect(left).toContainText("CAN 라인 TVS 권장");
+  await left.getByRole("button", { name: "의도한 설계로 두기" }).click();
+  await left.getByLabel("CAN 라인 TVS 권장 이유").fill("시험용 보드라 버스가 짧고 서지 요구가 없음");
+  await left.getByRole("button", { name: "기록" }).click();
+  await expect(left.getByRole("heading", { name: "남은 의견 0개 — AI가 고칠 것이 없습니다" })).toBeVisible();
+  await expect(left.getByText("사람이 정한 것 1개")).toBeVisible();
+  // Running the loop again does not count what a person kept: met at once, with no AI call.
+  await page.getByRole("button", { name: "다시 실행" }).click();
+  await expect(card.getByText("조건 충족: 제안 #2 (수정 필요 0 · 수정 권장 0)")).toBeVisible({ timeout: 30_000 });
+  await expect(rounds).toHaveCount(1);
+  await expect(rounds.nth(0)).toContainText("사람이 정함 1");
+  await expect(rounds.nth(0)).toContainText("남은 지적 없음");
 
   // 6 확인·승인: one table; 「자세히」 opens the proposal's own slide; nothing saved before approval.
   await page.getByRole("button", { name: "다음: 확인·승인 →" }).click();
-  await expect(page.getByRole("table", { name: "제안 요약" })).toContainText("CAN 라인 TVS 권장");
+  await expect(page.getByRole("table", { name: "제안 요약" })).toContainText("수정 필요 0 · 권장 0");
   await page.getByRole("button", { name: "AI 검토 자세히" }).click();
   await expect(page.getByText("4 / 7")).toBeVisible();
+  await expect(page.getByText("사람이 정함").first()).toBeVisible();
+  await expect(page.getByText("의도한 설계로 둔 이유: 시험용 보드라 버스가 짧고 서지 요구가 없음")).toBeVisible();
   await page.getByRole("button", { name: "← 확인·승인(으)로 돌아가기" }).click();
   let circuit = (await (await page.request.get(`${backend.url}/api/projects/${pid}/boards/a/circuit`)).json()).circuit;
   expect(circuit).toBeNull();
@@ -152,4 +170,9 @@ test("work keeps going when you leave the screen, and the status panel shows it 
   await expect(panel.locator(".job-row").filter({ hasText: "요구사항 정리" })).toBeVisible();  // every recent job is listed
   await row.getByRole("button", { name: "목록에서 지우기" }).click();
   await expect(row).toHaveCount(0);
+  // With nothing running, the list folds to its header so it does not cover the page; the header opens it again.
+  await expect(panel.locator(".job-status-list")).toHaveCount(0, { timeout: 20_000 });
+  await expect(panel.getByRole("button", { name: /작업 끝남 1개/ })).toBeVisible();
+  await panel.getByRole("button", { name: /작업 끝남/ }).click();
+  await expect(panel.locator(".job-row").filter({ hasText: "요구사항 정리" })).toBeVisible();
 });

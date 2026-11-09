@@ -31,18 +31,40 @@ function elapsed(from: string | null, to?: string | null): string {
   return s < 60 ? `${s}초` : `${Math.floor(s / 60)}분 ${s % 60}초`;
 }
 
+/** How long the list stays open after the last job finished before it folds to its header (it sits over the page). */
+export const FOLD_AFTER_MS = 8000;
+
 /**
  * Work running in any project, visible on every screen (bottom right). Jobs run in the backend: leaving the screen
- * that started one does not stop it. A finished job stays here for a while and opens its result.
+ * that started one does not stop it. A finished job stays here for a while and opens its result. The list opens when
+ * work starts and folds to its header a little after everything has finished, so it does not cover the page.
  */
 export function JobStatus({ onOpen }: { onOpen(job: ActiveJob): void }) {
   const [jobs, setJobs] = useState<ActiveJob[]>([]);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [, tick] = useState(0);
   const busy = jobs.some(running);
   const busyRef = useRef(busy);
   busyRef.current = busy;
+
+  // Jobs already listed when the app opened do not open the panel; a job seen for the first time does.
+  const seen = useRef<Set<string> | null>(null);
+  const [fresh, setFresh] = useState(0);
+  const take = (list: ActiveJob[]) => {
+    setJobs(list);
+    if (seen.current === null) {
+      seen.current = new Set(list.map((j) => j.id));
+      if (list.some(running)) setOpen(true);
+      return;
+    }
+    const known = seen.current;
+    const added = list.filter((j) => !known.has(j.id));
+    if (added.length === 0) return;
+    added.forEach((j) => known.add(j.id));
+    setOpen(true);
+    setFresh((n) => n + 1);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -50,14 +72,14 @@ export function JobStatus({ onOpen }: { onOpen(job: ActiveJob): void }) {
     const poll = async () => {
       try {
         const list = await api.activeJobs();
-        if (alive) setJobs(list);
+        if (alive) take(list);
       } catch {
         /* the backend may be restarting; try again */
       }
       if (alive) timer = setTimeout(poll, busyRef.current ? 1500 : 6000);
     };
     void poll();
-    const onFocus = () => void api.activeJobs().then((l) => alive && setJobs(l)).catch(() => undefined);
+    const onFocus = () => void api.activeJobs().then((l) => alive && take(l)).catch(() => undefined);
     window.addEventListener("focus", onFocus);
     return () => {
       alive = false;
@@ -65,6 +87,22 @@ export function JobStatus({ onOpen }: { onOpen(job: ActiveJob): void }) {
       window.removeEventListener("focus", onFocus);
     };
   }, []);
+
+  // Open while work runs; fold a while after it all finished, unless the pointer is on the panel.
+  const hover = useRef(false);
+  useEffect(() => {
+    if (busy) setOpen(true);
+  }, [busy]);
+  useEffect(() => {
+    if (busy || !open) return;
+    let t: ReturnType<typeof setTimeout>;
+    const fold = () => {
+      if (hover.current) t = setTimeout(fold, 2000);
+      else setOpen(false);
+    };
+    t = setTimeout(fold, FOLD_AFTER_MS);
+    return () => clearTimeout(t);
+  }, [busy, open, fresh]);
 
   // Keep the elapsed time moving between polls.
   useEffect(() => {
@@ -78,10 +116,11 @@ export function JobStatus({ onOpen }: { onOpen(job: ActiveJob): void }) {
   const count = shown.filter(running).length;
 
   return (
-    <aside className={`job-status ${open ? "open" : ""}`} aria-label="작업 상태">
+    <aside className={`job-status ${open ? "open" : ""}`} aria-label="작업 상태"
+      onMouseEnter={() => { hover.current = true; }} onMouseLeave={() => { hover.current = false; }}>
       <button type="button" className="job-status-head" onClick={() => setOpen(!open)} aria-expanded={open}>
         {count > 0 ? <span className="tick run" aria-hidden /> : <Icon name="check" size={16} />}
-        <b>{count > 0 ? `작업 ${count}개 진행 중` : "작업 끝남"}</b>
+        <b>{count > 0 ? `작업 ${count}개 진행 중` : `작업 끝남${open ? "" : ` ${shown.length}개`}`}</b>
         <span className="muted small">{open ? "접기" : "펼치기"}</span>
       </button>
       {open && (

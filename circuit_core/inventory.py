@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -23,7 +24,7 @@ from pathlib import PurePath
 from pydantic import BaseModel, ConfigDict, Field
 
 from .export import natural_key
-from .models import CircuitIR, Component
+from .models import CircuitIR, Component, PartSpecs
 from .parts import (
     CATEGORY_LABELS,
     category_from_text,
@@ -308,6 +309,41 @@ class LineMatch:
         }
 
 
+_DIELECTRICS = {"C0G": "C0G", "NP0": "C0G", "NPO": "C0G", "X7R": "X7R", "X5R": "X5R", "X7S": "X7S", "Y5V": "Y5V"}
+
+
+def specs_from_stock(part: InventoryPart) -> dict | None:
+    """The ratings written in the stock list (정격·오차: "50V C0G", "1%", "40V 3A", "35V") as PartSpecs fields, so a
+    stocked part brings what it is rated for into the circuit and the calculation review and the AI reviewer see it.
+    Only what the text plainly says; an IC's "40V" (its supply range) is not a part rating and is left out."""
+    category = _part_category(part)
+    text = " ".join(x for x in (part.rating, part.tolerance) if x)
+    if not text or category in (None, "ic", "connector", "switch", "crystal", "transistor"):
+        return None
+    out: dict = {}
+    tol = re.search(r"(\d+(?:\.\d+)?)\s*%", text)
+    if tol and category in ("resistor", "capacitor", "capacitor_polarized", "inductor"):
+        out["tolerance"] = float(tol.group(1))
+    volt = re.search(r"(\d+(?:\.\d+)?)\s*V(?![a-zA-Z])", text)
+    if volt and category in ("capacitor", "capacitor_polarized", "diode", "fuse"):
+        out["voltage_rating"] = float(volt.group(1))
+    amp = re.search(r"(\d+(?:\.\d+)?)\s*(m?)A(?![a-zA-Z])", text)
+    if amp and category in ("diode", "fuse", "inductor"):
+        out["current_rating"] = float(amp.group(1)) / (1000 if amp.group(2) else 1)
+    watt = re.search(r"(\d+)\s*/\s*(\d+)\s*W|(\d+(?:\.\d+)?)\s*(m?)W(?![a-zA-Z])", text)
+    if watt and category == "resistor":
+        out["power_rating"] = (int(watt.group(1)) / int(watt.group(2)) if watt.group(1)
+                               else float(watt.group(3)) / (1000 if watt.group(4) else 1))
+    if category == "capacitor":
+        d = next((v for k, v in _DIELECTRICS.items() if re.search(rf"(?i)\b{k}\b", text)), None)
+        if d:
+            out["dielectric"] = d
+    elif category == "capacitor_polarized":
+        tantalum = re.search(r"(?i)탄탈|tantal", f"{part.category_label} {text}")
+        out["dielectric"] = "tantalum" if tantalum else "electrolytic"
+    return {k: v for k, v in out.items() if v} or None
+
+
 def _part_category(part: InventoryPart) -> str | None:
     return part.category or category_of(part.symbol_id)
 
@@ -446,12 +482,13 @@ def apply_inventory(circuit: CircuitIR, inventory: Inventory, *, apply_matched: 
 
     changes: list[Change] = []
     new_components = []
+    rated = False
     for comp in circuit.components:
         part = selected.get(comp.id)
         if part is None:
             new_components.append(comp)
             continue
-        update: dict[str, str] = {}
+        update: dict = {}
         if part.mpn and part.mpn != comp.manufacturer_part_number:
             update["manufacturer_part_number"] = part.mpn
         if part.manufacturer and part.manufacturer != comp.manufacturer:
@@ -460,8 +497,12 @@ def apply_inventory(circuit: CircuitIR, inventory: Inventory, *, apply_matched: 
             update["footprint_id"] = part.footprint_id
         for name, after in update.items():
             changes.append(Change(comp.id, comp.reference, name, getattr(comp, name), after))
+        specs = specs_from_stock(part)
+        if specs and comp.specs is None:
+            update["specs"] = PartSpecs(**specs)  # the stock list's ratings, when the part says nothing yet
+            rated = True
         new_components.append(comp.model_copy(update=update) if update else comp)
-    if not changes:
+    if not changes and not rated:
         return circuit, []
     updated = circuit.model_copy(update={"components": tuple(new_components)})
     return CircuitIR.model_validate(updated.model_dump()), changes

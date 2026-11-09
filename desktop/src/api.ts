@@ -56,7 +56,7 @@ import type {
   SaveCircuitResult,
   SystemInfo,
   TechnicalReview,
-  ValidationReport, ActiveJob } from "./types";
+  ValidationReport, ActiveJob, ReviewDecision } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -252,6 +252,12 @@ export const api = {
     answers: { question: string; answer: string }[] }) => request<Job>("POST", `${board(p, b)}/ai/design/resume`, body),
   autoReview: (p: string, b: string, body: { proposal_id: string; max_warnings: number; max_rounds: number }) =>
     request<Job>("POST", `${board(p, b)}/ai/auto-review`, body),
+  reviewDecisions: (p: string, b: string) =>
+    request<{ decisions: ReviewDecision[] }>("GET", `${board(p, b)}/review/decisions`).then((r) => r.decisions),
+  addReviewDecision: (p: string, b: string, body: { title: string; reason: string; proposal_id?: string | null }) =>
+    request<{ decision: ReviewDecision }>("POST", `${board(p, b)}/review/decisions`, body),
+  removeReviewDecision: (p: string, b: string, id: string) =>
+    request<{ ok: boolean }>("DELETE", `${board(p, b)}/review/decisions/${enc(id)}`),
   revisePreview: (p: string, b: string, proposalId?: string | null) =>
     request<RevisionInputs>("GET", `${board(p, b)}/ai/revise/preview${proposalId ? `?proposal_id=${enc(proposalId)}` : ""}`),
   aiRevise: (p: string, b: string, body: {

@@ -36,6 +36,7 @@ import { canResume, DesignChoices } from "./DesignChoices";
 import { Icon, type IconName } from "./Icons";
 import type { TabId } from "./ProjectView";
 import { ProposalsTab } from "./ProposalsTab";
+import { ReviewDecisions } from "./ReviewDecisions";
 
 export const STEPS = ["아이디어", "요구사항", "설계 준비", "AI 설계", "검토", "확인·승인", "회로도·출력"] as const;
 const LAST = STEPS.length - 1;
@@ -371,6 +372,8 @@ export function StageFlow({ project, board, circuit, revision, outputs, review, 
           setAutoJob(await api.autoReview(pid, bid, { proposal_id: focus.id, max_warnings: flow.maxWarnings, max_rounds: flow.maxRounds }));
         }),
       openOne: () => focus && setDetail({ id: focus.id, stage: "review", from: 4 }),
+      reload: async () => { await loadProposals(); },
+      fix: () => focus && setDetail({ id: focus.id, stage: "review", from: 4 }),
       next: () => advance(5),
     });
   } else if (stage === 5) {
@@ -765,7 +768,7 @@ export function roundsOf(steps: JobStep[]): AutoReviewRound[] {
 
 function reviewStage(p: Common & {
   focus: Proposal | null; job: Job | null; maxWarnings: number; maxRounds: number; setLimits(w: number, r: number): void;
-  start(): void; openOne(): void; next(): void;
+  start(): void; openOne(): void; next(): void; reload(): Promise<void>; fix(): void;
 }): Stage {
   const job = p.job;
   const rounds = roundsOf(job?.progress ?? []);
@@ -812,16 +815,18 @@ function reviewStage(p: Common & {
                   <Chip text={`수정 권장 ${r.warnings}`} tone={r.warnings ? "warn" : "ok"} />
                   {r.unverified ? <span title={`근거를 확인하지 못해 세지 않은 의견: ${(r.unverified_said ?? []).join(" / ")}`}>
                     <Chip text={`근거 확인 안 됨 ${r.unverified}`} tone="muted" /></span> : null}
+                  {r.decided ? <span title={`사람이 의도한 설계로 정해 세지 않은 의견: ${(r.decided_said ?? []).join(" / ")}`}>
+                    <Chip text={`사람이 정함 ${r.decided}`} tone="muted" /></span> : null}
                 </span>
                 <span className="flow-round-what">
-                  <span>{r.said.length ? r.said.join(" / ") : "지적 없음"}</span>
+                  <span>{r.said.length ? r.said.join(" / ") : r.decided ? "남은 지적 없음 (사람이 정한 것은 세지 않음)" : "지적 없음"}</span>
                   {r.revised_to ? (
                     <span className="muted small">
                       → 수정안 #{num(r.revised_to)}{r.fix?.method === "edits" ? " (고칠 곳만 편집)" : r.fix?.method === "redesign" ? " (다시 설계)" : ""}
                       {r.fix?.diff ? `: ${diffSummaryText(r.fix.diff)}` : ""}
                     </span>
                   ) : result && r === last ? (
-                    <span className="muted small">{STOP_LABEL[result.stop]} → 멈춤</span>
+                    <span className="muted small">{result.met ? "조건 충족 → 끝" : `${STOP_LABEL[result.stop]} → 멈춤`}</span>
                   ) : null}
                 </span>
               </li>
@@ -835,9 +840,12 @@ function reviewStage(p: Common & {
             {result.met
               ? `조건 충족: 제안 #${num(result.proposal_id)} (수정 필요 ${last?.errors ?? 0} · 수정 권장 ${last?.warnings ?? 0})`
               : `멈춤 (${STOP_LABEL[result.stop]}${result.message ? `: ${result.message}` : ""}): 마지막 제안 #${num(result.proposal_id)}` +
-                ` (수정 필요 ${last?.errors ?? "?"} · 수정 권장 ${last?.warnings ?? "?"}). 다시 실행하거나, 남은 의견은 다음 단계에서 직접 판단하세요.`}
+                ` (수정 필요 ${last?.errors ?? "?"} · 수정 권장 ${last?.warnings ?? "?"}). 다시 실행하거나, 아래 남은 의견마다 고칠 방향을 정하거나 의도한 설계로 두세요.`}
             <FailureDetails why={result.why} />
           </div>
+        )}
+        {!running(job) && p.focus?.ai?.review && (
+          <ReviewDecisions pid={p.pid} bid={p.bid} proposal={p.focus} onChanged={p.reload} onFix={p.fix} />
         )}
       </>
     ),
@@ -886,8 +894,8 @@ function ApproveStage(p: Common & { target: Proposal | null; revision: number | 
   const check = ac ? automatedLabel(ac.status) : { text: ev ? (ev.blocking ? "규칙 오류" : "생성 실패") : "검사 중", tone: ev ? "bad" : "muted" } as const;
   const passed = ac?.status === "passed";
   const findings = x.ai?.review?.findings ?? [];
-  const errors = findings.filter((f) => f.severity === "error");
-  const warnings = findings.filter((f) => f.severity === "warning");
+  const errors = findings.filter((f) => f.severity === "error" && f.verified !== false && !f.decided);
+  const warnings = findings.filter((f) => f.severity === "warning" && f.verified !== false && !f.decided);
   const ds = (ev?.datasheets ?? []).flatMap((r) => [
     ...(r.pin_map === "mismatch" ? [`${r.reference} 핀맵 불일치`] : []),
     ...r.ratings_problems.map((t) => `${r.reference}: ${t}`),

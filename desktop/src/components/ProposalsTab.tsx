@@ -935,7 +935,8 @@ const BASIS_LABEL: Record<string, string> = {
 
 export function FindingList({ findings, onUse, blocked, guideRef, guideLabel }: {
   findings: { severity: string; title: string; detail: string; references: string[]; suggestion: string | null; guide?: string | null;
-    basis?: string; evidence?: string | null; verified?: boolean | null }[];
+    basis?: string; evidence?: string | null; verified?: boolean | null; decided?: { id: string; reason: string } | null;
+    ai_declined?: string | null }[];
   onUse?(index: number): void;
   /** Why "이 의견 반영하기" cannot be used now (AI off, an approved proposal the board moved on from...): the button
    * stays visible, disabled, with this as its tooltip, so the action is not silently missing. */
@@ -956,7 +957,14 @@ export function FindingList({ findings, onUse, blocked, guideRef, guideLabel }: 
               근거 확인 안 됨
             </span>
           )}
+          {f.decided && (
+            <span className="chip chip-ok finding-decided" title="사람이 의도한 설계로 정한 의견입니다. 자동 반복 검토에서 세지 않습니다.">
+              사람이 정함
+            </span>
+          )}
           <div>{f.detail}</div>
+          {f.decided && <div className="small muted">의도한 설계로 둔 이유: {f.decided.reason}</div>}
+          {f.ai_declined && !f.decided && <div className="small muted">AI가 고치지 않은 이유: {f.ai_declined}</div>}
           {f.evidence && f.severity !== "info" && <div className="small muted">근거{f.basis ? ` (${BASIS_LABEL[f.basis] ?? f.basis})` : ""}: {f.evidence}</div>}
           {f.suggestion && <div className="issue-hint">→ {f.suggestion}</div>}
           {f.guide && <div className="small muted">설계 지침 {f.guide}을(를) 지키지 않았다는 의견입니다.</div>}

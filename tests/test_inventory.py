@@ -150,3 +150,27 @@ def test_apply_matched_and_choices(led_circuit):
         apply_inventory(led_circuit, inventory, choices={"nope": r0805.id})
     with pytest.raises(InventoryApplyError):
         apply_inventory(led_circuit, inventory, choices={"res-001": "inv-99999"})
+
+
+def test_stock_ratings_become_part_specs(led_circuit):
+    """Found in a real-flow run: stocked parts came into the circuit with no ratings, so a 1 % resistor or a 35 V
+    electrolytic from the stock list was unknown to the calculation review and to the AI reviewer."""
+    from circuit_core.inventory import InventoryPart, specs_from_stock
+
+    def part(category, rating, tolerance=None):
+        return InventoryPart(id="x", category=category, rating=rating, tolerance=tolerance, source_row=2)
+
+    assert specs_from_stock(part("resistor", "1%")) == {"tolerance": 1.0}
+    assert specs_from_stock(part("resistor", "1/10W", "0.1%")) == {"tolerance": 0.1, "power_rating": 0.1}
+    assert specs_from_stock(part("capacitor", "50V C0G")) == {"voltage_rating": 50.0, "dielectric": "C0G"}
+    assert specs_from_stock(part("capacitor_polarized", "35V")) == {"voltage_rating": 35.0,
+                                                                   "dielectric": "electrolytic"}
+    assert specs_from_stock(part("diode", "40V 3A")) == {"voltage_rating": 40.0, "current_rating": 3.0}
+    assert specs_from_stock(part("fuse", "60V 100mA")) == {"voltage_rating": 60.0, "current_rating": 0.1}
+    assert specs_from_stock(part("ic", "40V")) is None  # an IC's supply range is not a part rating
+    assert specs_from_stock(part("resistor", None)) is None
+
+    # Applying the stock list brings the ratings along (only where the part says nothing yet).
+    rated = inventory_from("품번,제조사,종류,값,패키지,정격,재고\nRC0603FR-07330RL,Yageo,칩저항,330R,0603,1%,5000\n")
+    updated, _ = apply_inventory(led_circuit, rated)
+    assert updated.component("res-001").specs.tolerance == 1.0

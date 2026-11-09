@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 
 from fastapi import APIRouter
 from pydantic import Field, ValidationError
@@ -84,6 +85,12 @@ class ResumeAnswer(_Model):
     answer: str = Field(max_length=2000)
 
 
+class DecisionBody(_Model):
+    title: str = Field(min_length=1, max_length=300)
+    reason: str = Field(min_length=2, max_length=2000)
+    proposal_id: str | None = None
+
+
 class ResumeBody(_Model):
     """Continue a design that stopped at parts with no KiCad symbol, with what the person chose for each."""
 
@@ -116,11 +123,25 @@ def similar(a, b, threshold: float = 0.5) -> bool:
     return len(x & y) / max(1, len(x | y)) >= threshold
 
 
+def mark_decided(findings: list[dict], decisions: list[dict]) -> list[dict]:
+    """Mark the error/warning findings a person decided to keep as designed (same or similar title)."""
+    for f in findings:
+        f.pop("decided", None)
+        if f.get("severity") not in ("error", "warning"):
+            continue
+        d = next((d for d in decisions if similar(f.get("title"), d.get("title"))), None)
+        if d is not None:
+            f["decided"] = {"id": d["id"], "reason": d.get("reason") or ""}
+    return findings
+
+
 def _count_text(findings: list[dict]) -> str:
     needs, recommended, unverified = counted(findings)
     info = sum(1 for f in findings if f.get("severity") == "info")
+    decided = sum(1 for f in findings if f.get("decided"))
     return (f"수정 필요 {len(needs)} · 수정 권장 {len(recommended)} · 참고 {info}"
-            + (f" · 근거 확인 안 됨 {len(unverified)}" if unverified else ""))
+            + (f" · 근거 확인 안 됨 {len(unverified)}" if unverified else "")
+            + (f" · 사람이 정함 {decided}" if decided else ""))
 
 
 def _check_text(p: Proposal) -> str:
@@ -271,17 +292,73 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
     def run_review(cfg, provider, project_id: str, circuit: CircuitIR, evidence: str,
                    context: dict | None = None, previous: list[dict] | None = None) -> tuple[dict, object]:
         entries = applicable_guides(project_id, circuit)
+        board_id = (context or {}).get("board_id")
+        decisions = store.get_review_decisions(project_id, board_id) if board_id else []
         review, call = review_circuit(provider, requirements=store.get_requirements(project_id),
                                       spec=store.get_requirements_spec(project_id), circuit=circuit,
                                       evidence=evidence, datasheet_notes=datasheet_text(circuit),
                                       guides=guide_prompt_text(entries), guide_ids={e.id for e in entries},
-                                      max_output_tokens=min(cfg.max_output_tokens, 16384), previous=previous)
+                                      max_output_tokens=min(cfg.max_output_tokens, 16384), previous=previous,
+                                      decided=decisions)
+        mark_decided(review["findings"], decisions)
         review["created_at"] = now_iso()
         review["guides_checked"] = [e.id for e in entries]
         flagged = [f["guide"] for f in review["findings"] if f.get("guide")]
         if guides is not None and flagged:
             guides.record("flagged", flagged, by="AI 검토", **(context or {"project_id": project_id}))
         return review, call
+
+    # --- review findings kept as designed ----------------------------------------------------------
+
+    def _remark(project_id: str, board_id: str) -> None:
+        """Re-mark the open proposals' reviews after the decisions changed (no AI call)."""
+        decisions = store.get_review_decisions(project_id, board_id)
+        for p in proposals.list(project_id, board_id):
+            review = (p.ai or {}).get("review")
+            if p.status in ("checking", "ready", "invalid", "check_failed") and review and review.get("findings"):
+                mark_decided(review["findings"], decisions)
+                proposals.update(p, ai={**(p.ai or {}), "review": review})
+
+    def note_declined(project_id: str, board_id: str, proposal_id: str, not_addressed: list[dict]) -> None:
+        """Keep the AI's reason for not fixing a finding on the finding itself. A refusal makes no new proposal, so
+        without this the reason lives only in the job message and the person deciding never sees it."""
+        try:
+            p = proposals.get(project_id, board_id, proposal_id)
+        except Exception:  # noqa: BLE001 - the parent may be gone; the job message still carries the reason
+            return
+        review = (p.ai or {}).get("review")
+        if not review or not review.get("findings"):
+            return
+        for f in review["findings"]:
+            hit = next((x for x in not_addressed if x.get("title") == f.get("title")), None) \
+                or next((x for x in not_addressed if similar(f.get("title"), x.get("title"))), None)
+            if hit is not None and hit.get("why"):
+                f["ai_declined"] = str(hit["why"])
+        proposals.update(p, ai={**(p.ai or {}), "review": review})
+
+    @router.get("/api/projects/{project_id}/boards/{board_id}/review/decisions")
+    def review_decisions(project_id: str, board_id: str):
+        return {"decisions": store.get_review_decisions(project_id, board_id)}
+
+    @router.post("/api/projects/{project_id}/boards/{board_id}/review/decisions", status_code=201)
+    def add_review_decision(project_id: str, board_id: str, body: DecisionBody):
+        """A person keeps a review finding as designed, with the reason. Later reviews are told and do not count it;
+        nothing in the circuit changes."""
+        decisions = store.get_review_decisions(project_id, board_id)
+        entry = {"id": f"dec-{len(decisions) + 1:03d}-{int(time.time())}", "title": body.title.strip(),
+                 "reason": body.reason.strip(), "proposal_id": body.proposal_id, "by": "engineer", "at": now_iso()}
+        store.put_review_decisions(project_id, board_id, [*decisions, entry])
+        _remark(project_id, board_id)
+        return {"decision": entry}
+
+    @router.delete("/api/projects/{project_id}/boards/{board_id}/review/decisions/{decision_id}")
+    def remove_review_decision(project_id: str, board_id: str, decision_id: str):
+        decisions = store.get_review_decisions(project_id, board_id)
+        if not any(d.get("id") == decision_id for d in decisions):
+            raise ApiError(404, "NOT_FOUND", "그런 결정이 없습니다.")
+        store.put_review_decisions(project_id, board_id, [d for d in decisions if d.get("id") != decision_id])
+        _remark(project_id, board_id)
+        return {"ok": True}
 
     # --- requirements sheet -------------------------------------------------------------------
 
@@ -562,6 +639,8 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                 if er is not None and er.declined:
                     record.update(status="declined")
                     save_run(project_id, board_id, record)
+                    if parent:
+                        note_declined(project_id, board_id, parent, er.not_addressed)
                     reasons = " / ".join(f"{x['title']}: {x['why']}" for x in er.not_addressed[:4])
                     raise ApiError(422, "AI_NOTHING_TO_FIX", f"AI가 남은 의견을 고치지 않기로 했습니다. {reasons}",
                                    recovery_hint="의견을 직접 판단하거나, 고칠 내용을 직접 적어 수정안을 요청하세요.",
@@ -755,6 +834,9 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                          "warnings": len(recommended), "check": _check_text(p), "check_failed": failed_check,
                          "said": [str(f.get("title", "")) for f in [*needs, *recommended]][:4],
                          "unverified": len(unverified), "unverified_said": [str(f.get("title", "")) for f in unverified][:4]}
+                kept = [f for f in review["findings"] if f.get("decided")]
+                if kept:
+                    entry.update(decided=len(kept), decided_said=[str(f.get("title", "")) for f in kept][:4])
                 if (p.ai or {}).get("not_addressed"):
                     entry["declined"] = [f"{x.get('title')}: {x.get('why')}" for x in p.ai["not_addressed"]][:4]
                 prev = rounds[-1] if rounds else None

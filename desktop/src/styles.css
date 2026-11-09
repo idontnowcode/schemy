@@ -2188,3 +2188,22 @@ button.back-link {
 .job-step {
   color: var(--text-muted);
 }
+
+/* 5 검토: what is left after the loop, and the person's decision */
+.review-decisions {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.review-decisions h3 { margin: 0; font-size: 15px; }
+.review-left { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.review-left-item { display: grid; gap: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+.review-left-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.review-left-item p { margin: 0; }
+.review-keep { display: grid; gap: 6px; }
+.review-keep textarea { width: 100%; min-height: 56px; font: inherit; }
+.review-decided { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.finding-decided { margin-left: 6px; }

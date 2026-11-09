@@ -810,6 +810,24 @@ def test_edit_problems_go_back_to_the_ai_with_the_real_pins(tmp_path, resolver):
     assert [f["title"] for f in result.addressed] == ["ESD 보호 없음"]
 
 
+def test_revision_text_names_the_findings_not_the_prompt_numbers(tmp_path, resolver):
+    """Found in a real-flow run: the proposal said 「F1을 고쳤습니다」 and a design decision's reason was 「F1: …」 —
+    numbers only the prompt knew, on a board whose fuse is also F1."""
+    from ai_engine.design import DesignInput, name_findings, revise_by_edits
+
+    base = can_candidate(tmp_path)
+    answer = {"summary": "F1을 고쳤습니다.", "addressed": ["F1"],
+              "edits": [{"action": "set_value", "ref": "R1", "value": "121", "why": "F1: 종단 값"}]}
+    provider = Scripted(lambda prompt: json.dumps(answer, ensure_ascii=False))
+    inp = DesignInput(requirements=REQUIREMENTS, spec=None, board_name="A", instructions=None)
+    result = revise_by_edits(provider, inp, base, [finding("warning", "종단 저항 값")], resolver)
+    assert result.summary == "「종단 저항 값」을 고쳤습니다."
+    assert any(d.reason == "「종단 저항 값」: 종단 값" for d in result.circuit.decisions)
+    assert "의견 번호(F1 …) 대신 의견 제목" in provider.calls[0]["prompt"]
+    # A number that is also a part on the board is left as written (it may mean the fuse).
+    assert name_findings("F1 교체", {"F1": {"title": "x"}}, {"F1"}) == "F1 교체"
+
+
 def test_when_the_ai_declines_every_finding_the_loop_says_so(tmp_path):
     base_reply, _ = reviews_in_turn([finding("error", "애매한 결함")])
 
@@ -823,6 +841,9 @@ def test_when_the_ai_declines_every_finding_the_loop_says_so(tmp_path):
     r = auto["result"]
     assert r["stop"] == "declined" and "요구사항상 의도된 구성입니다" in r["message"]
     assert auto["progress"][-1]["text"].startswith("멈춤: AI가 남은 의견을 고치지 않기로 함")
+    # The reason stays on the finding, where the person deciding about it reads it (no new proposal carries it).
+    kept = client.get(board + f"/proposals/{r['proposal_id']}").json()["ai"]["review"]["findings"]
+    assert [f.get("ai_declined") for f in kept if f["title"] == "애매한 결함"] == ["요구사항상 의도된 구성입니다"]
 
 
 def test_edits_that_cannot_be_made_fall_back_to_a_redesign(tmp_path):
@@ -868,6 +889,24 @@ def test_a_new_value_takes_its_part_number_and_notes_can_be_fixed(tmp_path, reso
                                                 resolver)
     assert problems == [] and next(c for c in circuit.components if c.reference == "R1").manufacturer_part_number is None
     assert "R1 품번 RC0603FR-07120RL 지움 (값이 바뀜)" in changes
+    # Ratings belong to the part number: a new one does not keep the old part's (they would be wrong).
+    rated = CircuitIR.model_validate({**data, "components": [
+        {**c, "specs": {"tolerance": 1}} if c["reference"] == "R1" else c for c in data["components"]]})
+    assert "오차 1%" in edit_prompt(DesignInput(requirements=REQUIREMENTS, spec=None, board_name="A",
+                                                 instructions=None), rated, [])
+    circuit, _, _, _ = apply_edits(rated, [{"action": "set_value", "ref": "R1", "value": "120",
+                                            "mpn": "RT0603BRD07120RL", "why": "F1"}], resolver)
+    assert next(c for c in circuit.components if c.reference == "R1").specs is None
+    # The decision names the new part: a part number alone changes it (the rationale report names what is fitted),
+    # keeping what the part is for and, since the value did not change, its calculation.
+    noted = CircuitIR.model_validate({**data, "decisions": [
+        {"id": f"dec-{r1['id']}", "topic": "R1 CAN 종단 저항", "choice": "120 (RC0603FR-07120RL)", "by": "ai",
+         "reason": "보유 자재", "calc": "Z0 = 120 Ω", "components": [r1["id"]]}]})
+    circuit, _, _, _ = apply_edits(noted, [{"action": "set_value", "ref": "R1", "mpn": "RT0603BRD07120RL",
+                                            "why": "F1: 0.1 %"}], resolver)
+    d = next(d for d in circuit.decisions if d.id == f"dec-{r1['id']}")
+    assert (d.topic, d.choice, d.reason, d.calc) == ("R1 CAN 종단 저항", "120 (RT0603BRD07120RL)", "F1: 0.1 %",
+                                                     "Z0 = 120 Ω")
     # With a part number it takes the new one; a note is rewritten; a wrong note number is a problem.
     circuit, problems, changes, _ = apply_edits(base, [
         {"action": "set_value", "ref": "R1", "value": "121", "mpn": "RC0603FR-07121RL", "why": "F1"},
@@ -916,6 +955,54 @@ def test_the_parts_plan_sees_inventory_ratings_and_notes():
             "stock": 50, "rating": None, "tolerance": None, "notes": "CL 18pF"}]
     text = plan_prompt(DesignInput(requirements=REQUIREMENTS, inventory=inv))
     assert "재고 300 | 정격 50V | 오차 10%" in text and "재고 50 | 비고 CL 18pF" in text
+
+
+def test_a_finding_kept_as_designed_is_not_counted_and_the_reviewer_is_told(tmp_path):
+    """So the loop can finish at zero: a finding the AI cannot (or should not) fix is decided by a person, with a
+    reason. It stays visible, is not counted, is not sent to revisions, and later reviews are told about it."""
+    from ai_engine.design import counted
+
+    tvs = finding("warning", "입력 TVS 클램프 전압이 벅 절대 최대보다 높음")
+    reply, state = reviews_in_turn([tvs], [tvs])
+    client, board, job = designed(tmp_path, reply)
+    pid = job["result"]["proposal_id"]
+    review = wait(client, client.post(board + "/ai/review", json={"proposal_id": pid}).json())
+    assert review["status"] == "succeeded", review
+    first = client.get(f"{board}/proposals/{pid}").json()["ai"]["review"]["findings"]
+    assert counted(first)[1] and not first[0].get("decided")
+
+    bad = client.post(board + "/review/decisions", json={"title": tvs["title"], "reason": ""})
+    assert bad.status_code == 422
+    made = client.post(board + "/review/decisions", json={"title": tvs["title"], "proposal_id": pid,
+                                                          "reason": "제어반 내부용이라 서지 요구가 없음"}).json()["decision"]
+    assert client.get(board + "/review/decisions").json()["decisions"][0]["reason"] == "제어반 내부용이라 서지 요구가 없음"
+    marked = client.get(f"{board}/proposals/{pid}").json()["ai"]["review"]["findings"]
+    assert marked[0]["decided"]["id"] == made["id"] and counted(marked) == ([], [], [])
+
+    # The loop counts nothing left and stops at round 1 without asking the AI again.
+    calls = state["n"]
+    auto = wait(client, client.post(board + "/ai/auto-review",
+                                    json={"proposal_id": pid, "max_warnings": 0}).json())
+    r = auto["result"]
+    assert r["stop"] == "met" and r["rounds"][0]["errors"] == 0 and r["rounds"][0]["warnings"] == 0
+    assert r["rounds"][0]["decided"] == 1 and r["rounds"][0]["decided_said"]  # shown, not counted
+    assert state["n"] == calls
+
+    # A new review is told what was decided; if it says it again, it is still not counted.
+    created = []
+    client2, _, pid2 = design_client(tmp_path / "b", lambda prompt: (created.append(prompt), reply(prompt))[1])
+    board2 = f"/api/projects/{pid2}/boards/a"
+    p2 = wait(client2, client2.post(board2 + "/ai/design", json={"review": False}).json())["result"]["proposal_id"]
+    client2.post(board2 + "/review/decisions", json={"title": tvs["title"], "reason": "의도한 설계"})
+    wait(client2, client2.post(board2 + "/ai/review", json={"proposal_id": p2}).json())
+    prompt = next(c for c in reversed(created) if "검토자" in c and "핀 표만 써서" not in c)
+    assert "[사람이 정한 것" in prompt and tvs["title"] in prompt
+    again = client2.get(f"{board2}/proposals/{p2}").json()["ai"]["review"]["findings"]
+    assert again[0]["decided"] and counted(again) == ([], [], [])
+
+    # Undoing the decision counts it again.
+    client.delete(f"{board}/review/decisions/{made['id']}")
+    assert counted(client.get(f"{board}/proposals/{pid}").json()["ai"]["review"]["findings"])[1]
 
 
 def test_a_revision_that_changes_nothing_makes_no_proposal(tmp_path):

@@ -337,6 +337,24 @@ class ProjectStore:
             raise not_found("board", board_id)
         return self.project_dir(project_id) / "boards" / board_id
 
+    def get_review_decisions(self, project_id: str, board_id: str) -> list[dict]:
+        """Review findings a person decided to keep as designed (title, reason): later reviews do not count them."""
+        self._read_board(project_id, board_id)
+        path = self.board_dir(project_id, board_id) / "review_decisions.json"
+        if not path.is_file():
+            return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            return []
+        return [d for d in data.get("decisions", []) if isinstance(d, dict) and d.get("title")]
+
+    def put_review_decisions(self, project_id: str, board_id: str, decisions: list[dict]) -> None:
+        with self._lock:
+            self._read_board(project_id, board_id)
+            atomic_write(self.board_dir(project_id, board_id) / "review_decisions.json",
+                         json.dumps({"decisions": decisions}, ensure_ascii=False, indent=2) + "\n")
+
     def _read_board(self, project_id: str, board_id: str) -> BoardFile:
         path = self.board_dir(project_id, board_id) / "board.json"
         if not path.is_file():

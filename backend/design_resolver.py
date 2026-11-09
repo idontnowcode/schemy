@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ai_engine.design import ResolvedPart
 from circuit_core.datasheets import DatasheetFacts
-from circuit_core.inventory import Inventory
+from circuit_core.inventory import Inventory, specs_from_stock
 from circuit_core.models import Component
 from circuit_core.parts import package_footprint
 from kicad_adapter import SymbolLibrary, SymbolLibraryError
@@ -72,6 +72,7 @@ class PartResolver:
         maker = str(part.get("manufacturer") or "").strip() or None
         package = str(part.get("package") or "").strip() or None
         footprint = None
+        specs = None
         how = []
         inv_id = str(part.get("inventory_part_id") or "").strip()
         if inv_id and self.inventory:
@@ -80,6 +81,7 @@ class PartResolver:
                 mpn, maker = stocked.mpn or mpn, stocked.manufacturer or maker
                 footprint = stocked.footprint_id
                 package = stocked.package or package
+                specs = specs_from_stock(stocked)  # 정격·오차 from the stock list come with the part
                 how.append(f"보유 자재 {stocked.mpn or stocked.value}")
 
         candidates: list[tuple[str, str]] = []
@@ -152,7 +154,7 @@ class PartResolver:
                 pins=[(p.number, p.name, p.electrical_type) for p in sym.pins], how=" · ".join([*how, reason]),
                 footprint_id=footprint, manufacturer=maker, mpn=mpn, datasheet_notes=notes,
                 stacks=sym.stacks(), reason=str(part.get("reason") or ""), basis=str(part.get("basis") or "ai"),
-                request=str(part.get("request") or ""), calc=str(part.get("calc") or "")), ""
+                request=str(part.get("request") or ""), calc=str(part.get("calc") or ""), specs=specs), ""
         if not candidates:
             return None, "KiCad 라이브러리에서 맞는 심볼을 찾지 못했습니다. 품번이나 KiCad 심볼 이름이 필요합니다."
         return None, "쓸 수 있는 KiCad 심볼이 없습니다: " + "; ".join(tried[:3])
