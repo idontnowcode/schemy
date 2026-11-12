@@ -61,11 +61,13 @@ interface FlowState {
   stage: number;
   reached: number;
   useInventory: boolean;
+  /** Download the chosen parts' datasheets and have the AI summarize them during the design (shown at step 3). */
+  datasheets: boolean;
   maxWarnings: number;
   maxRounds: number;
 }
 
-const DEFAULT_STATE: FlowState = { stage: -1, reached: 0, useInventory: true, maxWarnings: 1, maxRounds: 3 };
+const DEFAULT_STATE: FlowState = { stage: -1, reached: 0, useInventory: true, datasheets: true, maxWarnings: 1, maxRounds: 3 };
 
 function loadState(key: string): FlowState {
   try {
@@ -347,13 +349,15 @@ export function StageFlow({ project, board, circuit, revision, outputs, review, 
     body = {
       lead: "AI가 설계할 때 따를 것들입니다. 확인만 하고 넘어가도 됩니다.",
       body: <PrepStage {...common} {...prep} useInventory={flow.useInventory} hasSpec={spec !== null}
+        datasheets={flow.datasheets} setDatasheets={(v) => setFlow({ datasheets: v })}
         instructions={instructions} setInstructions={setInstructions} />,
       next: {
         label: "AI 설계 시작", disabled: !ready,
         title: !aiReady ? AI_SETUP_HINT : "결과는 제안으로 만들어지고, 승인하기 전에는 회로가 바뀌지 않습니다",
         onClick: () =>
           run("AI 설계를 시작하는 중…", async () => {
-            const job = await api.design(pid, bid, { instructions: instructions.trim() || undefined, use_inventory: flow.useInventory, review: true });
+            const job = await api.design(pid, bid, { instructions: instructions.trim() || undefined, use_inventory: flow.useInventory,
+              review: true, datasheets: flow.datasheets });
             setDesignJob(job);
             advance(3);
           }),
@@ -369,7 +373,8 @@ export function StageFlow({ project, board, circuit, revision, outputs, review, 
       start: () =>
         run("자동 반복 검토를 시작하는 중…", async () => {
           if (!focus) return;
-          setAutoJob(await api.autoReview(pid, bid, { proposal_id: focus.id, max_warnings: flow.maxWarnings, max_rounds: flow.maxRounds }));
+          setAutoJob(await api.autoReview(pid, bid, { proposal_id: focus.id, max_warnings: flow.maxWarnings, max_rounds: flow.maxRounds,
+            datasheets: flow.datasheets }));
         }),
       openOne: () => focus && setDetail({ id: focus.id, stage: "review", from: 4 }),
       reload: async () => { await loadProposals(); },
@@ -613,7 +618,7 @@ function SpecCard({ spec, card, onChange }: { spec: RequirementsSpec; card: (typ
 
 function PrepStage(p: Common & {
   preview: DesignPreview | null; templates: CircuitTemplate[]; error: string | null; useInventory: boolean; hasSpec: boolean;
-  instructions: string; setInstructions(v: string): void;
+  instructions: string; setInstructions(v: string): void; datasheets: boolean; setDatasheets(v: boolean): void;
 }) {
   const { preview, templates } = p;
   const guides = preview?.guides ?? [];
@@ -647,8 +652,20 @@ function PrepStage(p: Common & {
         </div>
         <div className="flow-box">
           <div className="flow-box-head"><Icon name="brain" /><h3>AI 사용</h3></div>
-          <p>{p.provider} · 호출 약 3~5회</p>
-          <p className="muted small">부품 계획 1회, 핀 연결 1~3회, 검토 1회</p>
+          <p>{p.provider} · 호출 약 3~5회{p.datasheets ? " + 데이터시트 요약" : ""}</p>
+          <p className="muted small">부품 계획 1회, 핀 연결 1~3회, 검토 1회{p.datasheets ? ", 요약이 없는 데이터시트마다 1회(최대 6회)" : ""}</p>
+        </div>
+        <div className="flow-box flow-box-wide">
+          <div className="flow-box-head"><Icon name="download" /><h3>데이터시트</h3></div>
+          <label className="flow-check">
+            <input type="checkbox" checked={p.datasheets} onChange={(e) => p.setDatasheets(e.target.checked)} />
+            고른 부품의 데이터시트를 받아 대조
+          </label>
+          <p className="muted small">
+            {p.datasheets
+              ? "부품이 정해지면 IC·트랜지스터의 데이터시트를 KiCad 심볼 링크와 제조사 사이트에서 받습니다(주소에 품번만 들어감, 유통사 키가 있으면 품번으로 검색). 받은 PDF는 AI에 보내 요약하고, 요약으로 핀 연결·핀맵·전압·외부 부품을 대조합니다. 이미 보관된 데이터시트는 다시 받지 않습니다."
+              : "받지 않습니다. 이미 보관된 데이터시트 요약만 대조에 씁니다."}
+          </p>
         </div>
       </div>
       <details className="flow-extra">
@@ -659,6 +676,7 @@ function PrepStage(p: Common & {
       <p className="flow-note">
         <b>보낼 데이터:</b> 요구사항 {preview?.requirements_chars ?? 0}자{p.hasSpec ? ", 정리한 요구사항" : ""}, 설계 지침 {guides.length}개
         {p.useInventory && inv ? `, 보유 자재 ${inv}종` : ""}, 고른 부품의 KiCad 핀 표와 데이터시트 요약
+        {p.datasheets ? ", 새로 받은 데이터시트 PDF(요약용)" : ""}
       </p>
       {preview && !preview.library && <p className="small warn-text">KiCad 심볼 라이브러리를 찾지 못해 AI 설계를 할 수 없습니다. KiCad 10을 설치하세요.</p>}
       {p.error && <p className="small bad-text">{p.error}</p>}
@@ -671,6 +689,7 @@ function PrepStage(p: Common & {
 
 const DESIGN_ROWS: { key: string; title: string; steps: string[]; idle: string }[] = [
   { key: "parts", title: "부품 고르기", steps: ["parts"], idle: "요구사항·설계 지침·보유 자재로 부품을 고릅니다" },
+  { key: "datasheets", title: "데이터시트", steps: ["datasheets"], idle: "고른 부품의 데이터시트를 찾아 요약합니다" },
   { key: "pins", title: "핀 연결", steps: ["pins"], idle: "KiCad 심볼의 핀 표로 연결합니다" },
   { key: "check", title: "KiCad 검사", steps: ["check"], idle: "회로도를 만들어 ERC를 실행합니다" },
   { key: "proposal", title: "제안 만들기", steps: ["proposal", "review"], idle: "승인 전에는 회로가 바뀌지 않음" },
@@ -902,6 +921,12 @@ function ApproveStage(p: Common & { target: Proposal | null; revision: number | 
     ...r.external_missing.map((t) => `${r.reference} 외부 부품: ${t}`),
   ]);
   const compared = (ev?.datasheets ?? []).length;
+  // What the design's datasheet step could not get: said next to the result, or a part nobody compared looks fine.
+  const dsMissing = (x.ai?.datasheets?.parts ?? []).filter((r) => r.summary !== "had" && r.summary !== "made");
+  const dsMissingText = dsMissing.length
+    ? `데이터시트 없음 ${dsMissing.length} (${dsMissing.slice(0, 3).map((r) => `${r.references[0]} ${r.part}`).join(", ")}${dsMissing.length > 3 ? " …" : ""})`
+    : "";
+  const dsUnreviewed = (ev?.datasheets ?? []).filter((r) => !r.reviewed).length;
   const items = guides?.items ?? [];
   const gFail = items.filter((i) => i.status === "fail" || i.status === "warn").length;
   const gOk = items.filter((i) => i.status === "ok").length;
@@ -914,8 +939,11 @@ function ApproveStage(p: Common & { target: Proposal | null; revision: number | 
     { name: "AI 검토", chip: <Chip text={x.ai?.review ? `수정 필요 ${errors.length} · 권장 ${warnings.length}` : "검토 전"} tone={errors.length ? "bad" : warnings.length ? "warn" : x.ai?.review ? "ok" : "muted"} />,
       text: [...errors, ...warnings].map((f) => f.title).join(" / ") || (x.ai?.review?.summary ?? ""), stage: "review" },
     { name: "데이터시트",
-      chip: <Chip text={ds.length ? `확인 ${ds.length}` : compared ? "문제 없음" : "대조 안 함"} tone={ds.length ? "warn" : compared ? "ok" : "muted"} />,
-      text: ds[0] ?? (compared ? `${compared}개 부품 대조` : "받은 데이터시트가 없어 대조하지 않았습니다"), stage: "datasheets" },
+      chip: <Chip text={ds.length ? `확인 ${ds.length}` : compared ? (dsMissing.length ? `대조 ${compared} · 없음 ${dsMissing.length}` : "문제 없음") : "대조 안 함"}
+        tone={ds.length || (compared && dsMissing.length) ? "warn" : compared ? "ok" : "muted"} />,
+      text: [ds[0] ?? (compared ? `${compared}개 부품 대조` : dsMissingText ? "" : "받은 데이터시트가 없어 대조하지 않았습니다"),
+        dsMissingText, dsUnreviewed ? `AI 요약 ${dsUnreviewed}개는 사람이 원문과 확인하기 전` : ""].filter(Boolean).join(" · "),
+      stage: "datasheets" },
     { name: "설계 지침",
       chip: guides ? <Chip text={`주의 ${gFail}`} tone={gFail ? "warn" : "ok"} />
         : <Chip text={guides === undefined ? "확인 중…" : "불러오지 못함"} tone="muted" />,

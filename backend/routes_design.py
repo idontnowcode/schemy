@@ -28,11 +28,13 @@ from circuit_core import CircuitIR, validate_circuit
 from circuit_core.diff import diff_circuits
 from circuit_core.guides import prompt_text as guide_prompt_text
 from circuit_core.guides import relevant
+from circuit_core.models import Component
 from circuit_core.patch import ReplaceCircuit
 from kicad_adapter import SymbolLibrary, SymbolLibraryError
 
 from .ai_access import AiAccess, api_error, run_record
 from .config import Settings
+from .datasheet_flow import DatasheetPrep, report_text
 from .datasheets import DatasheetLibrary
 from .design_resolver import PartResolver, facts_notes, symbol_index
 from .errors import ApiError
@@ -58,6 +60,9 @@ class DesignBody(_Model):
     instructions: str | None = Field(default=None, max_length=10_000)
     use_inventory: bool = True
     review: bool = True
+    datasheets: bool = False
+    """Download the chosen parts' datasheets and have the AI summarize them, as a step of the design. It is the
+    person's confirmation (ADR-005): off, only summaries already in the library are used."""
 
 
 class ReviewBody(_Model):
@@ -72,6 +77,7 @@ class AutoReviewBody(_Model):
     proposal_id: str
     max_warnings: int = Field(default=1, ge=0, le=9, description="Stop when 수정 필요 is 0 and 수정 권장 is at most this.")
     max_rounds: int = Field(default=3, ge=1, le=5, description="Reviews at most this many proposals (revisions = rounds − 1).")
+    datasheets: bool = Field(default=False, description="Revisions fetch and summarize new parts' datasheets (DesignBody).")
 
 
 class ResumeChoice(_Model):
@@ -105,6 +111,7 @@ class ReviseBody(_Model):
     finding_indexes: list[int] | None = Field(default=None, description="AI review findings to address; None = all.")
     include_checks: bool = Field(default=True, description="Also address problems from the automated checks.")
     review: bool = True
+    datasheets: bool = Field(default=False, description="Fetch and summarize new parts' datasheets (DesignBody).")
 
 
 def _norm(title) -> str:
@@ -476,10 +483,12 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
 
     def design_task(project_id: str, board_id: str, *, instructions: str | None, use_inventory: bool,
                     review: bool, base: CircuitIR | None, findings: list[dict] | None, source: str, parent: str | None,
-                    plan: dict | None = None):
+                    plan: dict | None = None, fetch_datasheets: bool = False):
         """Check the inputs now and return the design work as ``run(job_id)``. ``base`` is the design being revised
         (None for a new design); the result's diff against it is recorded so the user sees what the revision changed.
-        Steps (parts, pins, check, proposal, review) are recorded on the job for the step screens."""
+        Steps (parts, datasheets, pins, check, proposal, review) are recorded on the job for the step screens.
+        ``fetch_datasheets``: the person allowed downloading the chosen parts' datasheets and summarizing them with
+        the AI in this job (backend.datasheet_flow)."""
         board = store.get_board(project_id, board_id)
         text = store.get_requirements(project_id)
         spec = store.get_requirements_spec(project_id)
@@ -504,6 +513,25 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             record = run_record(job_id, source, cfg, {"requirements_chars": len(text), "spec": spec is not None,
                                                       "inventory_rows": len(rows), "revising": parent,
                                                       "findings": len(findings or [])})
+
+            prep = DatasheetPrep(library=datasheets, symbol_url=lib.datasheet_url, fetcher=settings.datasheet_fetcher,
+                                 searchers=settings.datasheet_searchers(settings.keystore) if fetch_datasheets else [],
+                                 provider=provider, cfg=cfg, job_id=job_id, step=lambda t: step("datasheets", t),
+                                 fetch=fetch_datasheets)
+
+            def datasheets_for_parts(parts, blocks) -> None:
+                """The chosen parts' datasheets, before the pins are connected: what the summaries say (required
+                external parts, recommended ranges) goes into the connection prompt."""
+                comps = [Component(id=x.ref.lower(), reference=x.ref, value=x.value or "?", symbol_id=x.symbol_id,
+                                   manufacturer=x.manufacturer, manufacturer_part_number=x.mpn,
+                                   pins=[{"number": n} for n, _, _ in x.pins]) for x in parts]
+                step("datasheets", "고른 부품의 데이터시트를 찾습니다" if fetch_datasheets
+                     else "보관된 데이터시트 요약을 찾습니다 (자동 받기 꺼짐)")
+                prep.run([*comps, *(c for b in blocks for c in b.components)])
+                step("datasheets", report_text(prep.report()))
+                for x, c in zip(parts, comps, strict=True):
+                    entry = datasheets.find(c, lib.datasheet_url(c.symbol_id))
+                    x.datasheet_notes = (facts_notes(datasheets.facts(entry)) if entry else None) or x.datasheet_notes
 
             def guides_for_parts(parts, blocks) -> str:
                 """Guide text for the connection step: the plan's guides plus those the chosen parts bring."""
@@ -569,6 +597,11 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                 """Guide self-check → proposal → isolated KiCad check → AI review (of a revision: with what it tried
                 to fix)."""
                 circuit, ai["guide_check"] = guide_pass(circuit)
+                if prep.run(circuit.components):
+                    # Parts not seen before the pins were connected: a revision's new parts, a guide fix's.
+                    step("datasheets", report_text(prep.report()))
+                ai["datasheets"] = prep.report()
+                record.setdefault("usage", []).extend(prep.usage)
                 if base is not None and ai.get("diff_from_parent") is not None:
                     ai["diff_from_parent"] = diff_circuits(base, circuit)
                 p = proposals.create(project_id, board_id, title=title, ops=[ReplaceCircuit(circuit=circuit)],
@@ -650,7 +683,8 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             try:
                 result = design_circuit(provider, inp, resolver, project_id=project_id,
                                         max_output_tokens=cfg.max_output_tokens, pins_of=_pins_of(lib), on_step=step,
-                                        plan=plan, guides_for_parts=guides_for_parts)
+                                        plan=plan, guides_for_parts=guides_for_parts,
+                                        after_parts=datasheets_for_parts)
             except AiError as exc:
                 record.update(status="failed", error={"code": exc.code, "message": exc.message,
                                                      **({"details": exc.details} if exc.details else {})})
@@ -668,7 +702,8 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                     # Not a dead end: offer ways forward and keep the plan so the design can continue from here.
                     details.update(choices=part_choices(provider, cfg, inp, plan_out, result.unresolved_parts, resolver,
                                                         index, record, step),
-                                   plan=plan_out, instructions=instructions, use_inventory=use_inventory, review=review)
+                                   plan=plan_out, instructions=instructions, use_inventory=use_inventory, review=review,
+                                   datasheets=fetch_datasheets)
                     message = (f"부품 {len(result.unresolved_parts)}개를 KiCad 라이브러리에서 찾지 못했습니다. "
                                "부품마다 진행할 방법을 고르면 이어서 설계합니다.")
                     hint = "다른 부품으로 대체, 다른 방법으로 진행, 또는 직접 방향을 적을 수 있습니다."
@@ -705,7 +740,8 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
     @router.post(BOARD + "/ai/design", status_code=202)
     def design(project_id: str, board_id: str, body: DesignBody):
         return submit_design(project_id, board_id, instructions=body.instructions, use_inventory=body.use_inventory,
-                             review=body.review, base=None, findings=None, source="ai_design", parent=None)
+                             review=body.review, base=None, findings=None, source="ai_design", parent=None,
+                             fetch_datasheets=body.datasheets)
 
     @router.post(BOARD + "/ai/design/resume", status_code=202)
     def resume_design(project_id: str, board_id: str, body: ResumeBody):
@@ -743,7 +779,8 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             block = "\n".join(f"- 질문: {q}\n  답: {a}" for q, a in answered)
             store.put_requirements(project_id, f"{store.get_requirements(project_id).rstrip()}\n\n## AI 질문에 대한 답\n{block}\n")
         kw = {"use_inventory": bool(details.get("use_inventory", True)), "review": bool(details.get("review", True)),
-              "base": None, "findings": None, "source": "ai_design", "parent": None}
+              "base": None, "findings": None, "source": "ai_design", "parent": None,
+              "fetch_datasheets": bool(details.get("datasheets", False))}
         if notes:
             instructions = "\n".join(x for x in (details.get("instructions") or "",
                                                  "[KiCad 심볼이 없는 부품에 대해 사람이 정한 방향]", *notes) if x)
@@ -791,7 +828,7 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                            recovery_hint="고칠 내용을 직접 적거나, 먼저 AI 검토를 실행하세요.")
         return submit_design(project_id, board_id, instructions=body.instructions, use_inventory=True,
                              review=body.review, base=base, findings=chosen, source="ai_revision",
-                             parent=body.proposal_id)
+                             parent=body.proposal_id, fetch_datasheets=body.datasheets)
 
     # --- automatic review loop (step 5) ---------------------------------------------------------
 
@@ -865,7 +902,7 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                 try:
                     out = design_task(project_id, board_id, instructions=None, use_inventory=True, review=True,
                                       base=proposals.candidate(p), findings=chosen, source="ai_revision",
-                                      parent=p.id)(job_id)
+                                      parent=p.id, fetch_datasheets=body.datasheets)(job_id)
                 except ApiError as exc:
                     stop = {"AI_NOTHING_TO_FIX": "declined", "AI_NO_CHANGE": "no_change"}.get(exc.error_code, "revise_failed")
                     message, why = exc.message, (exc.details if stop == "revise_failed" else None)

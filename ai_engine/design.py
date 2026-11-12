@@ -716,9 +716,12 @@ def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *
                    max_repairs: int = 2, max_output_tokens: int = 32768,
                    pins_of: PinsOf | None = None, on_step: Callable[[str, str], None] | None = None,
                    plan: dict | None = None,
-                   guides_for_parts: Callable[[list[ResolvedPart], list[TemplateBlock]], str] | None = None) -> DesignResult:
+                   guides_for_parts: Callable[[list[ResolvedPart], list[TemplateBlock]], str] | None = None,
+                   after_parts: Callable[[list[ResolvedPart], list[TemplateBlock]], None] | None = None) -> DesignResult:
     """``on_step(step, text)`` reports progress: step "parts" (choosing parts) then "pins" (connecting them).
-    ``plan`` continues from a parts plan already made (after the person chose alternatives) without asking again."""
+    ``plan`` continues from a parts plan already made (after the person chose alternatives) without asking again.
+    ``after_parts`` runs once every part is resolved and before the pins are connected: the caller may fetch what
+    the connection should know about the parts (their datasheet summaries, set on ``datasheet_notes``)."""
     step = on_step or (lambda _step, _text: None)
     if plan is None:
         step("parts", "AI에 부품 계획 요청")
@@ -757,6 +760,8 @@ def design_circuit(provider: LlmProvider, inp: DesignInput, resolve: Resolver, *
         return result
     used = f", 검토된 템플릿 {', '.join(b.title for b in blocks)}" if blocks else ""
     step("parts", f"부품 {len(result.parts) + sum(len(b.components) for b in blocks)}개 선택{used}")
+    if after_parts is not None:
+        after_parts(result.parts, blocks)
     if guides_for_parts is not None:
         # The parts decide which guides apply (an MCU brings its decoupling rules): connect with those.
         chosen = guides_for_parts(result.parts, blocks)

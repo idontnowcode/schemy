@@ -9,8 +9,6 @@ after the user confirmed them.
 from __future__ import annotations
 
 import json
-from pathlib import PurePosixPath
-from urllib.parse import unquote, urlparse
 
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
@@ -20,14 +18,7 @@ from ai_engine.keystore import ENV_VARS
 from ai_engine.tasks import datasheet_prompt, pdf_prompt
 from circuit_core.datasheet_checks import check_component
 from circuit_core.datasheet_md import import_datasheet_markdown, summary_template
-from circuit_core.datasheet_sources import (
-    DatasheetCandidate,
-    maker_candidate,
-    part_key,
-    search_term,
-    symbol_candidate,
-    url_part_name,
-)
+from circuit_core.datasheet_sources import part_key, search_term
 from circuit_core.datasheets import identity
 from circuit_core.export import bom_rows, natural_key
 from circuit_core.models import Component
@@ -35,6 +26,7 @@ from circuit_core.parts import CATEGORY_LABELS, category_of
 from kicad_adapter import SymbolLibrary, SymbolLibraryError
 
 from .config import Settings
+from .datasheet_flow import candidates_for, download_candidate
 from .datasheet_search import KEY_NAMES, key_status
 from .datasheets import MAX_DATASHEET_BYTES, DatasheetEntry, DatasheetError, DatasheetLibrary, PartSearch
 from .errors import ApiError
@@ -62,11 +54,6 @@ def api_error(exc: DatasheetError) -> ApiError:
 
 def entry_dict(library: DatasheetLibrary, entry: DatasheetEntry) -> dict:
     return {**entry.model_dump(mode="json"), "path": str(library.pdf_path(entry))}
-
-
-def _url_filename(url: str) -> str:
-    name = PurePosixPath(unquote(urlparse(url).path)).name
-    return name if name.lower().endswith(".pdf") else (name or "datasheet") + ".pdf"
 
 
 class SymbolInfo:
@@ -177,18 +164,6 @@ def build_datasheet_router(store: ProjectStore, jobs: JobRunner, library: Datash
             p = proposals.get(project_id, board_id, proposal_id)
             return proposals.candidate(p), p.base_revision
         return store.get_circuit(project_id, board_id)
-
-    def candidates_for(comp: Component, url: str | None, searches: dict) -> list[DatasheetCandidate]:
-        """Distributor answers (exact part number) first, then the KiCad link, then the maker's pattern."""
-        out: list[DatasheetCandidate] = []
-        key = part_key(comp)
-        found = searches.get(key) if key else None
-        if found:
-            out += sorted(found.candidates, key=lambda c: c.source != "digikey")
-        for extra in (symbol_candidate(comp, url), maker_candidate(comp, url)):
-            if extra and all(extra.urls[0] not in c.urls for c in out):
-                out.append(extra)
-        return out
 
     def board_report(project_id: str, board_id: str, proposal_id: str | None = None) -> dict:
         circuit, revision = board_circuit(project_id, board_id, proposal_id)
@@ -324,23 +299,7 @@ def build_datasheet_router(store: ProjectStore, jobs: JobRunner, library: Datash
         chosen = list({c["id"]: c for c in chosen}.values())
 
         def attempt(cand: dict, comps: list[Component]) -> tuple[dict | None, list[dict]]:
-            tried = []
-            for url in cand["urls"]:
-                try:
-                    data, final_url = settings.datasheet_fetcher(url)
-                    entry, created = library.add(
-                        data, original_name=_url_filename(final_url or url), source=cand["source"], url=url,
-                        final_url=final_url,
-                        manufacturer=next((c.manufacturer for c in comps if c.manufacturer), None)
-                        or cand.get("manufacturer"),
-                        part_numbers=[c.manufacturer_part_number for c in comps if c.manufacturer_part_number],
-                        symbols=sorted({c.symbol_id for c in comps}),
-                        expect=[url_part_name(url)] if cand["source"] == "maker_site" else ())
-                    return {"entry_id": entry.id, "created": created, "identity": entry.identity.get("status"),
-                            "url": url}, tried
-                except DatasheetError as exc:
-                    tried.append({"url": url, "error_code": exc.code, "message": exc.message, "hint": exc.hint})
-            return None, tried
+            return download_candidate(cand, comps, library=library, fetcher=settings.datasheet_fetcher)
 
         def run(job_id: str) -> dict:
             results, done_refs = [], set()

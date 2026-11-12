@@ -57,7 +57,11 @@ class FakeProvider:
         return [ModelInfo("gemini-flash-latest", "Gemini Flash Latest", 1_000_000, 65_536)]
 
 
-def ai_client(tmp_path, reply=f"```markdown\n{EXAMPLE_MD}```", keystore=None):
+def _no_network(url):
+    raise AssertionError(f"a test tried to download {url}")
+
+
+def ai_client(tmp_path, reply=f"```markdown\n{EXAMPLE_MD}```", keystore=None, fetcher=None):
     created = []
 
     def factory(provider, key, model, timeout):
@@ -71,7 +75,8 @@ def ai_client(tmp_path, reply=f"```markdown\n{EXAMPLE_MD}```", keystore=None):
     from backend import Settings, create_app
 
     settings = Settings(workspace=tmp_path, token=TOKEN, symbol_dirs=[SYMBOL_DIR], kicad_factory=lambda: None,
-                        keystore=keystore or MemoryKeyStore(), ai_provider_factory=factory)
+                        keystore=keystore or MemoryKeyStore(), ai_provider_factory=factory,
+                        datasheet_fetcher=fetcher or _no_network)
     client = TestClient(create_app(settings))
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     return client, created

@@ -1598,6 +1598,10 @@ button.back-link {
   margin: 0;
 }
 
+.flow-box-wide {
+  grid-column: 1 / -1;
+}
+
 .flow-box-head {
   display: flex;
   align-items: center;
@@ -2207,3 +2211,6 @@ button.back-link {
 .review-keep textarea { width: 100%; min-height: 56px; font: inherit; }
 .review-decided { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 .finding-decided { margin-left: 6px; }
+
+.datasheet-step { margin: 8px 0; }
+.datasheet-step ul { margin: 6px 0; padding-left: 18px; display: grid; gap: 4px; }

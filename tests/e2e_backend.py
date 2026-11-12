@@ -93,6 +93,10 @@ class ScriptedAi:
         elif "승인한 범위 안에서만" in prompt:
             tool, args = STEPS[min(prompt.count("→ <data>"), len(STEPS) - 1)]
             text = json.dumps({"thought": "다음 단계", "tool": tool, "args_json": json.dumps(args)}, ensure_ascii=False)
+        elif "데이터시트 요약 MD v0.1" in prompt:  # the design's datasheet step: a summary of the fetched PDF
+            from tests.conftest import FIXTURES
+
+            text = (FIXTURES / "datasheets" / "sn65hvd230-test.md").read_text(encoding="utf-8")
         elif (reply := design_reply(prompt, ScriptedAi.state)) is not None:
             text = reply
         else:
@@ -116,9 +120,21 @@ class MemoryKeys:
         return False
 
 
+def fetch_test_pdf(url: str):
+    """Datasheet downloads never leave the machine in e2e runs: the one part the scripted design uses gets the
+    repository's test PDF, anything else is refused the way a blocked site would be."""
+    from backend.datasheets import DatasheetError
+    from tests.pdfs import SN65HVD230_TEST_PDF_LINES, make_pdf
+
+    if "sn65hvd230" in url.lower():
+        return make_pdf(SN65HVD230_TEST_PDF_LINES), url
+    raise DatasheetError("DATASHEET_HTTP_ERROR", "서버가 403으로 답했습니다.", "브라우저에서 받아 「PDF 올리기」로 넣으세요.")
+
+
 def configure(settings) -> None:
     settings.keystore = MemoryKeys()
     settings.ai_provider_factory = lambda provider, key, model, timeout: ScriptedAi(model)
+    settings.datasheet_fetcher = fetch_test_pdf
 
 
 if __name__ == "__main__":

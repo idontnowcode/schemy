@@ -47,11 +47,18 @@ test("idea → requirements → design → automatic review → approval → sch
   // 3 설계 준비 → 4 AI 설계: the job's steps show as they happen.
   await expect(card.getByRole("heading", { name: "설계 준비" })).toBeVisible();
   await expect(card.getByText(/보낼 데이터:/)).toBeVisible();
+  // The datasheet step is the person's choice here, and the screen says what it downloads and sends.
+  await expect(card.getByLabel("고른 부품의 데이터시트를 받아 대조")).toBeChecked();
+  await expect(card.locator(".flow-note")).toContainText("새로 받은 데이터시트 PDF(요약용)");
   await page.getByRole("button", { name: "AI 설계 시작" }).click();
   await expect(card.getByRole("heading", { name: "AI 설계" })).toBeVisible();
   await expect(card.getByText("제안 #1 만듦", { exact: false }).first()).toBeVisible({ timeout: 60_000 });
   await expect(page.getByLabel("설계 진행 기록")).toContainText("부품 6개 선택");
   await expect(page.getByLabel("설계 진행 기록")).toContainText("연결 완료: Net 6개");
+  // Between choosing the parts and connecting the pins: the IC's datasheet is fetched and summarized.
+  await expect(page.getByLabel("설계 진행 기록")).toContainText("데이터시트 받는 중: SN65HVD230DR");
+  await expect(card.locator(".flow-progress-row").filter({ hasText: "데이터시트" }))
+    .toContainText("데이터시트: 대상 1종 · 요약 있음 1 (새로 받음 1, 새로 요약 1)");
 
   // 5 검토: review → revision → review until the condition holds.
   await page.getByRole("button", { name: "다음: 검토 →" }).click();
@@ -87,6 +94,12 @@ test("idea → requirements → design → automatic review → approval → sch
   await expect(page.getByText("4 / 7")).toBeVisible();
   await expect(page.getByText("사람이 정함").first()).toBeVisible();
   await expect(page.getByText("의도한 설계로 둔 이유: 시험용 보드라 버스가 짧고 서지 요구가 없음")).toBeVisible();
+  await page.getByRole("button", { name: "← 확인·승인(으)로 돌아가기" }).click();
+  // The proposal was compared with the datasheet the design step fetched; the summary is the AI's, not yet checked.
+  const dsRow = page.getByRole("table", { name: "제안 요약" }).getByRole("row").filter({ hasText: "데이터시트" });
+  await expect(dsRow).toContainText("AI 요약 1개는 사람이 원문과 확인하기 전");
+  await page.getByRole("button", { name: "데이터시트 자세히" }).click();
+  await expect(page.getByText("설계 때 자동으로 확인한 데이터시트 1종 · 요약 있음 1")).toBeVisible();
   await page.getByRole("button", { name: "← 확인·승인(으)로 돌아가기" }).click();
   let circuit = (await (await page.request.get(`${backend.url}/api/projects/${pid}/boards/a/circuit`)).json()).circuit;
   expect(circuit).toBeNull();

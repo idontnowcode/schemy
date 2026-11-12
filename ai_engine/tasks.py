@@ -60,10 +60,20 @@ def datasheet_prompt() -> str:
 
 
 def summarize_datasheet(provider: LlmProvider, pdf: bytes, filename: str, *,
-                        max_output_tokens: int = 32768) -> Transcription:
+                        max_output_tokens: int = 32768, pages: list[int] | None = None,
+                        total: int | None = None) -> Transcription:
     """Datasheet PDF -> "데이터시트 요약 MD". The datasheet is untrusted input; the reply is only ever
-    parsed as tables by circuit_core.datasheet_md, never followed."""
-    return _markdown_from_pdf(provider, pdf, filename, prompt=datasheet_prompt(), marker="# 데이터시트",
+    parsed as tables by circuit_core.datasheet_md, never followed.
+
+    ``pages``: the original page numbers when ``pdf`` holds only some pages of a long datasheet, so the summary
+    cites pages a person can open in the full file."""
+    prompt = datasheet_prompt()
+    if pages:
+        prompt += ("\n\n[쪽 안내]\n첨부 PDF는 원본" + (f" {total}쪽" if total else "") + " 중 다음 쪽만 순서대로 모은 것입니다: "
+                   + ", ".join(str(n) for n in pages) + ".\n"
+                   "- 첨부의 n번째 쪽은 위 목록의 n번째 번호입니다. \"페이지\" 칸에는 이 원본 쪽 번호를 쓰세요.\n"
+                   "- 빠진 쪽에 있을 내용(다른 패키지의 핀 표 등)은 지어내지 말고 \"7. 불확실 항목\"에 적으세요.")
+    return _markdown_from_pdf(provider, pdf, filename, prompt=prompt, marker="# 데이터시트",
                               what="데이터시트 요약 MD", fallback="데이터시트가 길면 필요한 쪽만 잘라서 올려 보세요.",
                               max_output_tokens=max_output_tokens)
 

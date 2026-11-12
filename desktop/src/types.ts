@@ -831,6 +831,32 @@ export interface ProposalAi {
   not_addressed?: { title: string; why: string }[];
   /** The app's guide self-check of the fresh design: guide ids violated before / after its edit pass. */
   guide_check?: { before: string[]; after: string[]; changes?: string[]; error?: string } | null;
+  /** The design job's datasheet step: per part, whether its datasheet was there, downloaded, summarized. */
+  datasheets?: DatasheetStep | null;
+}
+
+export interface DatasheetStepPart {
+  key: string;
+  part: string;
+  references: string[];
+  datasheet: string | null;
+  /** had = already in the library, downloaded, failed, no_source = nowhere to get it, off = automatic fetch off. */
+  download: "had" | "downloaded" | "failed" | "no_source" | "off" | null;
+  summary: "had" | "made" | "failed" | "skipped" | "off" | null;
+  message: string | null;
+  product_url?: string | null;
+  reviewed?: boolean;
+  pages_sent?: number[] | null;
+  pages?: number | null;
+}
+
+export interface DatasheetStep {
+  fetch: boolean;
+  parts: DatasheetStepPart[];
+  ready: number;
+  downloaded: number;
+  summarized: number;
+  missing: number;
 }
 
 export interface QuickFixOption {

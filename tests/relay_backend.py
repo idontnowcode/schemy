@@ -43,6 +43,8 @@ class RelayAi:
                 "at": time.strftime("%H:%M:%S")}
         if json_schema:
             (QUEUE / f"{n:03d}.schema.json").write_text(json.dumps(json_schema, ensure_ascii=False, indent=1))
+        for a in attachments:  # e.g. a datasheet PDF to summarize: saved next to the prompt for whoever answers
+            (QUEUE / f"{n:03d}.{Path(a.name).name}").write_bytes(a.data)
         (QUEUE / f"{n:03d}.prompt.md").write_text(json.dumps(head, ensure_ascii=False) + "\n\n" + prompt)
         answer, started = QUEUE / f"{n:03d}.answer.txt", time.time()
         while not answer.exists():

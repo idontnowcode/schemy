@@ -18,7 +18,7 @@ import {
   providerLabel,
   ROW_STATUS,
 } from "../format";
-import type { AiStatus, BoardReview, CircuitIR, ErcViolation, Job, Proposal, ProposalDiff, QuickFix, RevisionInputs } from "../types";
+import type { AiStatus, BoardReview, CircuitIR, DatasheetStep, ErcViolation, Job, Proposal, ProposalDiff, QuickFix, RevisionInputs } from "../types";
 import { Chip } from "./Chip";
 import { ProposalDatasheets } from "./DatasheetFinder";
 import { emptyDraft, GuideChecklistPanel, savedName, saveFindingAsGuide } from "./Guides";
@@ -657,6 +657,7 @@ function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRe
           ) : (
             <p className="small muted">대조할 데이터시트가 아직 없습니다. 아래에서 받거나 올리면 핀맵·전압·외부 부품을 대조합니다.</p>
           )}
+          {p.ai?.datasheets && p.ai.datasheets.parts.length > 0 && <DatasheetStepList step={p.ai.datasheets} />}
           {(open || p.status === "approved") && (
             <ProposalDatasheets projectId={projectId} boardId={boardId} proposalId={p.id} checkedAt={ev.checked_at} busy={busy}
               aiReady={aiReady} onRechecked={() => onFixed(p.id)} />
@@ -932,6 +933,41 @@ function AiReview({ p, aiReady, busy, fix, onRevise }: {
 const BASIS_LABEL: Record<string, string> = {
   evidence: "검사·계산·데이터시트", guide: "설계 지침", requirement: "요구사항", circuit: "회로의 핀·Net", judgment: "판단",
 };
+
+const STEP_DOWNLOAD: Record<string, string> = {
+  had: "보관된 데이터시트", downloaded: "새로 받음", failed: "받지 못함", no_source: "받을 곳 없음", off: "받지 않음(자동 받기 꺼짐)",
+};
+const STEP_SUMMARY: Record<string, string> = {
+  had: "요약 있음", made: "AI가 새로 요약", failed: "요약 실패", skipped: "요약 안 함", off: "요약 안 함",
+};
+
+/** What the design job's datasheet step did for each part, and what a person still has to get by hand. */
+export function DatasheetStepList({ step }: { step: DatasheetStep }) {
+  const missing = step.parts.filter((r) => r.summary !== "had" && r.summary !== "made");
+  return (
+    <details className="small datasheet-step" open={missing.length > 0}>
+      <summary>
+        설계 때 자동으로 확인한 데이터시트 {step.parts.length}종 · 요약 있음 {step.ready}
+        {missing.length ? ` · 없음 ${missing.length}` : ""}{step.fetch ? "" : " (자동 받기 꺼짐)"}
+      </summary>
+      <ul>
+        {step.parts.map((r) => {
+          const ok = r.summary === "had" || r.summary === "made";
+          return (
+            <li key={r.key} className={ok ? undefined : "warn-text"}>
+              <b>{r.references.join(", ")}</b> {r.part} — {[r.download ? STEP_DOWNLOAD[r.download] : null, r.summary ? STEP_SUMMARY[r.summary] : null].filter(Boolean).join(" · ")}
+              {r.pages_sent ? ` (${r.pages}쪽 중 ${r.pages_sent.length}쪽만 보냄: ${r.pages_sent.join(", ")})` : ""}
+              {r.summary === "made" || (r.summary === "had" && r.reviewed === false) ? <span className="muted"> · 사람이 원문과 확인하기 전</span> : null}
+              {r.message ? <span className="muted"> — {r.message}</span> : null}
+              {r.product_url && /^https:\/\//.test(r.product_url) ? <> <a href={r.product_url} target="_blank" rel="noreferrer">브라우저에서 열기</a></> : null}
+            </li>
+          );
+        })}
+      </ul>
+      {missing.length > 0 && <p className="muted">없는 부품은 아래 「데이터시트 찾기」에서 받거나 PDF를 올린 뒤 「데이터시트 대조 다시 하기」를 누르세요.</p>}
+    </details>
+  );
+}
 
 export function FindingList({ findings, onUse, blocked, guideRef, guideLabel }: {
   findings: { severity: string; title: string; detail: string; references: string[]; suggestion: string | null; guide?: string | null;
