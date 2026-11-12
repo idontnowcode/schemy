@@ -51,8 +51,24 @@ REVIEWS = [
 ]
 
 
+def pass_reply(prompt: str) -> str:
+    """A perspective pass of a deep review: every checklist item answered, one of them "cannot tell" in the power
+    pass, no findings (the general reviews above carry the findings the flow test follows)."""
+    label = prompt.split("「", 1)[1].split("」", 1)[0]
+    count = prompt.split("[답하는 법]")[0].count("\n- (")
+    checks = [{"item": f"({i + 1}) 확인", "result": "ok", "note": "계산해 확인함", "references": []} for i in range(count)]
+    if label == "전원·보호":
+        checks[3] = {"item": "(4) 콘덴서 정격 전압", "result": "unknown", "note": "C1의 정격 전압이 적혀 있지 않음",
+                     "references": ["C1"]}
+    return json.dumps({"summary": f"{label}: 확인 항목 {count}개를 봤습니다.", "checks": checks, "findings": []},
+                      ensure_ascii=False)
+
+
 def design_reply(prompt: str, state: dict) -> str | None:
     from tests.test_design import ALTERNATIVES, GOOD, MISSING, PLAN
+
+    if "관점 하나로만 깊게 검토하세요" in prompt:
+        return pass_reply(prompt)
 
     if "정해진 항목으로 정리" in prompt:
         return json.dumps(SPEC, ensure_ascii=False)

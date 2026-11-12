@@ -348,6 +348,11 @@ export interface AutoReviewRound {
   /** Findings a person kept as designed: shown, not counted. */
   decided?: number;
   decided_said?: string[];
+  /** A deep review: how many perspective passes ran, how many checklist answers, how many "cannot tell". */
+  passes?: number;
+  checks?: number;
+  unknown?: number;
+  unknown_said?: string[];
 }
 
 export interface AutoReviewResult {
@@ -799,6 +804,9 @@ export interface AiFinding {
   decided?: { id: string; reason: string } | null;
   /** The AI's reason for not fixing this in a revision (kept here because a refusal makes no new proposal). */
   ai_declined?: string | null;
+  /** Which pass of a deep review raised it: general, or a perspective key (requirements, power, signals, control). */
+  perspective?: string;
+  perspectives?: string[];
 }
 
 export interface ReviewDecision {
@@ -819,7 +827,9 @@ export interface ProposalAi {
   parts?: { key: string; role: string; symbol_id: string; how: string }[];
   templates?: { ref: string; title: string; params: Record<string, string>; parts: string[] }[];
   attempts?: number;
-  review?: { findings: AiFinding[]; summary: string; model?: string; created_at?: string } | null;
+  review?: { findings: AiFinding[]; summary: string; model?: string; created_at?: string;
+    /** deep = the perspective passes ran as well; ``passes`` is what each checked. */
+    depth?: "deep"; passes?: ReviewPass[] } | null;
   parent?: string | null;
   instructions?: string | null;
   addressed?: { severity: string; title: string; detail: string; source: "ai" | "check" }[];
@@ -833,6 +843,20 @@ export interface ProposalAi {
   guide_check?: { before: string[]; after: string[]; changes?: string[]; error?: string } | null;
   /** The design job's datasheet step: per part, whether its datasheet was there, downloaded, summarized. */
   datasheets?: DatasheetStep | null;
+}
+
+/** One perspective pass of a deep review: the checklist items it answered and the findings it raised. */
+export interface ReviewPass {
+  key: string;
+  label: string;
+  summary: string;
+  asked: number;
+  /** Checklist items that were asked and not answered. */
+  skipped: string[];
+  checks: { item: string; result: "ok" | "issue" | "unknown" | "na"; note: string; references: string[] }[];
+  /** Titles of the review's findings this pass raised. */
+  found: string[];
+  error?: string;
 }
 
 export interface DatasheetStepPart {

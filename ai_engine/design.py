@@ -1374,40 +1374,9 @@ def verify_finding(f: dict, *, ids: set[str], requirements: str, circuit: Circui
     return False
 
 
-def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | None, circuit: CircuitIR,
-                   evidence: str, datasheet_notes: str = "", guides: str = "", guide_ids: set[str] | None = None,
-                   max_output_tokens: int = 16384, previous: list[dict] | None = None,
-                   decided: list[dict] | None = None) -> tuple[dict, LlmResult]:
-    """AI review. Every 수정 필요/권장 must name its basis; code checks it (``verified``). A finding nothing backs is
-    kept for people to see but marked, so it does not drive automatic revisions. ``previous``: the findings a
-    revision tried to fix, so the review says what is still open instead of starting over."""
-    items, passed = review_evidence(circuit, evidence, datasheet_notes)
-    listing = "\n".join(f"{i} {t}" for i, t in items) or "(없음)"
-    prev_block = ""
-    if decided:
-        lines = "\n".join(f"- {d.get('title')}: {str(d.get('reason') or '')[:200]}" for d in decided[:20])
-        prev_block += f"""
-[사람이 정한 것 — 엔지니어가 의도한 설계로 결정했습니다]
-{lines}
-- 같은 지적을 다시 적지 마세요. 회로가 바뀌어 그 결정의 이유가 더는 맞지 않을 때만 근거와 함께 적으세요.
-"""
-    if previous:
-        lines = "\n".join(f"- P{k + 1} [{f.get('severity')}] {f.get('title')}: {str(f.get('detail') or '')[:200]}"
-                          for k, f in enumerate(previous))
-        prev_block += f"""
-[이전 회차 의견 — 이번 수정안이 고치려 한 것]
-{lines}
-- 해결됐으면 다시 적지 마세요. 아직 남았으면 같은 제목으로 다시 적고, evidence에 아직 남은 곳을 적으세요.
-- 그 밖의 새 지적은 이번 수정으로 생긴 문제이거나 근거가 확실한 결함일 때만 error·warning으로 하세요.
-"""
-    prompt = f"""당신은 회로 설계 검토자입니다. 아래 회로가 요구사항을 만족하는지, 전기적으로 문제가 없는지 검토하세요.
-회로를 고치지 말고, 지적 사항(findings)만 적으세요.
-
-[검토 기준]
-- 요구사항 충족(전원, 인터페이스, 기능), 극성·핀 연결, 전원 전압과 부품 정격, 디커플링·풀업·종단 같은 주변 부품, 보호 회로.
-- 확실한 결함은 error(수정 필요), 고치는 것이 좋은 것은 warning(수정 권장), 참고는 info입니다. references에는 관련 부품 기호를 적으세요.
-
-[근거 원칙 — 근거 없는 지적은 설계를 오히려 망칩니다]
+def review_basis_rules(passed: int) -> str:
+    """The rule every review prompt shares: a 수정 필요/권장 names a basis the app can check."""
+    return f"""[근거 원칙 — 근거 없는 지적은 설계를 오히려 망칩니다]
 - error와 warning에는 basis와 evidence를 반드시 적으세요.
   · basis="evidence": 아래 [근거 목록]의 번호(E1, C2, D3 …)를 evidence에 적으세요.
   · basis="guide": 지키지 않은 설계 지침 id를 guide에 적으세요.
@@ -1415,11 +1384,37 @@ def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | Non
   · basis="circuit": [회로]에 실제로 있는 핀·Net을 evidence에 적고(예: "U1.5 VM이 +12V와 연결되지 않음"), 왜 결함인지 detail에 쓰세요.
   · 위 어느 것에도 해당하지 않는 일반 권고·추측·취향은 basis="judgment", severity="info"로 하세요.
 - 앱 계산 검토는 {passed}개 항목을 통과했고, 위반은 [근거 목록]의 C 번호뿐입니다. 계산 근거 없이 통과 항목을 뒤집지 마세요.
-- 문제가 없으면 findings를 비워 두는 것이 정상입니다. 개수를 채우려고 사소한 개선을 warning으로 올리지 마세요.
-{prev_block}
-{LANGUAGE_RULE}
+- 문제가 없으면 findings를 비워 두는 것이 정상입니다. 개수를 채우려고 사소한 개선을 warning으로 올리지 마세요."""
 
-[요구사항]
+
+def review_history_blocks(decided: list[dict] | None, previous: list[dict] | None) -> str:
+    """What a reviewer must know before raising something again: what a person decided to keep as designed, and
+    what the revision under review tried to fix."""
+    out = ""
+    if decided:
+        lines = "\n".join(f"- {d.get('title')}: {str(d.get('reason') or '')[:200]}" for d in decided[:20])
+        out += f"""
+[사람이 정한 것 — 엔지니어가 의도한 설계로 결정했습니다]
+{lines}
+- 같은 지적을 다시 적지 마세요. 회로가 바뀌어 그 결정의 이유가 더는 맞지 않을 때만 근거와 함께 적으세요.
+"""
+    if previous:
+        lines = "\n".join(f"- P{k + 1} [{f.get('severity')}] {f.get('title')}: {str(f.get('detail') or '')[:200]}"
+                          for k, f in enumerate(previous))
+        out += f"""
+[이전 회차 의견 — 이번 수정안이 고치려 한 것]
+{lines}
+- 해결됐으면 다시 적지 마세요. 아직 남았으면 같은 제목으로 다시 적고, evidence에 아직 남은 곳을 적으세요.
+- 그 밖의 새 지적은 이번 수정으로 생긴 문제이거나 근거가 확실한 결함일 때만 error·warning으로 하세요.
+"""
+    return out
+
+
+def review_material(requirements: str, spec: dict | None, circuit: CircuitIR, items: list[tuple[str, str]],
+                    guides: str) -> str:
+    """Requirements, the circuit, the numbered evidence and the adopted guides, as every review prompt shows them."""
+    listing = "\n".join(f"{i} {t}" for i, t in items) or "(없음)"
+    return f"""[요구사항]
 {requirements.strip() or '(없음)'}
 {('[정리된 요구사항]' + chr(10) + json.dumps(spec, ensure_ascii=False)) if spec else ''}
 
@@ -1428,10 +1423,12 @@ def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | Non
 
 [근거 목록 — 자동 검사(E), 앱 계산 검토의 위반(C), 데이터시트 요약(D)]
 {listing}
-{('[설계 지침 — 이 조직이 채택한 규칙. 지키지 않은 것을 찾으면 그 finding의 guide에 지침 id를 적으세요]' + chr(10) + guides) if guides.strip() else ''}
+{('[설계 지침 — 이 조직이 채택한 규칙. 지키지 않은 것을 찾으면 그 finding의 guide에 지침 id를 적으세요]' + chr(10) + guides) if guides.strip() else ''}"""
 
-정해진 JSON 형식으로만 답하세요."""
-    data, result = _ask_json(provider, prompt=prompt, schema=REVIEW_SCHEMA, what="검토", max_output_tokens=max_output_tokens)
+
+def review_findings(data: dict, *, circuit: CircuitIR, items: list[tuple[str, str]], requirements: str,
+                    spec: dict | None, guide_ids: set[str] | None) -> list[dict]:
+    """The findings of a review answer, cleaned and with ``verified`` set by the code check of each basis."""
     refs = {c.reference for c in circuit.components}
     ids = {i for i, _ in items}
     req_text = requirements + ("\n" + json.dumps(spec, ensure_ascii=False) if spec else "")
@@ -1453,6 +1450,34 @@ def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | Non
         findings.append(out)
     order = {"error": 0, "warning": 1, "info": 2}
     findings.sort(key=lambda f: (order[f["severity"]], f["verified"] is False))
+    return findings
+
+
+def review_circuit(provider: LlmProvider, *, requirements: str, spec: dict | None, circuit: CircuitIR,
+                   evidence: str, datasheet_notes: str = "", guides: str = "", guide_ids: set[str] | None = None,
+                   max_output_tokens: int = 16384, previous: list[dict] | None = None,
+                   decided: list[dict] | None = None) -> tuple[dict, LlmResult]:
+    """AI review. Every 수정 필요/권장 must name its basis; code checks it (``verified``). A finding nothing backs is
+    kept for people to see but marked, so it does not drive automatic revisions. ``previous``: the findings a
+    revision tried to fix, so the review says what is still open instead of starting over."""
+    items, passed = review_evidence(circuit, evidence, datasheet_notes)
+    prompt = f"""당신은 회로 설계 검토자입니다. 아래 회로가 요구사항을 만족하는지, 전기적으로 문제가 없는지 검토하세요.
+회로를 고치지 말고, 지적 사항(findings)만 적으세요.
+
+[검토 기준]
+- 요구사항 충족(전원, 인터페이스, 기능), 극성·핀 연결, 전원 전압과 부품 정격, 디커플링·풀업·종단 같은 주변 부품, 보호 회로.
+- 확실한 결함은 error(수정 필요), 고치는 것이 좋은 것은 warning(수정 권장), 참고는 info입니다. references에는 관련 부품 기호를 적으세요.
+
+{review_basis_rules(passed)}
+{review_history_blocks(decided, previous)}
+{LANGUAGE_RULE}
+
+{review_material(requirements, spec, circuit, items, guides)}
+
+정해진 JSON 형식으로만 답하세요."""
+    data, result = _ask_json(provider, prompt=prompt, schema=REVIEW_SCHEMA, what="검토", max_output_tokens=max_output_tokens)
+    findings = review_findings(data, circuit=circuit, items=items, requirements=requirements, spec=spec,
+                               guide_ids=guide_ids)
     return {"summary": str(data.get("summary", "")).strip()[:2000], "findings": findings, "model": result.model,
             "evidence": [{"id": i, "text": t[:300]} for i, t in items], "calc_passed": passed}, result
 

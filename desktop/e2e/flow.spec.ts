@@ -70,6 +70,10 @@ test("idea → requirements → design → automatic review → approval → sch
   await expect(rounds.nth(0)).toContainText("수정 필요 1");
   await expect(rounds.nth(0)).toContainText("→ 수정안 #2");
   await expect(rounds.nth(1)).toContainText("조건 충족 → 끝");
+  // Each round's review also ran the perspective passes: how much they checked, and what they could not judge.
+  await expect(page.getByLabel("관점별로 깊게 검토")).toBeChecked();
+  await expect(rounds.nth(0)).toContainText("관점 3 · 확인 21 · 판단 못 함 1");
+  await expect(rounds.nth(1)).toContainText("관점 3 · 확인 21 · 판단 못 함 1");
 
   // What is left can be kept as designed, with a reason: then nothing is left for the AI to fix.
   const left = page.getByLabel("남은 의견");
@@ -94,6 +98,11 @@ test("idea → requirements → design → automatic review → approval → sch
   await expect(page.getByText("4 / 7")).toBeVisible();
   await expect(page.getByText("사람이 정함").first()).toBeVisible();
   await expect(page.getByText("의도한 설계로 둔 이유: 시험용 보드라 버스가 짧고 서지 요구가 없음")).toBeVisible();
+  // The review slide lists what each perspective checked; a pass with something it could not judge is open.
+  const checked = page.getByLabel("관점별 확인");
+  await expect(checked.getByText("요구사항 대조", { exact: true })).toBeVisible();
+  await expect(checked.locator(".review-pass").filter({ hasText: "전원·보호" })).toContainText("판단 못 함 1");
+  await expect(checked).toContainText("C1의 정격 전압이 적혀 있지 않음");
   await page.getByRole("button", { name: "← 확인·승인(으)로 돌아가기" }).click();
   // The proposal was compared with the datasheet the design step fetched; the summary is the AI's, not yet checked.
   const dsRow = page.getByRole("table", { name: "제안 요약" }).getByRole("row").filter({ hasText: "데이터시트" });

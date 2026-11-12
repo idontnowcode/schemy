@@ -63,11 +63,13 @@ interface FlowState {
   useInventory: boolean;
   /** Download the chosen parts' datasheets and have the AI summarize them during the design (shown at step 3). */
   datasheets: boolean;
+  /** Review by perspective as well (requirements, power, signals, control): more AI calls per review (step 5). */
+  deepReview: boolean;
   maxWarnings: number;
   maxRounds: number;
 }
 
-const DEFAULT_STATE: FlowState = { stage: -1, reached: 0, useInventory: true, datasheets: true, maxWarnings: 1, maxRounds: 3 };
+const DEFAULT_STATE: FlowState = { stage: -1, reached: 0, useInventory: true, datasheets: true, deepReview: true, maxWarnings: 1, maxRounds: 3 };
 
 function loadState(key: string): FlowState {
   try {
@@ -104,8 +106,11 @@ const clock = (iso: string) => {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "" : d.toTimeString().slice(0, 8);
 };
-/** Worst case AI calls of the loop: a first review, then per revision plan 1 + connect ≤ 3 + review 1. */
-const autoCalls = (rounds: number) => 1 + (rounds - 1) * 5;
+/** Perspective passes of a deep review (at most: requirements, power, signals, control). */
+const DEEP_PASSES = 4;
+/** Worst case AI calls of the loop: a first review, then per revision plan 1 + connect ≤ 3 + review 1. A deep
+ * review is its general pass plus the perspective passes (the first round's general pass is the design's own). */
+const autoCalls = (rounds: number, deep = false) => (deep ? DEEP_PASSES : 1) + (rounds - 1) * (4 + (deep ? 1 + DEEP_PASSES : 1));
 
 /** Keep polling a job until it finishes. */
 function usePoll(job: Job | null, setJob: (j: Job) => void, onDone?: (j: Job) => void) {
@@ -370,11 +375,12 @@ export function StageFlow({ project, board, circuit, revision, outputs, review, 
     body = reviewStage({
       ...common, focus, job: autoJob, maxWarnings: flow.maxWarnings, maxRounds: flow.maxRounds,
       setLimits: (w, r) => setFlow({ maxWarnings: w, maxRounds: r }),
+      deep: flow.deepReview, setDeep: (v) => setFlow({ deepReview: v }),
       start: () =>
         run("자동 반복 검토를 시작하는 중…", async () => {
           if (!focus) return;
           setAutoJob(await api.autoReview(pid, bid, { proposal_id: focus.id, max_warnings: flow.maxWarnings, max_rounds: flow.maxRounds,
-            datasheets: flow.datasheets }));
+            datasheets: flow.datasheets, deep: flow.deepReview }));
         }),
       openOne: () => focus && setDetail({ id: focus.id, stage: "review", from: 4 }),
       reload: async () => { await loadProposals(); },
@@ -787,6 +793,7 @@ export function roundsOf(steps: JobStep[]): AutoReviewRound[] {
 
 function reviewStage(p: Common & {
   focus: Proposal | null; job: Job | null; maxWarnings: number; maxRounds: number; setLimits(w: number, r: number): void;
+  deep: boolean; setDeep(v: boolean): void;
   start(): void; openOne(): void; next(): void; reload(): Promise<void>; fix(): void;
 }): Stage {
   const job = p.job;
@@ -812,7 +819,18 @@ function reviewStage(p: Common & {
             <input type="number" aria-label="최대 반복 횟수" min={1} max={5} value={p.maxRounds} disabled={running(job)}
               onChange={(e) => p.setLimits(p.maxWarnings, Math.max(1, Math.min(5, Number(e.target.value) || 1)))} /> 회
           </label>
-          <span className="muted small">의견이 줄지 않거나, 같은 의견이 다시 나오거나, KiCad 검사가 실패하면 멈춤 · AI 호출 최대 약 {autoCalls(p.maxRounds)}회</span>
+          <span className="muted small">의견이 줄지 않거나, 같은 의견이 다시 나오거나, KiCad 검사가 실패하면 멈춤 · AI 호출 최대 약 {autoCalls(p.maxRounds, p.deep)}회</span>
+        </div>
+        <div className="flow-limits">
+          <label className="flow-check">
+            <input type="checkbox" checked={p.deep} disabled={running(job)} onChange={(e) => p.setDeep(e.target.checked)} />
+            관점별로 깊게 검토
+          </label>
+          <span className="muted small">
+            {p.deep
+              ? `검토마다 요구사항 대조, 전원·보호, 인터페이스·아날로그, MCU·부하 구동을 따로 봅니다(회로에 해당하는 관점만, 검토마다 AI 호출 +최대 ${DEEP_PASSES}회). 관점마다 확인 항목을 하나씩 답하게 해서, 무엇을 확인했는지도 남습니다.`
+              : "한 번에 전체를 훑는 검토만 합니다. 빠르지만 놓치는 것이 더 많습니다."}
+          </span>
         </div>
         <div className="flow-row">
           <button type="button" onClick={p.start} disabled={!p.aiReady || !p.focus || running(job) || p.busy !== null}
@@ -836,6 +854,8 @@ function reviewStage(p: Common & {
                     <Chip text={`근거 확인 안 됨 ${r.unverified}`} tone="muted" /></span> : null}
                   {r.decided ? <span title={`사람이 의도한 설계로 정해 세지 않은 의견: ${(r.decided_said ?? []).join(" / ")}`}>
                     <Chip text={`사람이 정함 ${r.decided}`} tone="muted" /></span> : null}
+                  {r.passes ? <span title={`관점별 검토 ${r.passes}개가 확인 항목 ${r.checks ?? 0}개에 답했습니다.${r.unknown ? ` 판단하지 못한 것: ${(r.unknown_said ?? []).join(" / ")}` : ""}`}>
+                    <Chip text={`관점 ${r.passes} · 확인 ${r.checks ?? 0}${r.unknown ? ` · 판단 못 함 ${r.unknown}` : ""}`} tone={r.unknown ? "warn" : "muted"} /></span> : null}
                 </span>
                 <span className="flow-round-what">
                   <span>{r.said.length ? r.said.join(" / ") : r.decided ? "남은 지적 없음 (사람이 정한 것은 세지 않음)" : "지적 없음"}</span>

@@ -24,6 +24,7 @@ from ai_engine.design import (
     structure_requirements,
     suggest_alternatives,
 )
+from ai_engine.review_passes import review_perspective, select_perspectives
 from circuit_core import CircuitIR, validate_circuit
 from circuit_core.diff import diff_circuits
 from circuit_core.guides import prompt_text as guide_prompt_text
@@ -69,6 +70,9 @@ class ReviewBody(_Model):
     proposal_id: str | None = None
     write_note: bool = False
     """Also write a research note (연구노트) from this review: a second AI call, saved as a draft."""
+    deep: bool = False
+    """Also review by perspective (requirements, power, signals, control): one more AI call per perspective that
+    applies, each answering a checklist item by item (ai_engine.review_passes)."""
 
 
 class AutoReviewBody(_Model):
@@ -78,6 +82,7 @@ class AutoReviewBody(_Model):
     max_warnings: int = Field(default=1, ge=0, le=9, description="Stop when 수정 필요 is 0 and 수정 권장 is at most this.")
     max_rounds: int = Field(default=3, ge=1, le=5, description="Reviews at most this many proposals (revisions = rounds − 1).")
     datasheets: bool = Field(default=False, description="Revisions fetch and summarize new parts' datasheets (DesignBody).")
+    deep: bool = Field(default=False, description="Every round's review also runs the perspective passes (ReviewBody).")
 
 
 class ResumeChoice(_Model):
@@ -139,6 +144,29 @@ def mark_decided(findings: list[dict], decisions: list[dict]) -> list[dict]:
         d = next((d for d in decisions if similar(f.get("title"), d.get("title"))), None)
         if d is not None:
             f["decided"] = {"id": d["id"], "reason": d.get("reason") or ""}
+    return findings
+
+
+_SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
+
+
+def merge_pass_findings(findings: list[dict], extra: list[dict]) -> list[dict]:
+    """Add a perspective pass's findings to a review's. The same point raised twice (similar titles) is kept once —
+    the one whose basis checked out, else the more severe — and remembers every perspective that raised it."""
+    for f in extra:
+        twin = next((x for x in findings if similar(x.get("title"), f.get("title"))), None)
+        if twin is None:
+            findings.append(f)
+            continue
+        seen = [*(twin.get("perspectives") or [twin.get("perspective") or "general"]), f.get("perspective")]
+        better = ((f.get("verified") is True and twin.get("verified") is not True)
+                  or (f.get("verified") == twin.get("verified")
+                      and _SEVERITY_ORDER[f["severity"]] < _SEVERITY_ORDER[twin["severity"]]))
+        if better:
+            twin.clear()
+            twin.update(f)
+        twin["perspectives"] = list(dict.fromkeys(x for x in seen if x))
+    findings.sort(key=lambda f: (_SEVERITY_ORDER[f["severity"]], f.get("verified") is False))
     return findings
 
 
@@ -297,23 +325,55 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
         return relevant(guides.entries(), circuit=circuit, text=text, text_topics=True)
 
     def run_review(cfg, provider, project_id: str, circuit: CircuitIR, evidence: str,
-                   context: dict | None = None, previous: list[dict] | None = None) -> tuple[dict, object]:
+                   context: dict | None = None, previous: list[dict] | None = None, *, deep: bool = False,
+                   base: dict | None = None, changes: list[str] | None = None,
+                   step=None) -> tuple[dict, list[dict]]:
+        """The AI review of a circuit and the usage of its calls. ``deep`` adds the perspective passes
+        (ai_engine.review_passes): what each checked is kept in ``passes`` and their findings join the general
+        review's. ``base`` is a review of this same circuit made before (its general pass is kept and only the
+        passes are added); ``changes`` is what a revision changed, for the passes to look at first."""
         entries = applicable_guides(project_id, circuit)
         board_id = (context or {}).get("board_id")
         decisions = store.get_review_decisions(project_id, board_id) if board_id else []
-        review, call = review_circuit(provider, requirements=store.get_requirements(project_id),
-                                      spec=store.get_requirements_spec(project_id), circuit=circuit,
-                                      evidence=evidence, datasheet_notes=datasheet_text(circuit),
-                                      guides=guide_prompt_text(entries), guide_ids={e.id for e in entries},
-                                      max_output_tokens=min(cfg.max_output_tokens, 16384), previous=previous,
-                                      decided=decisions)
+        requirements = store.get_requirements(project_id)
+        common = {"requirements": requirements, "spec": store.get_requirements_spec(project_id), "circuit": circuit,
+                  "evidence": evidence, "datasheet_notes": datasheet_text(circuit),
+                  "guides": guide_prompt_text(entries), "guide_ids": {e.id for e in entries},
+                  "max_output_tokens": min(cfg.max_output_tokens, 16384), "previous": previous, "decided": decisions}
+        usage: list[dict] = []
+        if base is not None and base.get("findings") is not None:
+            review = {**base, "findings": [dict(f) for f in base["findings"]]}
+        else:
+            review, call = review_circuit(provider, **common)
+            usage.append(call.usage)
+        if deep:
+            for f in review["findings"]:
+                f.setdefault("perspective", "general")
+            chosen = select_perspectives(circuit, requirements)
+            passes = []
+            for i, (perspective, items) in enumerate(chosen):
+                if step:
+                    step(f"관점별 검토 {i + 1}/{len(chosen)}: {perspective.label} (확인 항목 {len(items)}개)")
+                try:
+                    done, call = review_perspective(provider, perspective, items, changes=changes, **common)
+                except AiError as exc:  # one pass failing does not lose the others or the general review
+                    passes.append({"key": perspective.key, "label": perspective.label, "asked": len(items),
+                                   "error": exc.message, "checks": [], "skipped": [], "summary": "", "found": []})
+                    continue
+                usage.append(call.usage)
+                merge_pass_findings(review["findings"], done.pop("findings"))
+                passes.append(done)
+            for done in passes:
+                done["found"] = [f["title"] for f in review["findings"]
+                                 if done["key"] in (f.get("perspectives") or [f.get("perspective")])]
+            review.update(passes=passes, depth="deep")
         mark_decided(review["findings"], decisions)
         review["created_at"] = now_iso()
         review["guides_checked"] = [e.id for e in entries]
         flagged = [f["guide"] for f in review["findings"] if f.get("guide")]
         if guides is not None and flagged:
             guides.record("flagged", flagged, by="AI 검토", **(context or {"project_id": project_id}))
-        return review, call
+        return review, usage
 
     # --- review findings kept as designed ----------------------------------------------------------
 
@@ -616,11 +676,11 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                 if review:
                     step("review", "AI 검토 중")
                     try:
-                        findings_out, call = run_review(cfg, provider, project_id, circuit, proposal_evidence_text(p),
+                        findings_out, used = run_review(cfg, provider, project_id, circuit, proposal_evidence_text(p),
                                                         {"project_id": project_id, "board_id": board_id,
                                                          "proposal_id": p.id},
                                                         previous=ai.get("addressed") if base is not None else None)
-                        record.setdefault("usage", []).append(call.usage)
+                        record.setdefault("usage", []).extend(used)
                         p = proposals.update(p, ai={**(p.ai or {}), "review": findings_out})
                         step("review", "AI 검토: " + _count_text(findings_out["findings"]))
                     except AiError as exc:
@@ -854,12 +914,18 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             for k in range(1, body.max_rounds + 1):
                 p = proposals.get(project_id, board_id, p.id)
                 review = (p.ai or {}).get("review")
-                if not review or "findings" not in review or str(review.get("summary", "")).startswith("AI 검토 실패"):
-                    jobs.step(job_id, "review", f"{k}회차: 제안 #{int(p.id)} AI 검토 중")
+                fresh = (not review or "findings" not in review
+                         or str(review.get("summary", "")).startswith("AI 검토 실패"))
+                # A review made without the perspective passes (the design job's) gets them added, not redone.
+                if fresh or (body.deep and review.get("depth") != "deep"):
+                    jobs.step(job_id, "review", f"{k}회차: 제안 #{int(p.id)} AI 검토 중" if fresh
+                              else f"{k}회차: 제안 #{int(p.id)} 관점별 검토를 더합니다")
                     try:
                         review, _ = run_review(cfg, provider, project_id, proposals.candidate(p), proposal_evidence_text(p),
                                                {"project_id": project_id, "board_id": board_id, "proposal_id": p.id},
-                                               previous=(p.ai or {}).get("addressed") or None)
+                                               previous=(p.ai or {}).get("addressed") or None, deep=body.deep,
+                                               base=None if fresh else review, changes=(p.ai or {}).get("changes"),
+                                               step=lambda text, k=k: jobs.step(job_id, "review", f"{k}회차: {text}"))
                     except AiError as exc:
                         stop, message, why = "ai_failed", exc.message, exc.details
                         break
@@ -874,6 +940,11 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                 kept = [f for f in review["findings"] if f.get("decided")]
                 if kept:
                     entry.update(decided=len(kept), decided_said=[str(f.get("title", "")) for f in kept][:4])
+                if review.get("passes"):
+                    checks = [c for x in review["passes"] for c in x.get("checks") or []]
+                    entry.update(passes=len(review["passes"]), checks=len(checks),
+                                 unknown=sum(1 for c in checks if c.get("result") == "unknown"),
+                                 unknown_said=[c["item"] for c in checks if c.get("result") == "unknown"][:6])
                 if (p.ai or {}).get("not_addressed"):
                     entry["declined"] = [f"{x.get('title')}: {x.get('why')}" for x in p.ai["not_addressed"]][:4]
                 prev = rounds[-1] if rounds else None
@@ -969,9 +1040,10 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             record = run_record(job_id, "ai_review", cfg, {"proposal": body.proposal_id, "revision": revision,
                                                            "components": len(circuit.components)})
             try:
-                result, call = run_review(cfg, provider, project_id, circuit, evidence,
+                result, used = run_review(cfg, provider, project_id, circuit, evidence,
                                           {"project_id": project_id, "board_id": board_id,
-                                           **({"proposal_id": body.proposal_id} if body.proposal_id else {})})
+                                           **({"proposal_id": body.proposal_id} if body.proposal_id else {})},
+                                          deep=body.deep, step=lambda text: jobs.step(job_id, "review", text))
             except AiError as exc:
                 record.update(status="failed", error={"code": exc.code, "message": exc.message,
                                                      **({"details": exc.details} if exc.details else {})})
@@ -983,7 +1055,8 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
             else:
                 atomic_write(review_path(project_id, board_id),
                              json.dumps({**result, "revision": revision}, ensure_ascii=False, indent=2) + "\n")
-            record.update(status="succeeded", usage=call.usage, output={"findings": len(result["findings"])})
+            record.update(status="succeeded", usage=used[0] if len(used) == 1 else used,
+                          output={"findings": len(result["findings"]), "passes": len(result.get("passes") or [])})
             save_run(project_id, board_id, record)
             out = {"review": result, "proposal_id": body.proposal_id}
             if body.write_note and note_writer is not None:

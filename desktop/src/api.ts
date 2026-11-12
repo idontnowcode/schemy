@@ -245,12 +245,13 @@ export const api = {
   designPreview: (p: string, b: string) => request<DesignPreview>("GET", `${board(p, b)}/ai/design/preview`),
   design: (p: string, b: string, body: { instructions?: string; use_inventory: boolean; review: boolean; datasheets?: boolean }) =>
     request<Job>("POST", `${board(p, b)}/ai/design`, body),
-  aiReview: (p: string, b: string, proposalId?: string, writeNote = false) =>
-    request<Job>("POST", `${board(p, b)}/ai/review`, { proposal_id: proposalId ?? null, write_note: writeNote }),
+  aiReview: (p: string, b: string, proposalId?: string, writeNote = false, deep = false) =>
+    request<Job>("POST", `${board(p, b)}/ai/review`, { proposal_id: proposalId ?? null, write_note: writeNote, deep }),
   boardReview: (p: string, b: string) => request<{ review: BoardReview | null }>("GET", `${board(p, b)}/ai/review`),
   resumeDesign: (p: string, b: string, body: { job_id: string; choices: { ref: string; option_id?: string; text?: string }[];
     answers: { question: string; answer: string }[] }) => request<Job>("POST", `${board(p, b)}/ai/design/resume`, body),
-  autoReview: (p: string, b: string, body: { proposal_id: string; max_warnings: number; max_rounds: number; datasheets?: boolean }) =>
+  autoReview: (p: string, b: string, body: { proposal_id: string; max_warnings: number; max_rounds: number; datasheets?: boolean;
+    deep?: boolean }) =>
     request<Job>("POST", `${board(p, b)}/ai/auto-review`, body),
   reviewDecisions: (p: string, b: string) =>
     request<{ decisions: ReviewDecision[] }>("GET", `${board(p, b)}/review/decisions`).then((r) => r.decisions),

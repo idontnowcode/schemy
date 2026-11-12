@@ -2214,3 +2214,11 @@ button.back-link {
 
 .datasheet-step { margin: 8px 0; }
 .datasheet-step ul { margin: 6px 0; padding-left: 18px; display: grid; gap: 4px; }
+
+.review-passes { margin: 12px 0; display: grid; gap: 6px; }
+.review-passes h4 { margin: 0 0 2px; font-size: 14px; }
+.review-pass { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; background: var(--bg-elev-2); }
+.review-pass > summary { cursor: pointer; }
+.review-checks { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.review-check { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; font-size: 13px; }
+.finding-perspective { margin-left: 6px; }

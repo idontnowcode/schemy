@@ -18,7 +18,7 @@ import {
   providerLabel,
   ROW_STATUS,
 } from "../format";
-import type { AiStatus, BoardReview, CircuitIR, DatasheetStep, ErcViolation, Job, Proposal, ProposalDiff, QuickFix, RevisionInputs } from "../types";
+import type { AiStatus, BoardReview, CircuitIR, DatasheetStep, ErcViolation, Job, Proposal, ProposalDiff, QuickFix, ReviewPass, RevisionInputs } from "../types";
 import { Chip } from "./Chip";
 import { ProposalDatasheets } from "./DatasheetFinder";
 import { emptyDraft, GuideChecklistPanel, savedName, saveFindingAsGuide } from "./Guides";
@@ -179,12 +179,14 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
   const noteResult = (r: { note?: { id: string }; note_error?: { message: string } }) =>
     r.note ? ` 연구노트 ${r.note.id}(초안)도 썼습니다(사이드바 「연구노트」).` : r.note_error ? ` 연구노트는 쓰지 못했습니다: ${r.note_error.message}` : "";
 
-  const reviewProposal = (p: Proposal) =>
-    run("AI가 제안을 검토하는 중…", async () => {
-      if (!window.confirm(`AI 검토\n\n전송할 데이터: 제안된 회로(부품·연결), 요구사항, 검사 결과, 데이터시트 요약\n받는 곳: ${providerLabel(ai?.settings.provider)} (모델 ${ai?.settings.model})${writeNote ? noteLine : ""}\n\n계속할까요?`)) return;
-      const job = await waitForJob((await api.aiReview(projectId, boardId, p.id, writeNote)).id, undefined, 1500);
+  const reviewProposal = (p: Proposal, deep = false) =>
+    run(deep ? "AI가 제안을 관점별로 검토하는 중…" : "AI가 제안을 검토하는 중…", async () => {
+      const deepLine = deep ? "\n관점별 검토: 요구사항 대조, 전원·보호, 인터페이스·아날로그, MCU·부하 구동을 따로 봅니다(AI 호출 +최대 4회)" : "";
+      if (!window.confirm(`AI 검토\n\n전송할 데이터: 제안된 회로(부품·연결), 요구사항, 검사 결과, 데이터시트 요약\n받는 곳: ${providerLabel(ai?.settings.provider)} (모델 ${ai?.settings.model})${deepLine}${writeNote ? noteLine : ""}\n\n계속할까요?`)) return;
+      const job = await waitForJob((await api.aiReview(projectId, boardId, p.id, writeNote, deep)).id, undefined, 1500);
       if (job.status === "failed") return setMessage(jobError(job));
-      setMessage(`검토 의견 ${job.result.review.findings.length}건을 받았습니다.` + noteResult(job.result));
+      const passes = job.result.review.passes?.length ?? 0;
+      setMessage(`검토 의견 ${job.result.review.findings.length}건을 받았습니다${passes ? ` (관점별 검토 ${passes}개 포함)` : ""}.` + noteResult(job.result));
       await load();
     });
 
@@ -230,7 +232,7 @@ export function ProposalsTab({ projectId, boardId, revision, circuit, focusId, o
       onRecheck={() => recheck(detail)}
       aiReady={aiReady}
       boardRevision={revision}
-      onAiReview={() => reviewProposal(detail)}
+      onAiReview={(deep) => reviewProposal(detail, deep)}
       revising={revising === detail.id}
       onToggleRevise={() => (revising === detail.id ? setRevising(null) : openRevise(detail.id, null))}
       onRevise={(preset) => openRevise(detail.id, preset)}
@@ -434,7 +436,7 @@ interface DetailProps {
   onRecheck(): void;
   aiReady: boolean;
   boardRevision: number | null;
-  onAiReview(): void;
+  onAiReview(deep?: boolean): void;
   revising: boolean;
   onToggleRevise(): void;
   onRevise(preset: RevisePreset): void;
@@ -626,7 +628,11 @@ function ProposalDetail({ p, projectId, boardId, busy, onApprove, onReject, onRe
           )}
           {open && aiReady && (
             <div className="toolbar">
-              <button className="ghost small-btn" onClick={onAiReview} disabled={busy}>{review ? "AI 다시 검토" : "AI 검토"}</button>
+              <button className="ghost small-btn" onClick={() => onAiReview(false)} disabled={busy}>{review ? "AI 다시 검토" : "AI 검토"}</button>
+              <button className="ghost small-btn" onClick={() => onAiReview(true)} disabled={busy}
+                title="요구사항 대조, 전원·보호, 인터페이스·아날로그, MCU·부하 구동을 따로 보고, 관점마다 확인 항목을 하나씩 답하게 합니다 (AI 호출 +최대 4회)">
+                관점별로 깊게 검토
+              </button>
             </div>
           )}
           <p className="muted small">AI 설계와 검토는 틀릴 수 있습니다. 검사 결과와 데이터시트 원문으로 확인한 뒤 승인하세요.</p>
@@ -913,6 +919,7 @@ function AiReview({ p, aiReady, busy, fix, onRevise }: {
         onUse={fix.ok && aiReady && !busy ? (i) => onRevise({ findings: [i] }) : undefined}
         blocked={blocked}
         guideRef={{ project_id: p.project_id, board_id: p.board_id, proposal_id: p.id }} guideLabel={`AI 검토 의견 (제안 #${Number(p.id)})`} />
+      {review.passes && review.passes.length > 0 && <ReviewPasses passes={review.passes} />}
       {review.findings.length > 0 && (
         <div className="toolbar">
           <button className="small-btn" disabled={busy || !aiReady || !fix.ok} onClick={() => onRevise({ findings: "all", checks: true })}
@@ -933,6 +940,64 @@ function AiReview({ p, aiReady, busy, fix, onRevise }: {
 const BASIS_LABEL: Record<string, string> = {
   evidence: "검사·계산·데이터시트", guide: "설계 지침", requirement: "요구사항", circuit: "회로의 핀·Net", judgment: "판단",
 };
+
+const PERSPECTIVE_LABEL: Record<string, string> = {
+  requirements: "요구사항 대조", power: "전원·보호", signals: "인터페이스·아날로그", control: "MCU·부하 구동",
+};
+
+/** Which perspective passes raised a finding ("" for the general review's own). */
+function perspectiveText(f: { perspective?: string; perspectives?: string[] }): string {
+  const keys = (f.perspectives ?? (f.perspective ? [f.perspective] : [])).filter((k) => k !== "general");
+  return keys.map((k) => PERSPECTIVE_LABEL[k] ?? k).join(" · ");
+}
+
+const CHECK_RESULT: Record<string, { text: string; tone: "ok" | "bad" | "warn" | "muted" }> = {
+  ok: { text: "확인함", tone: "ok" }, issue: { text: "문제", tone: "bad" },
+  unknown: { text: "판단 못 함", tone: "warn" }, na: { text: "해당 없음", tone: "muted" },
+};
+
+/** What each perspective pass of a deep review checked, item by item: a review with no findings still shows what
+ * was looked at, what could not be judged, and what was asked and not answered. */
+export function ReviewPasses({ passes }: { passes: ReviewPass[] }) {
+  return (
+    <section className="review-passes" aria-label="관점별 확인">
+      <h4>관점별 확인 <span className="muted small">— AI가 항목마다 답한 것입니다. 앱이 계산을 다시 확인한 것은 아닙니다.</span></h4>
+      {passes.map((x) => {
+        const n = (r: string) => x.checks.filter((c) => c.result === r).length;
+        const open = n("issue") + n("unknown") + x.skipped.length > 0 || Boolean(x.error);
+        return (
+          <details key={x.key} className="review-pass" open={open}>
+            <summary>
+              <b>{x.label}</b>{" "}
+              {x.error ? <Chip text="검토 실패" tone="bad" /> : (
+                <span className="small muted">
+                  확인함 {n("ok")}{n("issue") ? ` · 문제 ${n("issue")}` : ""}{n("unknown") ? ` · 판단 못 함 ${n("unknown")}` : ""}
+                  {n("na") ? ` · 해당 없음 ${n("na")}` : ""}{x.skipped.length ? ` · 답하지 않음 ${x.skipped.length}` : ""}
+                </span>
+              )}
+            </summary>
+            {x.error && <p className="small bad-text">{x.error}</p>}
+            {x.summary && <p className="small">{x.summary}</p>}
+            <ul className="review-checks">
+              {x.checks.map((c, i) => (
+                <li key={i} className={`review-check ${c.result}`}>
+                  <Chip text={CHECK_RESULT[c.result]?.text ?? c.result} tone={CHECK_RESULT[c.result]?.tone ?? "muted"} />
+                  <span>
+                    {c.item}{c.references.length > 0 && <span className="muted"> ({c.references.join(", ")})</span>}
+                    {c.note && <span className="small muted"> — {c.note}</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {x.skipped.length > 0 && (
+              <p className="small warn-text">답하지 않은 확인 항목: {x.skipped.join(" / ")}</p>
+            )}
+          </details>
+        );
+      })}
+    </section>
+  );
+}
 
 const STEP_DOWNLOAD: Record<string, string> = {
   had: "보관된 데이터시트", downloaded: "새로 받음", failed: "받지 못함", no_source: "받을 곳 없음", off: "받지 않음(자동 받기 꺼짐)",
@@ -974,7 +1039,7 @@ export function DatasheetStepList({ step }: { step: DatasheetStep }) {
 export function FindingList({ findings, onUse, blocked, guideRef, guideLabel }: {
   findings: { severity: string; title: string; detail: string; references: string[]; suggestion: string | null; guide?: string | null;
     basis?: string; evidence?: string | null; verified?: boolean | null; decided?: { id: string; reason: string } | null;
-    ai_declined?: string | null }[];
+    ai_declined?: string | null; perspective?: string; perspectives?: string[] }[];
   onUse?(index: number): void;
   /** Why "이 의견 반영하기" cannot be used now (AI off, an approved proposal the board moved on from...): the button
    * stays visible, disabled, with this as its tooltip, so the action is not silently missing. */
@@ -999,6 +1064,9 @@ export function FindingList({ findings, onUse, blocked, guideRef, guideLabel }: 
             <span className="chip chip-ok finding-decided" title="사람이 의도한 설계로 정한 의견입니다. 자동 반복 검토에서 세지 않습니다.">
               사람이 정함
             </span>
+          )}
+          {perspectiveText(f) && (
+            <span className="chip chip-muted finding-perspective" title="이 의견을 낸 관점별 검토입니다.">{perspectiveText(f)}</span>
           )}
           <div>{f.detail}</div>
           {f.decided && <div className="small muted">의도한 설계로 둔 이유: {f.decided.reason}</div>}
