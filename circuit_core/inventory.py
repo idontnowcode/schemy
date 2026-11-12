@@ -9,6 +9,10 @@
    package differs or is unknown), or missing (미보유); stock is checked against quantity.
 4. Applying copies the chosen inventory part's MPN and footprint into the IR as a new
    revision. Values, symbols and connections are never changed.
+
+An AI design does part of this by itself: the AI picks stocked parts for its own parts, and the
+parts a reviewed template placed are filled in from the stock list afterwards
+(``fill_template_parts``: only 보유 lines, and never a template's footprint).
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ import csv
 import io
 import re
 from collections import defaultdict
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import PurePath
@@ -392,10 +397,14 @@ def _match_component(comp: Component, inventory: Inventory) -> tuple[MatchStatus
     return MatchStatus.MISSING, [], [f"보유 자재에 같은 {label} 값이 없습니다{value_note}."]
 
 
-def match_inventory(circuit: CircuitIR, inventory: Inventory, boards: int = 1) -> list[LineMatch]:
-    """Match every BOM line of ``circuit``; ``boards`` multiplies the quantity for the stock check."""
+def match_inventory(circuit: CircuitIR, inventory: Inventory, boards: int = 1, *,
+                    only: Collection[str] | None = None) -> list[LineMatch]:
+    """Match every BOM line of ``circuit``; ``boards`` multiplies the quantity for the stock check.
+    ``only`` limits the lines to the components with these ids."""
     groups: dict[tuple, list[Component]] = defaultdict(list)
     for c in circuit.components:
+        if only is not None and c.id not in only:
+            continue
         groups[(c.value, c.symbol_id, c.footprint_id or "", c.manufacturer_part_number or "")].append(c)
 
     lines: list[LineMatch] = []
@@ -481,28 +490,183 @@ def apply_inventory(circuit: CircuitIR, inventory: Inventory, *, apply_matched: 
         selected[comp_id] = by_id[part_id]
 
     changes: list[Change] = []
-    new_components = []
-    rated = False
+    updates: dict[str, dict] = {}
     for comp in circuit.components:
         part = selected.get(comp.id)
+        update = _stock_update(comp, part) if part is not None else {}
+        if update:
+            updates[comp.id] = update
+            changes += [Change(comp.id, comp.reference, name, getattr(comp, name), update[name])
+                        for name in _IDENTITY_FIELDS if name in update]
+    return _with_updates(circuit, updates), changes
+
+
+_IDENTITY_FIELDS = ("manufacturer_part_number", "manufacturer", "footprint_id")
+
+
+def _stock_update(comp: Component, part: InventoryPart, *, fill_only: bool = False) -> dict:
+    """The fields of ``comp`` the stocked ``part`` sets: part number, maker, footprint, and the stock list's ratings
+    when the part says nothing yet. ``fill_only`` sets only what the component leaves empty."""
+    update: dict = {}
+    for name, stocked in zip(_IDENTITY_FIELDS, (part.mpn, part.manufacturer, part.footprint_id), strict=True):
+        current = getattr(comp, name)
+        if stocked and stocked != current and not (fill_only and current):
+            update[name] = stocked
+    specs = specs_from_stock(part)
+    if specs and comp.specs is None:
+        update["specs"] = PartSpecs(**specs)
+    return update
+
+
+def _with_updates(circuit: CircuitIR, updates: dict[str, dict]) -> CircuitIR:
+    """``circuit`` with the per-component field updates (the same object when there are none)."""
+    if not updates:
+        return circuit
+    components = tuple(c.model_copy(update=updates[c.id]) if c.id in updates else c for c in circuit.components)
+    return CircuitIR.model_validate(circuit.model_copy(update={"components": components}).model_dump())
+
+
+# --- template parts of an AI design -----------------------------------------------------
+
+def _rating_text(part: InventoryPart) -> str | None:
+    return " ".join(x for x in (part.rating, part.tolerance) if x) or None
+
+
+def _short(footprint_id: str | None) -> str:
+    return footprint_id.split(":")[-1] if footprint_id else "없음"
+
+
+def _package_text(part: InventoryPart) -> str | None:
+    """The stocked part's package as its list says it: the package column, else the footprint's name."""
+    return part.package or (_short(part.footprint_id) if part.footprint_id else None)
+
+
+def fill_template_parts(circuit: CircuitIR, inventory: Inventory) -> tuple[CircuitIR, dict]:
+    """Match the parts a reviewed template placed (``origin`` 'template:…') to the stock list, as an AI design's own
+    parts are when the AI picks a stocked part. A template part the stock list has (보유: the same kind, value and
+    package, or the template's own part number) gets the stocked part number, maker and ratings (정격·오차 as
+    ``specs``), so the BOM names a part and the calculation review knows what it is rated for.
+
+    A template fixes its parts, so only what it left empty is filled in:
+
+    - its footprint is kept; a stock list that names another one for the part is noted, not followed;
+    - a part number the template names is never replaced by another stocked one;
+    - the same value in another or an unknown package (대체 가능) is not put in;
+    - neither is a stocked part whose ratings the calculation review would fail in this circuit (too little margin,
+      a 주의, is put in and flagged by the reviews like any other part).
+
+    What the stock list has and was not put in is reported for a person to confirm in the 자재 tab, with what the
+    calculation review would flag if it were used. Template parts someone has since chosen one by one (a decision
+    about that single part: an AI revision's edit, an engineer) are left alone, so a stocked part a review had
+    replaced does not come back with the next revision.
+
+    Returns (circuit, report): ``report['applied']`` and ``report['unconfirmed']``, one entry per BOM line. The
+    circuit is the same object when nothing was filled in."""
+    chosen_since = {d.components[0] for d in circuit.decisions if len(d.components) == 1 and d.by != "template"}
+    by_id = {c.id: c for c in circuit.components
+             if (c.origin or "").startswith("template:") and c.id not in chosen_since}
+    report: dict = {"applied": [], "unconfirmed": []}
+    updates: dict[str, dict] = {}
+    flagged_now: set[tuple[str, str]] | None = None
+    for line in match_inventory(circuit, inventory, only=by_id) if by_id else []:
+        if not line.candidates:
+            continue  # 미보유: nothing the stock list could add
+        first = by_id[line.component_ids[0]]
+        part = line.chosen
+        if flagged_now is None:
+            flagged_now = _flagged(circuit)
+        candidates = [{"id": c.part.id, "mpn": c.part.mpn, "manufacturer": c.part.manufacturer,
+                       "value": c.part.value, "package": _package_text(c.part), "rating": _rating_text(c.part),
+                       "stock": c.part.stock, "reason": c.reasons[0],
+                       "if_used": _review_if_used(circuit, line.component_ids, c.part, flagged_now)}
+                      for c in line.candidates[:3]]
+        why = None
         if part is None:
-            new_components.append(comp)
+            why = f"패키지가 템플릿 풋프린트({_short(first.footprint_id)})와 같은지 확인되지 않았습니다."
+        elif part.mpn and first.manufacturer_part_number and \
+                normalize_mpn(part.mpn) != normalize_mpn(first.manufacturer_part_number):
+            why = f"템플릿이 정한 품번({first.manufacturer_part_number})과 다른 보유 품번입니다."
+        elif any(f["severity"] == "fail" for f in candidates[0]["if_used"]):
+            # The match does not compare ratings. A part the app's own calculation fails here (a 16 V capacitor on
+            # a 30 V input) is not put in by the app; too little margin (주의) is put in and left to the reviews.
+            why = "보유 부품의 정격이 이 회로에서는 부족합니다 (앱 계산 검토 실패)."
+        if why is not None:
+            report["unconfirmed"].append({
+                "references": line.references, "value": line.value, "footprint_id": line.footprint_id,
+                "mpn": line.mpn, "why": why, "candidates": candidates})
             continue
-        update: dict = {}
-        if part.mpn and part.mpn != comp.manufacturer_part_number:
-            update["manufacturer_part_number"] = part.mpn
-        if part.manufacturer and part.manufacturer != comp.manufacturer:
-            update["manufacturer"] = part.manufacturer
-        if part.footprint_id and part.footprint_id != comp.footprint_id:
-            update["footprint_id"] = part.footprint_id
-        for name, after in update.items():
-            changes.append(Change(comp.id, comp.reference, name, getattr(comp, name), after))
-        specs = specs_from_stock(part)
-        if specs and comp.specs is None:
-            update["specs"] = PartSpecs(**specs)  # the stock list's ratings, when the part says nothing yet
-            rated = True
-        new_components.append(comp.model_copy(update=update) if update else comp)
-    if not changes and not rated:
-        return circuit, []
-    updated = circuit.model_copy(update={"components": tuple(new_components)})
-    return CircuitIR.model_validate(updated.model_dump()), changes
+        filled: list[str] = []
+        fields: set[str] = set()
+        for cid in line.component_ids:
+            update = _stock_update(by_id[cid], part, fill_only=True)
+            if update:
+                updates[cid] = update
+                filled.append(by_id[cid].reference)
+                fields |= set(update)
+        if not filled:
+            continue  # already the stocked part
+        notes = [r for r in line.reasons if r.startswith("재고 부족")]
+        stock_pkg = package_key(part.footprint_id) or package_key(part.package)
+        if packages_match(package_key(first.footprint_id), stock_pkg) is False:
+            # Only a part named by the template's own part number gets here with another package.
+            notes.append(f"보유 목록의 패키지({_package_text(part)})가 템플릿 풋프린트({_short(first.footprint_id)})와 "
+                         "다릅니다. 풋프린트는 바꾸지 않았습니다.")
+        elif first.footprint_id and part.footprint_id and part.footprint_id != first.footprint_id:
+            notes.append(f"풋프린트는 템플릿의 {_short(first.footprint_id)} 그대로입니다 "
+                         f"(보유 목록: {_short(part.footprint_id)}).")
+        report["applied"].append({
+            "references": filled, "value": line.value, "mpn": part.mpn, "manufacturer": part.manufacturer,
+            "package": _package_text(part), "rating": _rating_text(part), "how": line.candidates[0].reasons[0],
+            "filled": [f for f in (*_IDENTITY_FIELDS, "specs") if f in fields], "notes": notes})
+    return _with_updates(circuit, updates), report
+
+
+def _flagged(circuit: CircuitIR) -> set[tuple[str, str]]:
+    """(rule, title) of what the calculation review flags (실패·주의) on the circuit."""
+    from .engineering import engineering_review
+
+    return {(f.rule, f.title) for f in engineering_review(circuit) if f.severity in ("fail", "warn")}
+
+
+def _review_if_used(circuit: CircuitIR, component_ids: list[str], part: InventoryPart,
+                    flagged_now: set[tuple[str, str]]) -> list[dict]:
+    """What the calculation review would newly flag (실패·주의) on these components if they were the stocked
+    ``part``: its ratings on the same connections, nothing else changed. So a stocked part that was not put in
+    (another package) still tells the person who may confirm it, and the reviewer, whether its ratings fit this
+    circuit — a stocked 35 V capacitor on a 30 V input has 1.17 times the voltage, not the 1.5 times asked for."""
+    from .engineering import engineering_review
+
+    specs = specs_from_stock(part)
+    ids = {cid for cid in component_ids if (c := circuit.component(cid)) is not None and c.specs is None}
+    if not specs or not ids:
+        return []
+    trial = _with_updates(circuit, {cid: {"specs": PartSpecs(**specs)} for cid in ids})
+    return [{"severity": f.severity, "title": f.title, "detail": f.detail, "calc": f.calc}
+            for f in engineering_review(trial)
+            if f.severity in ("fail", "warn") and ids & set(f.components) and (f.rule, f.title) not in flagged_now]
+
+
+def _stocked_text(part: dict) -> str:
+    """'EEU-FR1V681 (Panasonic, 35V, 10x20 래디얼)' from a report entry."""
+    detail = ", ".join(str(x) for x in (part.get("manufacturer"), part.get("rating"), part.get("package")) if x)
+    return f"{part.get('mpn') or part.get('value') or '?'}" + (f" ({detail})" if detail else "")
+
+
+def _if_used_text(candidate: dict) -> str:
+    flagged = "; ".join(f"{f['title']}" + (f" ({f['calc']})" if f.get("calc") else "")
+                        for f in candidate.get("if_used") or [])
+    return f" [이 부품을 쓰면 앱 계산 검토: {flagged}]" if flagged else ""
+
+
+def stock_report_lines(report: dict | None, *, applied: bool = True) -> list[str]:
+    """``fill_template_parts``' report as one sentence per BOM line, for the job's record and the AI reviewer's
+    evidence. ``applied=False`` leaves out what was put in (the circuit already shows it)."""
+    lines = []
+    for a in ((report or {}).get("applied") or []) if applied else []:
+        lines.append(f"보유 자재 대조: 템플릿 부품 {', '.join(a['references'])} ({a['value']}) → 보유 자재 "
+                     f"{_stocked_text(a)} · {a['how']}." + "".join(f" {n}" for n in a.get("notes") or []))
+    for u in (report or {}).get("unconfirmed") or []:
+        has = "; ".join(f"{_stocked_text(c)} — {c['reason']}{_if_used_text(c)}" for c in u.get("candidates") or [])
+        lines.append(f"보유 자재 대조: 템플릿 부품 {', '.join(u['references'])} ({u['value']})에는 보유 자재를 넣지 "
+                     f"않았습니다 — {u['why']} 보유 목록: {has}. 쓰려면 자재 탭에서 직접 고릅니다.")
+    return lines

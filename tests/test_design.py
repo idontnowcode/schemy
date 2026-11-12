@@ -1112,3 +1112,143 @@ def test_jobs_keep_running_and_show_up_for_every_screen(tmp_path):
     assert row["status"] == "succeeded" and row["project_name"] == "CAN Node" and row["board_name"] == "보드 A"
     assert row["kind"] == "ai_design" and row["proposal_id"] == done["result"]["proposal_id"] and row["step"]
     assert client.get("/api/jobs/active", params={"recent_seconds": 0}).json() == []  # finished ones age out
+
+
+# --- template parts take stocked part numbers and ratings --------------------------------------------------------------
+
+BUCK_PLAN = {
+    "title": "24 V → 5 V 전원", "summary": "검토된 LM2596 템플릿으로 24 V에서 5 V를 만듦.", "assumptions": [], "questions": [],
+    "parts": [
+        {"ref": "J1", "role": "24 V 입력", "category": "connector", "value": "PWR_IN", "pin_count": 2, "package": "5.08mm 단자대"},
+        {"ref": "J2", "role": "5 V 출력", "category": "connector", "value": "5V_OUT", "pin_count": 2, "package": "2.54mm 헤더"},
+    ],
+    "templates": [{"id": "buck-lm2596-5v", "params": [{"name": "vin", "value": "VIN"}], "why": "24 V 입력에서 5 V"}],
+}
+BUCK_CONNECT = {
+    "nets": [{"name": "VIN", "pins": ["J1.1"]}, {"name": "GND", "pins": ["J1.2", "J2.2"]}, {"name": "+5V", "pins": ["J2.1"]}],
+    "no_connect": [],
+    "rails": [{"net": "VIN", "voltage": 24, "load_ma": 0, "voltage_min": 20, "voltage_max": 30}],
+}
+
+
+def buck_ai(edits=()):
+    """A scripted AI that designs the 24 V → 5 V board with the LM2596 template (parts U1, C1 680uF, D1, L1 33uH,
+    C2 220uF). ``edits`` answer the revisions' edit requests in turn; the guide self-check's edit request is declined."""
+    prompts, edits = {"review": [], "guide_edit": []}, list(edits)
+
+    def reply(prompt):
+        if "회로를 새로 설계하지 마세요" in prompt:
+            if "(없음 — 이번 요청만)" in prompt:  # a revision from the person's own request
+                return json.dumps({"summary": "요청대로 고침", "addressed": [], "not_addressed": [],
+                                   "edits": [edits.pop(0)]}, ensure_ascii=False)
+            prompts["guide_edit"].append(prompt)
+            return json.dumps({"summary": "템플릿은 그대로 둠", "edits": [], "addressed": [],
+                               "not_addressed": [{"id": "F1", "why": "검토된 템플릿"}]}, ensure_ascii=False)
+        if "부품 목록을 정하세요" in prompt:
+            return json.dumps(BUCK_PLAN, ensure_ascii=False)
+        if "핀 표만 써서" in prompt:
+            return json.dumps(BUCK_CONNECT, ensure_ascii=False)
+        if "검토자" in prompt:
+            prompts["review"].append(prompt)
+            return json.dumps({"summary": "검토함", "findings": []}, ensure_ascii=False)
+        raise AssertionError("unexpected prompt: " + prompt[:80])
+    return reply, prompts
+
+
+def buck_design(tmp_path, stock, body=None, edits=()):
+    from .test_backend_inventory import upload
+
+    reply, prompts = buck_ai(edits)
+    client, _, pid = design_client(tmp_path, reply)
+    client.put(f"/api/projects/{pid}/requirements", json={"text": "24 V(20~30 V) 입력에서 5 V 1 A를 만드는 전원 보드."})
+    assert upload(client, stock, save=True).json()["saved"]
+    board = f"/api/projects/{pid}/boards/a"
+    job = wait(client, client.post(board + "/ai/design", json=body or {}).json())
+    assert job["status"] == "succeeded", job
+    p = client.get(f"{board}/proposals/{job['result']['proposal_id']}").json()
+    return client, board, job, p, prompts
+
+
+def test_template_parts_are_matched_to_the_stock_list(tmp_path):
+    """Found in real-flow runs (#36, #50, #61): the stock list had the LM2596 template's 220 µF and 33 µH, and a
+    680 µF 35 V in another package, yet all three came out with no part number and no ratings."""
+    from .test_inventory import BUCK_STOCK
+
+    client, board, job, p, prompts = buck_design(tmp_path, BUCK_STOCK)
+    parts = {c["reference"]: c for c in p["candidate"]["components"]}
+    assert all(parts[r]["origin"] == "template:buck-lm2596-5v@1" for r in ("U1", "C1", "D1", "L1", "C2"))
+    # In stock in the template's package: the part number, maker and ratings are in the proposal.
+    assert (parts["C2"]["manufacturer_part_number"], parts["C2"]["manufacturer"]) == ("EEE-FK1V221P", "Panasonic")
+    assert parts["C2"]["specs"]["voltage_rating"] == 35.0
+    assert (parts["L1"]["manufacturer_part_number"], parts["L1"]["specs"]["current_rating"]) == ("SRR1260-330M", 3.0)
+    # In stock in another package (10x20 radial): not put in, footprint untouched, and reported.
+    assert (parts["C1"]["manufacturer_part_number"], parts["C1"]["specs"]) == (None, None)
+    assert [parts[r]["footprint_id"] for r in ("C1", "C2", "L1")] == [
+        "Capacitor_SMD:CP_Elec_10x10.5", "Capacitor_SMD:CP_Elec_8x10.5", "Inductor_SMD:L_12x12mm_H8mm"]
+    stock = p["ai"]["stock"]
+    assert [a["references"] for a in stock["applied"]] == [["C2"], ["L1"]]
+    [left] = stock["unconfirmed"]
+    assert left["references"] == ["C1"] and left["candidates"][0]["mpn"] == "EEU-FR1V681"
+    assert left["candidates"][0]["reason"] == "종류·값 일치, 패키지 다름 (10x20)"
+    assert left["candidates"][0]["if_used"][0]["calc"] == "35 / 30 = 1.17배"
+    assert any(s["step"] == "check" and s["text"] == "템플릿 부품 보유 자재 대조: C2, L1에 보유 품번·정격을 넣음 · "
+               "C1은(는) 넣지 않음 — 패키지·품번·정격을 사람이 확인 (제안의 설계 메모)" for s in job["progress"])
+    # The reviewer sees the ratings on the parts and, as evidence it can cite, the stocked part that was left out
+    # with the app's calculation for it (the first runs' reviewer could only guess at the 35 V part).
+    review = prompts["review"][-1]
+    assert "- C2 220uF [Device:C_Polarized] EEE-FK1V221P Capacitor_SMD:CP_Elec_8x10.5 (정격 35V · electrolytic)" in review
+    line = re.search(r"^E\d+ 보유 자재 대조: 템플릿 부품 C1 \(680uF\)에는 보유 자재를 넣지 않았습니다.*$", review, re.M)
+    assert line and "EEU-FR1V681 (Panasonic, 35V, 10x20 래디얼)" in line.group() and "35 / 30 = 1.17배" in line.group()
+    # A later review of the same proposal is told too.
+    wait(client, client.post(board + "/ai/review", json={"proposal_id": p["id"]}).json())
+    assert len(prompts["review"]) == 2 and "템플릿 부품 C1 (680uF)에는 보유 자재를 넣지 않았습니다" in prompts["review"][-1]
+
+    # Without the stock list (the design's option) template parts stay as the template has them.
+    plain = wait(client, client.post(board + "/ai/design", json={"use_inventory": False, "review": False}).json())
+    p2 = client.get(f"{board}/proposals/{plain['result']['proposal_id']}").json()
+    assert all(c["manufacturer_part_number"] is None for c in p2["candidate"]["components"]
+               if c["reference"] in ("C1", "C2", "L1"))
+    assert p2["ai"]["stock"] is None and not any("보유 자재 대조" in s["text"] for s in plain["progress"])
+
+
+def test_a_revision_fills_template_parts_and_keeps_what_a_revision_chose(tmp_path):
+    from .test_inventory import BUCK_STOCK
+
+    # This stock list has the 680 µF in the template's package. The first design does not use the stock list.
+    smd = BUCK_STOCK.replace("EEU-FR1V681,Panasonic,전해콘덴서,680uF,10x20 래디얼", "EEV-FK1V681Q,Panasonic,전해콘덴서,680uF,10x10.2")
+    edits = [{"action": "set_value", "ref": "J2", "package": "5.08mm 단자대", "why": "출력도 단자대로"},
+             {"action": "set_value", "ref": "C1", "value": "680uF 50V", "why": "입력 최대 30 V에 1.5배 여유"},
+             {"action": "set_value", "ref": "J1", "package": "2.54mm 헤더", "why": "입력을 헤더로"}]
+    client, board, _, first, prompts = buck_design(tmp_path, smd, {"use_inventory": False, "review": False}, edits)
+    assert first["ai"]["stock"] is None and "G-PWR-06" not in first["ai"]["guide_check"]["before"]
+
+    def revise(parent: dict, request: str, review: bool = False) -> tuple[dict, dict]:
+        job = wait(client, client.post(board + "/ai/revise", json={
+            "proposal_id": parent["id"], "instructions": request, "include_checks": False, "review": review}).json())
+        assert job["status"] == "succeeded", job
+        p = client.get(f"{board}/proposals/{job['result']['proposal_id']}").json()
+        return p, {c["reference"]: c for c in p["candidate"]["components"]}
+
+    # A revision about something else fills the template parts in (revisions use the stock list) ...
+    second, parts = revise(first, "J2를 단자대로", review=True)
+    assert second["ai"]["method"] == "edits" and all("J2" in c for c in second["ai"]["changes"])
+    assert [a["references"] for a in second["ai"]["stock"]["applied"]] == [["C1"], ["C2"], ["L1"]]
+    assert (parts["C1"]["manufacturer_part_number"], parts["C1"]["specs"]["voltage_rating"]) == ("EEV-FK1V681Q", 35.0)
+    assert parts["C1"]["footprint_id"] == "Capacitor_SMD:CP_Elec_10x10.5" and second["ai"]["stock"]["unconfirmed"] == []
+    changed = {(c["reference"], c["field"], c["after"]) for c in second["ai"]["diff_from_parent"]["properties_changed"]}
+    assert {("C1", "manufacturer_part_number", "EEV-FK1V681Q"), ("C1", "specs.voltage_rating", 35.0),
+            ("L1", "manufacturer_part_number", "SRR1260-330M")} <= changed
+    # ... and the checks then work from the ratings: 35 V on an input that reaches 30 V is flagged by the guide
+    # self-check (G-PWR-06, behind it the calculation review) and is in the reviewer's evidence.
+    assert "G-PWR-06" in second["ai"]["guide_check"]["before"]
+    assert re.search(r"- F\d+ \[warning\] G-PWR-06 .*\(근거: C1 \(680uF\): 정격 전압 여유 부족\)", prompts["guide_edit"][-1])
+    assert re.search(r"^C\d+ \[앱 계산 주의\] C1 \(680uF\): 정격 전압 여유 부족 .*35 / 30 = 1\.17배", prompts["review"][-1], re.M)
+
+    # The next revision gives C1 a 50 V rating. The stocked 35 V part does not come back: not in that revision ...
+    third, parts = revise(second, "C1을 50 V 정격으로")
+    assert (parts["C1"]["value"], parts["C1"]["manufacturer_part_number"], parts["C1"]["specs"]) == ("680uF 50V", None, None)
+    assert third["ai"]["stock"] is None and "G-PWR-06" not in third["ai"]["guide_check"]["before"]
+    # ... and not in a later one about something else.
+    fourth, parts = revise(third, "J1을 헤더로")
+    assert (parts["C1"]["value"], parts["C1"]["manufacturer_part_number"]) == ("680uF 50V", None)
+    assert parts["C2"]["manufacturer_part_number"] == "EEE-FK1V221P" and fourth["ai"]["stock"] is None

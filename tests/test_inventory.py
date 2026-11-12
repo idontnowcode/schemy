@@ -174,3 +174,182 @@ def test_stock_ratings_become_part_specs(led_circuit):
     rated = inventory_from("품번,제조사,종류,값,패키지,정격,재고\nRC0603FR-07330RL,Yageo,칩저항,330R,0603,1%,5000\n")
     updated, _ = apply_inventory(led_circuit, rated)
     assert updated.component("res-001").specs.tolerance == 1.0
+
+
+# --- template parts of an AI design get stocked part numbers and ratings ---------------------------------------------
+
+STOCK_HEAD = "품번,제조사,종류,값,패키지,풋프린트,정격,재고\n"
+BUCK_STOCK = STOCK_HEAD + (
+    "EEU-FR1V681,Panasonic,전해콘덴서,680uF,10x20 래디얼,,35V,40\n"
+    "EEE-FK1V221P,Panasonic,전해콘덴서,220uF,8x10.2 SMD,,35V,60\n"
+    "SRR1260-330M,Bourns,인덕터,33uH,12x12mm,,3A,25\n")
+"""The stock list of the real-flow runs: the 680 µF is a 10x20 radial part, the template's footprint is 10x10.5 SMD."""
+
+
+def buck_block(library, **vin) -> CircuitIR:
+    """The reviewed LM2596 buck template alone on a board; ``vin`` sets the input net's voltages."""
+    from circuit_core.templates import TEMPLATES, as_circuit, instantiate
+
+    inst = instantiate(TEMPLATES["buck-lm2596-5v"], {"vin": "VIN"}, None,
+                       lambda s: [(p.number, p.name) for p in library.get(s).pins])
+    data = as_circuit(inst, "buck").model_dump(mode="json")
+    next(n for n in data["nets"] if n["name"] == "VIN").update(vin)
+    return CircuitIR.model_validate(data)
+
+
+def cap_voltage(circuit, reference):
+    from circuit_core.engineering import engineering_review
+
+    cid = next(c.id for c in circuit.components if c.reference == reference)
+    return next((f.severity, f.title, f.calc) for f in engineering_review(circuit)
+                if f.rule == "cap_voltage" and f.components == (cid,))
+
+
+def test_template_parts_take_stocked_part_numbers_and_ratings(library):
+    """Found in real-flow runs (#36, #50, #61): the LM2596 template's 680 µF, 220 µF and 33 µH came out with no part
+    number and no ratings although the stock list had them, so the BOM had blanks and no review could judge them."""
+    from circuit_core.inventory import fill_template_parts, stock_report_lines
+
+    base = buck_block(library, voltage=24, voltage_max=30)
+    by_ref = {c.reference: c for c in base.components}
+    assert (by_ref["C1"].value, by_ref["C2"].value, by_ref["L1"].value) == ("680uF", "220uF", "33uH")
+    filled, report = fill_template_parts(base, inventory_from(BUCK_STOCK))
+    got = {c.reference: c for c in filled.components}
+
+    # What the stock list has in the template's package is filled in: part number, maker and ratings.
+    assert (got["C2"].manufacturer_part_number, got["C2"].manufacturer) == ("EEE-FK1V221P", "Panasonic")
+    assert got["C2"].specs.voltage_rating == 35.0 and got["C2"].specs.dielectric == "electrolytic"
+    assert (got["L1"].manufacturer_part_number, got["L1"].specs.current_rating) == ("SRR1260-330M", 3.0)
+    assert [(a["references"], a["mpn"], a["how"], a["notes"]) for a in report["applied"]] == [
+        (["C2"], "EEE-FK1V221P", "종류·값·패키지 일치", []), (["L1"], "SRR1260-330M", "종류·값·패키지 일치", [])]
+    assert report["applied"][0]["filled"] == ["manufacturer_part_number", "manufacturer", "specs"]
+
+    # The 680 µF in another package is not put in: nothing of the part changes, and the report says what there is.
+    assert got["C1"] == by_ref["C1"] and got["C1"].manufacturer_part_number is None and got["C1"].specs is None
+    [left] = report["unconfirmed"]
+    assert left["references"] == ["C1"] and "CP_Elec_10x10.5" in left["why"]
+    [candidate] = left["candidates"]
+    assert (candidate["mpn"], candidate["rating"], candidate["package"]) == ("EEU-FR1V681", "35V", "10x20 래디얼")
+    assert candidate["reason"] == "종류·값 일치, 패키지 다름 (10x20)"
+    # ... with what the calculation review would say if that stocked part were used: 35 V on a 30 V input.
+    assert [(f["severity"], f["title"], f["calc"]) for f in candidate["if_used"]] == [
+        ("warn", "C1 (680uF): 정격 전압 여유 부족", "35 / 30 = 1.17배")]
+    text = stock_report_lines(report, applied=False)
+    assert len(text) == 1 and "\n" not in text[0]
+    assert "C1 (680uF)에는 보유 자재를 넣지 않았습니다" in text[0]
+    assert "EEU-FR1V681 (Panasonic, 35V, 10x20 래디얼)" in text[0]
+    assert "정격 전압 여유 부족 (35 / 30 = 1.17배)" in text[0] and "자재 탭" in text[0]
+    assert len(stock_report_lines(report)) == 3 and stock_report_lines(None) == []
+
+    # No template footprint changed, nothing but those two parts changed, and connections are as they were.
+    assert [c.footprint_id for c in filled.components] == [c.footprint_id for c in base.components]
+    assert [c for c in filled.components if c.reference not in ("C2", "L1")] == \
+        [c for c in base.components if c.reference not in ("C2", "L1")]
+    assert filled.nets == base.nets and filled.decisions == base.decisions
+
+    # The calculation review now knows the ratings: 35 V on the 5 V output is plenty; the 680 µF is still unrated.
+    assert cap_voltage(filled, "C2")[:2] == ("ok", "C2 (220uF): 정격 전압 여유 충분")
+    assert cap_voltage(filled, "C1")[:2] == ("info", "C1 (680uF): 정격 전압 미기재")
+
+    # Doing it again changes nothing (the same object comes back) and still reports the 680 µF.
+    again, report2 = fill_template_parts(filled, inventory_from(BUCK_STOCK))
+    assert again is filled and report2["applied"] == [] and report2["unconfirmed"] == report["unconfirmed"]
+
+
+def test_a_stocked_capacitor_in_the_template_package_is_flagged_by_its_rating(library):
+    """With the ratings in the circuit the calculation review checks them: a 35 V part on an input that reaches
+    30 V has 1.17 times the voltage, where the review (and guide G-PWR-06) asks for 1.5 times."""
+    from circuit_core.inventory import fill_template_parts
+
+    base = buck_block(library, voltage=24, voltage_max=30)
+    assert cap_voltage(base, "C1")[:2] == ("info", "C1 (680uF): 정격 전압 미기재")
+    smd = BUCK_STOCK.replace("EEU-FR1V681,Panasonic,전해콘덴서,680uF,10x20 래디얼",
+                             "EEV-FK1V681Q,Panasonic,전해콘덴서,680uF,10x10.2")
+    filled, report = fill_template_parts(base, inventory_from(smd))
+    c1 = next(c for c in filled.components if c.reference == "C1")
+    assert c1.manufacturer_part_number == "EEV-FK1V681Q" and c1.specs.voltage_rating == 35.0
+    assert c1.footprint_id == "Capacitor_SMD:CP_Elec_10x10.5" and report["unconfirmed"] == []
+    assert cap_voltage(filled, "C1") == ("warn", "C1 (680uF): 정격 전압 여유 부족", "35 / 30 = 1.17배")
+
+
+def test_a_template_keeps_what_it_fixed(library):
+    from circuit_core.inventory import fill_template_parts
+
+    base = buck_block(library)
+    d1 = next(c for c in base.components if c.reference == "D1")
+    assert (d1.manufacturer_part_number, d1.manufacturer) == ("1N5822", "Vishay")
+
+    # The stock list names another KiCad footprint for the same package: the template's stays, and that is noted.
+    other_fp = STOCK_HEAD + "EEE-FK1V221P,Panasonic,전해콘덴서,220uF,,Capacitor_SMD:CP_Elec_8x10,35V,60\n"
+    filled, report = fill_template_parts(base, inventory_from(other_fp))
+    c2 = next(c for c in filled.components if c.reference == "C2")
+    assert c2.manufacturer_part_number == "EEE-FK1V221P" and c2.footprint_id == "Capacitor_SMD:CP_Elec_8x10.5"
+    assert report["applied"][0]["notes"] == [
+        "풋프린트는 템플릿의 CP_Elec_8x10.5 그대로입니다 (보유 목록: CP_Elec_8x10)."]
+
+    # The template's own part number in the stock list: the ratings come along, the template's maker stays.
+    same = STOCK_HEAD + "1n5822,ON Semi,쇼트키 다이오드,1N5822,DO-201AD,,40V 3A,100\n"
+    filled, report = fill_template_parts(base, inventory_from(same))
+    got = next(c for c in filled.components if c.reference == "D1")
+    assert (got.manufacturer_part_number, got.manufacturer) == ("1N5822", "Vishay")
+    assert (got.specs.voltage_rating, got.specs.current_rating) == (40.0, 3.0)
+    assert report["applied"][0]["filled"] == ["specs"] and report["applied"][0]["how"] == "제조사 품번 일치"
+
+    # Another stocked part number with the same value and package does not replace the one the template names.
+    other = STOCK_HEAD + ("1N5822-E3/54,Vishay,쇼트키 다이오드,1N5822,,Diode_THT:D_DO-201AD_P15.24mm_Horizontal,"
+                          "40V 3A,100\n")
+    assert match_inventory(base, inventory_from(other), only={d1.id})[0].status is MatchStatus.MATCHED
+    filled, report = fill_template_parts(base, inventory_from(other))
+    assert filled is base and report["applied"] == []
+    assert report["unconfirmed"][0]["why"] == "템플릿이 정한 품번(1N5822)과 다른 보유 품번입니다."
+    assert report["unconfirmed"][0]["candidates"][0]["mpn"] == "1N5822-E3/54"
+
+
+def test_only_untouched_template_parts_are_filled(library):
+    """The AI's own parts are the AI's choice (it saw the stock list), and a template part someone has since
+    chosen one by one stays as chosen: a stocked 35 V part a review had replaced must not come back."""
+    from circuit_core.inventory import fill_template_parts
+
+    data = buck_block(library).model_dump(mode="json")
+    c2 = next(c for c in data["components"] if c["reference"] == "C2")
+    data["components"] += [{**c2, "id": "c9", "reference": "C9", "origin": "ai"},
+                           {**c2, "id": "c10", "reference": "C10", "origin": None}]
+    circuit = CircuitIR.model_validate(data)
+    filled, report = fill_template_parts(circuit, inventory_from(BUCK_STOCK))
+    got = {c.reference: c.manufacturer_part_number for c in filled.components}
+    assert (got["C2"], got["C9"], got["C10"]) == ("EEE-FK1V221P", None, None)
+    assert [a["references"] for a in report["applied"]] == [["C2"], ["L1"]]
+
+    # An AI revision set C2 itself (its edit leaves a decision about that one part): it is left alone.
+    data["decisions"].append({"id": f"dec-{c2['id']}", "topic": "C2 값", "choice": "220uF", "by": "ai",
+                              "reason": "출력 리플 전류 정격이 더 큰 부품으로", "components": [c2["id"]]})
+    filled, report = fill_template_parts(CircuitIR.model_validate(data), inventory_from(BUCK_STOCK))
+    assert next(c for c in filled.components if c.reference == "C2").manufacturer_part_number is None
+    assert [a["references"] for a in report["applied"]] == [["L1"]]
+    assert all("C2" not in u["references"] for u in report["unconfirmed"])
+
+    # No template parts, or nothing in stock for them: nothing happens.
+    plain = CircuitIR.model_validate({**data, "components": [{**c, "origin": "ai"} for c in data["components"]]})
+    assert fill_template_parts(plain, inventory_from(BUCK_STOCK)) == (plain, {"applied": [], "unconfirmed": []})
+    assert fill_template_parts(circuit, inventory_from(KOREAN_CSV)) == (circuit, {"applied": [], "unconfirmed": []})
+
+
+def test_a_stocked_part_the_calculation_fails_is_not_put_in(library):
+    """The stock match looks at kind, value and package, not at ratings. The app does not put in a part its own
+    calculation fails in this circuit: a 16 V capacitor in the right package on an input that reaches 30 V."""
+    from circuit_core.inventory import fill_template_parts
+
+    low = STOCK_HEAD + "EEE-FK1C681P,Panasonic,전해콘덴서,680uF,10x10.2,,16V,90\n"
+    base = buck_block(library, voltage=24, voltage_max=30)
+    assert match_inventory(base, inventory_from(low))[0].status is MatchStatus.MATCHED
+    filled, report = fill_template_parts(base, inventory_from(low))
+    assert filled is base and report["applied"] == []
+    [left] = report["unconfirmed"]
+    assert left["references"] == ["C1"]
+    assert left["why"] == "보유 부품의 정격이 이 회로에서는 부족합니다 (앱 계산 검토 실패)."
+    assert [(f["severity"], f["title"], f["calc"]) for f in left["candidates"][0]["if_used"]] == [
+        ("fail", "C1 (680uF): 정격 전압 부족", "16 V < 30 V")]
+    # On a 12 V input the same part is fine and goes in.
+    filled, report = fill_template_parts(buck_block(library, voltage=12), inventory_from(low))
+    assert next(c for c in filled.components if c.reference == "C1").manufacturer_part_number == "EEE-FK1C681P"
+    assert report["unconfirmed"] == []

@@ -17,6 +17,7 @@ import {
   proposalStatusLabel,
   providerLabel,
   ROW_STATUS,
+  stockedText,
 } from "../format";
 import type { AiStatus, BoardReview, CircuitIR, DatasheetStep, ErcViolation, Job, Proposal, ProposalDiff, QuickFix, ReviewCheck, ReviewPass, RevisionInputs } from "../types";
 import { Chip } from "./Chip";
@@ -865,6 +866,42 @@ function AiMemo({ p }: { p: Proposal }) {
             ))}
           </ul>
           <p className="small muted">템플릿 부품은 표의 「출처」에 「템플릿」으로, AI가 고른 부품은 「AI」로 표시됩니다.</p>
+        </>
+      )}
+      {ai.stock && (ai.stock.applied.length > 0 || ai.stock.unconfirmed.length > 0) && (
+        <>
+          <h4>템플릿 부품과 보유 자재</h4>
+          <ul className="small">
+            {ai.stock.applied.map((a) => (
+              <li key={a.references.join()}>
+                <Chip text="보유 자재" tone="ok" /> {a.references.join(", ")} {a.value} → {stockedText(a)}{" "}
+                <span className="muted">{a.how}</span>
+                {a.notes.map((n) => <span key={n} className="warn-text"> {n}</span>)}
+              </li>
+            ))}
+            {ai.stock.unconfirmed.map((u) => (
+              <li key={u.references.join()}>
+                <Chip text="확인 필요" tone="warn" /> {u.references.join(", ")} {u.value}: 보유 자재를 넣지 않았습니다.{" "}
+                <span className="muted">{u.why}</span>
+                <ul>
+                  {u.candidates.map((c) => (
+                    <li key={c.id}>
+                      보유 {stockedText(c)} <span className="muted">{c.reason}</span>
+                      {c.if_used.map((f) => (
+                        <span key={f.title} className="warn-text">
+                          {" "}이 부품을 쓰면 계산 검토 {f.severity === "fail" ? "실패" : "주의"}: {f.title}{f.calc ? ` (${f.calc})` : ""}
+                        </span>
+                      ))}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+          <p className="small muted">
+            보유 목록에 같은 종류·값·패키지가 있는 템플릿 부품에 품번·제조사·정격을 넣었습니다. 템플릿의 풋프린트는 바꾸지 않습니다.
+            {ai.stock.unconfirmed.length > 0 && " 「확인 필요」 부품은 승인한 뒤 자재 탭에서 직접 고를 수 있습니다."}
+          </p>
         </>
       )}
       {(ai.addressed?.length || ai.instructions) && (

@@ -22,6 +22,7 @@ import {
   renamePage,
   reviewLabel,
   sourceLabel,
+  stockedText,
   toErrorBody,
 } from "./format";
 import type { CircuitIR, OutputsStatus, Proposal } from "./types";
@@ -202,5 +203,12 @@ describe("fix actions on proposals", () => {
     expect(ercWarningText(3, v)).toBe("경고 3 (회로 1 · 이 컴퓨터 KiCad 설정 2)");
     expect(ercWarningText(1, [{ severity: "warning", type: "pin_to_pin" }])).toBe("경고 1");
     expect(ercWarningText(0, undefined)).toBe("경고 0");
+  });
+
+  it("names a stocked part as the stock list does", () => {
+    const part = { mpn: "EEU-FR1V681", manufacturer: "Panasonic", package: "10x20 래디얼", rating: "35V" };
+    expect(stockedText(part)).toBe("EEU-FR1V681 (Panasonic, 35V, 10x20 래디얼)");
+    expect(stockedText({ mpn: null, manufacturer: null, package: null, rating: "35V", value: "680uF" })).toBe("680uF (35V)");
+    expect(stockedText({ mpn: "X1", manufacturer: null, package: null, rating: null })).toBe("X1");
   });
 });

@@ -8,6 +8,7 @@ import type {
   OutputsStatus,
   RevisionInfo,
   Sheet as IRSheet,
+  StockedPart,
   VerificationStatus,
   Proposal,
 } from "./types";
@@ -386,6 +387,12 @@ export function originLabel(origin: string | null | undefined): string {
   if (origin === "ai") return "AI";
   const m = /^template:(.+)$/.exec(origin);
   return m ? `템플릿 ${m[1]}` : origin;
+}
+
+/** A stocked part as the stock list names it: "EEU-FR1V681 (Panasonic, 35V, 10x20 래디얼)". */
+export function stockedText(part: StockedPart & { value?: string | null }): string {
+  const detail = [part.manufacturer, part.rating, part.package].filter(Boolean).join(", ");
+  return `${part.mpn ?? part.value ?? "?"}${detail ? ` (${detail})` : ""}`;
 }
 
 export const AGENT_FLOW = ["PLANNING", "PROPOSED_PLAN", "SCOPE_APPROVED", "SANDBOX_EXECUTION", "VALIDATION", "REVIEW_REQUIRED", "COMMITTED"] as const;

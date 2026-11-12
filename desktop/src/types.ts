@@ -843,6 +843,38 @@ export interface ProposalAi {
   guide_check?: { before: string[]; after: string[]; changes?: string[]; error?: string } | null;
   /** The design job's datasheet step: per part, whether its datasheet was there, downloaded, summarized. */
   datasheets?: DatasheetStep | null;
+  /** Template parts matched to the stock list (보유 자재) by the design job; null when there was nothing to say. */
+  stock?: TemplateStock | null;
+}
+
+/** A stocked part as the stock list describes it. */
+export interface StockedPart {
+  mpn: string | null;
+  manufacturer: string | null;
+  package: string | null;
+  /** 정격·오차 as written in the stock list ("35V", "50V 10%"). */
+  rating: string | null;
+}
+
+/** What the design job did with a reviewed template's parts and the stock list. A template's footprint is never
+ * changed and a part number it names is never replaced. */
+export interface TemplateStock {
+  /** BOM lines the stock list has (보유): the stocked part number, maker and ratings were filled in. */
+  applied: (StockedPart & { references: string[]; value: string; how: string; filled: string[]; notes: string[] })[];
+  /** BOM lines the stock list has in another or an unknown package, or under another part number than the
+   * template's: nothing was put in. A person confirms them in the 자재 tab. */
+  unconfirmed: {
+    references: string[];
+    value: string;
+    footprint_id: string | null;
+    mpn: string | null;
+    why: string;
+    candidates: (StockedPart & {
+      id: string; value: string | null; stock: number | null; reason: string;
+      /** What the app's calculation review would newly flag if this stocked part were used. */
+      if_used: { severity: "fail" | "warn"; title: string; detail: string; calc: string | null }[];
+    })[];
+  }[];
 }
 
 /** One answered checklist item of a perspective pass. `unknown` = the AI had no material to judge it. */

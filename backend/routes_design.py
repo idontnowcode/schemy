@@ -29,6 +29,7 @@ from circuit_core import CircuitIR, validate_circuit
 from circuit_core.diff import diff_circuits
 from circuit_core.guides import prompt_text as guide_prompt_text
 from circuit_core.guides import relevant
+from circuit_core.inventory import fill_template_parts, stock_report_lines
 from circuit_core.models import Component
 from circuit_core.patch import ReplaceCircuit
 from kicad_adapter import SymbolLibrary, SymbolLibraryError
@@ -213,8 +214,11 @@ def _stop_text(stop: str, message: str) -> str:
 
 def proposal_evidence_text(p: Proposal) -> str:
     ev = p.evidence
+    # Stocked parts that were not put into template parts (another package, say): the circuit does not show them,
+    # and without this a reviewer cannot tell whether such a part is stocked or what the stocked one is rated for.
+    stock = stock_report_lines((p.ai or {}).get("stock"), applied=False)
     if ev is None:
-        return "(검사 전)"
+        return "\n".join(["(검사 전)", *(f"- {x}" for x in stock)])
     lines = []
     ac = ev.automated_check
     if ac:
@@ -234,6 +238,7 @@ def proposal_evidence_text(p: Proposal) -> str:
         problems = d["ratings_problems"] + [f"외부 부품 확인: {x}" for x in d["external_missing"]]
         lines.append(f"- 데이터시트 {d['reference']}: 핀맵 {d['pin_map']}, 전압 {d['ratings']}, 외부 부품 {d['external']}"
                      + (f" ({'; '.join(problems)})" if problems else ""))
+    lines += [f"- {x}" for x in stock]
     return "\n".join(lines) or "(문제 없음)"
 
 
@@ -653,9 +658,29 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                 return fixed.circuit, {"before": info["before"], "after": [r["id"] for r in left], "changes": fixed.changes,
                                        "not_addressed": fixed.not_addressed}
 
+            def stock_pass(circuit: CircuitIR) -> tuple[CircuitIR, dict | None]:
+                """Template parts get the stock list's part numbers and ratings, as the AI's own parts do when it
+                picks a stocked part (the resolver's job). Only what the stock list plainly has (보유) is filled in
+                and a template's footprint is never changed; what it has in another package, or with ratings
+                that fail here, is reported for the person to confirm in the 자재 tab
+                (circuit_core.inventory.fill_template_parts)."""
+                if resolver.inventory is None:
+                    return circuit, None
+                filled, report = fill_template_parts(circuit, resolver.inventory)
+                if not report["applied"] and not report["unconfirmed"]:
+                    return circuit, None
+                done = [r for a in report["applied"] for r in a["references"]]
+                left = [r for u in report["unconfirmed"] for r in u["references"]]
+                step("check", "템플릿 부품 보유 자재 대조: " + " · ".join(x for x in (
+                    f"{', '.join(done)}에 보유 품번·정격을 넣음" if done else "",
+                    f"{', '.join(left)}은(는) 넣지 않음 — 패키지·품번·정격을 사람이 확인 (제안의 설계 메모)" if left else "") if x))
+                return filled, report
+
             def finish(circuit: CircuitIR, ai: dict, title: str, out: dict) -> dict:
-                """Guide self-check → proposal → isolated KiCad check → AI review (of a revision: with what it tried
-                to fix)."""
+                """Stock list for template parts → guide self-check → proposal → isolated KiCad check → AI review
+                (of a revision: with what it tried to fix)."""
+                # Before the checks, so they see what the stocked parts are rated for.
+                circuit, ai["stock"] = stock_pass(circuit)
                 circuit, ai["guide_check"] = guide_pass(circuit)
                 if prep.run(circuit.components):
                     # Parts not seen before the pins were connected: a revision's new parts, a guide fix's.
