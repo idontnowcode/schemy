@@ -1879,6 +1879,12 @@ button.back-link {
   vertical-align: middle;
 }
 
+/* A long description must not squeeze the item name into one syllable per line. */
+.flow-summary td:first-child,
+.flow-summary th:first-child {
+  white-space: nowrap;
+}
+
 .flow-summary button.link {
   color: var(--accent);
   text-decoration: none;

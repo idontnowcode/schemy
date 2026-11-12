@@ -109,8 +109,12 @@ const clock = (iso: string) => {
 /** Perspective passes of a deep review (at most: requirements, power, signals, control). */
 const DEEP_PASSES = 4;
 /** Worst case AI calls of the loop: a first review, then per revision plan 1 + connect ≤ 3 + review 1. A deep
- * review is its general pass plus the perspective passes (the first round's general pass is the design's own). */
-const autoCalls = (rounds: number, deep = false) => (deep ? DEEP_PASSES : 1) + (rounds - 1) * (4 + (deep ? 1 + DEEP_PASSES : 1));
+ * review is the general pass plus the perspective passes — also in the first round, when the proposal has no
+ * review yet (a design whose own review failed). */
+const autoCalls = (rounds: number, deep = false) => {
+  const review = 1 + (deep ? DEEP_PASSES : 0);
+  return review + (rounds - 1) * (4 + review);
+};
 
 /** Keep polling a job until it finishes. */
 function usePoll(job: Job | null, setJob: (j: Job) => void, onDone?: (j: Job) => void) {
