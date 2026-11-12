@@ -111,6 +111,12 @@ class MemoryKeys:
     available = True
 
     def get(self, provider):
+        # An AI key for whichever provider is asked, and nothing else. A distributor key (Mouser, DigiKey) must
+        # read as unset, or the design's datasheet step would send part-number searches to the real services.
+        from backend.datasheet_search import KEY_NAMES
+
+        if any(provider in names for names in KEY_NAMES.values()):
+            return None, None
         return "e2e-fake-key-0000", "keyring"
 
     def set(self, provider, key):
@@ -135,6 +141,7 @@ def configure(settings) -> None:
     settings.keystore = MemoryKeys()
     settings.ai_provider_factory = lambda provider, key, model, timeout: ScriptedAi(model)
     settings.datasheet_fetcher = fetch_test_pdf
+    settings.datasheet_searchers = lambda keystore: []  # no distributor searches from a test run, whatever the keys
 
 
 if __name__ == "__main__":

@@ -953,13 +953,15 @@ export function DatasheetStepList({ step }: { step: DatasheetStep }) {
       <ul>
         {step.parts.map((r) => {
           const ok = r.summary === "had" || r.summary === "made";
+          // A KiCad symbol link may be http; the download tried it as https, and only https opens in the browser.
+          const href = r.product_url?.replace(/^http:\/\//, "https://");
           return (
             <li key={r.key} className={ok ? undefined : "warn-text"}>
               <b>{r.references.join(", ")}</b> {r.part} — {[r.download ? STEP_DOWNLOAD[r.download] : null, r.summary ? STEP_SUMMARY[r.summary] : null].filter(Boolean).join(" · ")}
               {r.pages_sent ? ` (${r.pages}쪽 중 ${r.pages_sent.length}쪽만 보냄: ${r.pages_sent.join(", ")})` : ""}
               {r.summary === "made" || (r.summary === "had" && r.reviewed === false) ? <span className="muted"> · 사람이 원문과 확인하기 전</span> : null}
               {r.message ? <span className="muted"> — {r.message}</span> : null}
-              {r.product_url && /^https:\/\//.test(r.product_url) ? <> <a href={r.product_url} target="_blank" rel="noreferrer">브라우저에서 열기</a></> : null}
+              {href && /^https:\/\//.test(href) ? <> <a href={href} target="_blank" rel="noreferrer">브라우저에서 열기</a></> : null}
             </li>
           );
         })}

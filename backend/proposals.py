@@ -254,6 +254,18 @@ def check_proposal(proposals: ProposalStore, p: Proposal, *, checker, symbol_dir
     return proposals.update(p, status=status, evidence=evidence)
 
 
+def _external_text(row: dict) -> str:
+    """One external part the datasheet asks for that the circuit does not have as asked, and what it has instead:
+    a missing part and a part of another value are different problems for whoever reads this."""
+    what = f"{row['kind_label']} {row['value'] or ''} ({' ~ '.join(row['endpoints'])})".replace("  ", " ")
+    found = ", ".join(row.get("found") or [])
+    how = {"missing": "회로에 없음",
+           "value_differs": f"회로에는 {found} (값 다름)" if found else "값 다름",
+           "short": row.get("reason") or "수량 부족",
+           "spec_differs": f"사양 불일치: {row.get('reason') or found}"}.get(row["status"], "")
+    return f"{what}: {how}" if how else what
+
+
 def datasheet_evidence(circuit: CircuitIR, datasheets, symbol_dirs: list[Path]) -> list[dict]:
     lib = SymbolLibrary(symbol_dirs) if symbol_dirs else None
     rows = []
@@ -274,10 +286,8 @@ def datasheet_evidence(circuit: CircuitIR, datasheets, symbol_dirs: list[Path]) 
                      "reviewed": bool(entry.summary and entry.summary.reviewed),
                      "pin_map": r["pin_map"]["status"], "ratings": r["ratings"]["status"],
                      "external": r["external"]["status"],
-                     "external_missing": [f"{x['kind_label']} {x['value'] or ''} ({' ~ '.join(x['endpoints'])})".strip()
-                                          for x in r["external"]["rows"] if x["status"] in ("missing", "short",
-                                                                                            "value_differs",
-                                                                                            "spec_differs")],
+                     "external_missing": [_external_text(x) for x in r["external"]["rows"]
+                                          if x["status"] in ("missing", "short", "value_differs", "spec_differs")],
                      "ratings_problems": [f"{x['name']} {x['net']} {x['voltage']} V: {x['status']}"
                                           for x in r["ratings"]["rows"] if x["status"] in ("over_abs_max",
                                                                                            "outside_recommended")]})

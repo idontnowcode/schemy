@@ -36,9 +36,10 @@ from .ai_access import run_record
 from .datasheets import DatasheetEntry, DatasheetError, DatasheetLibrary, PartSearch
 from .store import now_iso, sha256_bytes
 
-AUTO_CATEGORIES = {None, "ic", "transistor"}
-"""Parts whose datasheet is fetched without being asked: ICs, transistors and specific parts of no known category.
-Generic passives and connectors are left to the datasheet tab."""
+AUTO_CATEGORIES = {"ic", "transistor"}
+"""Parts whose datasheet is fetched without being asked: ICs and transistors, and a part of no known category when
+its KiCad symbol is that specific part (not a generic Device/Connector symbol — a ferrite bead with a part number
+is still a passive). Passives, diodes and connectors are left to the datasheet tab."""
 MAX_NEW_SUMMARIES = 6
 """AI summaries one design job may make (each is an AI call with a PDF)."""
 MAX_SUMMARY_PAGES = 24
@@ -96,6 +97,11 @@ _PAGE_HINTS: tuple[tuple[int, tuple[str, ...]], ...] = (
          "pin definitions")),
     (4, ("typical application", "application circuit", "application information", "applications information",
          "typical operating circuit")),
+    # Where a datasheet says which external parts it needs and how to choose them (LM2596: the fixed-output design
+    # procedure and its component tables scored nothing without these and were left out).
+    (4, ("design procedure", "design requirements", "component selection", "external component")),
+    (3, ("catch diode", "inductor selection", "output capacitor", "input capacitor", "bypass capacitor",
+         "decoupling capacitor", "pullup resistor", "pull-up resistor", "load capacitance")),
     (2, ("electrical characteristics",)),
     (1, ("ordering information", "package option", "layout guidelines", "layout example")),
 )
@@ -171,7 +177,8 @@ class DatasheetPrep:
             url = self.symbol_url(comp.symbol_id)
             if identity(comp, url) == "generic":
                 continue
-            if category_of(comp.symbol_id, comp.reference) not in AUTO_CATEGORIES:
+            category = category_of(comp.symbol_id, comp.reference)
+            if category not in AUTO_CATEGORIES and not (category is None and symbol_part_name(comp.symbol_id)):
                 continue
             groups.setdefault(part_key(comp) or comp.symbol_id, []).append(comp)
         return groups

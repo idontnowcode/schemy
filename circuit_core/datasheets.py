@@ -193,8 +193,12 @@ def norm_pin_name(name: str | None) -> str:
     return s
 
 
-# Names that datasheets and KiCad symbols use for the same regulator / supply pin (LM1117: VIN = VI, VOUT = VO).
-_PIN_ALIASES = {"VI": "VIN", "IN": "VIN", "INPUT": "VIN", "VO": "VOUT", "OUT": "VOUT", "OUTPUT": "VOUT"}
+# Names that datasheets and KiCad symbols use for the same pin: a regulator's supply pins (LM1117: VIN = VI,
+# VOUT = VO), a diode or shunt reference (LM4040: Cathode = K, Anode = A), a switcher's feedback (LM2596:
+# Feedback = FB). Only spellings of one name, never two functions that merely tend to share a pin.
+_PIN_ALIASES = {"VI": "VIN", "IN": "VIN", "INPUT": "VIN", "VO": "VOUT", "OUT": "VOUT", "OUTPUT": "VOUT",
+                "CATHODE": "K", "KATHODE": "K", "ANODE": "A", "FEEDBACK": "FB", "ENABLE": "EN", "SWITCH": "SW"}
+_NC_NAMES = {"", "NC", "N/C", "DNC", "NU", "NIC"}
 
 
 def _alias(name: str) -> str:
@@ -214,6 +218,11 @@ def pin_names_match(a: str | None, b: str | None) -> bool:
         return True
     roles = lambda s: {_alias(norm_pin_name(r)) for r in s.split("/") if norm_pin_name(r)}  # noqa: E731
     return bool(roles(x) & roles(y)) and ("/" in x or "/" in y)
+
+
+def is_unconnected_name(name: str | None) -> bool:
+    """A pin name that says "nothing to connect": NC, N.C., DNC, or no letters at all ('*', '-', '~')."""
+    return norm_pin_name(name) in _NC_NAMES
 
 
 def is_ground_name(name: str | None) -> bool:

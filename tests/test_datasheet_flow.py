@@ -30,7 +30,7 @@ def pages_pdf(pages: list[list[str]]) -> bytes:
     return out.getvalue()
 
 
-def flow_client(tmp_path, fetcher=None, summary=SUMMARY, design=None):
+def flow_client(tmp_path, fetcher=None, summary=SUMMARY, design=None, searchers=None):
     """A client whose AI designs the CAN node and, asked for a datasheet summary, answers ``summary``."""
     design, fetched = design or scripted(bad_first=False), []
 
@@ -43,7 +43,7 @@ def flow_client(tmp_path, fetcher=None, summary=SUMMARY, design=None):
             return fetcher(url)
         return PDF, url
 
-    client, created = ai_client(tmp_path, reply=reply, fetcher=fake)
+    client, created = ai_client(tmp_path, reply=reply, fetcher=fake, searchers=searchers)
     enable(client)
     pid = new_project(client, "CAN Node")
     client.put(f"/api/projects/{pid}/requirements", json={"text": REQUIREMENTS})
@@ -60,10 +60,11 @@ def test_a_long_datasheet_is_cut_to_the_pages_the_checks_read():
     pages[11] = ["6.1 Absolute Maximum Ratings", "VCC -0.3 6 V"]
     pages[20] = ["5 Pin Configuration and Functions", "1 D", "2 GND"]
     pages[30] = ["The absolute maximum ratings apply.", "9.2 Typical Application"]
+    pages[34] = ["9.2.1.2 Detailed Design Procedure", "Inductor selection"]  # where the external parts are chosen
     cut, kept, total = select_pages(pages_pdf(pages))
     assert total == 40 and kept[:2] == [1, 2]
     # A table page brings the next page along (tables run on); a filler page is left out.
-    assert {12, 13, 21, 22, 31} <= set(kept) and 5 not in kept and len(kept) <= MAX_SUMMARY_PAGES
+    assert {12, 13, 21, 22, 31, 35} <= set(kept) and 5 not in kept and len(kept) <= MAX_SUMMARY_PAGES
     assert len(pypdf.PdfReader(io.BytesIO(cut)).pages) == len(kept)
     # Short enough: sent whole. Unreadable: sent whole, and the AI call decides.
     assert select_pages(PDF) == (PDF, None, 1)
@@ -172,3 +173,60 @@ def test_a_revision_goes_through_the_same_step(tmp_path):
         (["U1"], "had", "had")]
     assert [d["reference"] for d in revised["evidence"]["datasheets"]] == ["U1"]
     assert len(fetched) == 1 and len([c for c in prompts(created) if "데이터시트 요약 MD v0.1" in c["prompt"]]) == 1
+
+
+def test_only_ics_and_specific_parts_are_fetched():
+    """Found in a real-flow run: a ferrite bead with a part number (generic Device symbol, no category) was listed
+    as a part whose datasheet could not be got."""
+    from backend.datasheet_flow import DatasheetPrep
+    from circuit_core.models import Component
+
+    def comp(ref, symbol, mpn):
+        return Component(id=ref.lower(), reference=ref, value=mpn, symbol_id=symbol, manufacturer="Maker",
+                         manufacturer_part_number=mpn, pins=[{"number": "1"}, {"number": "2"}])
+
+    prep = DatasheetPrep(library=None, symbol_url=lambda s: None, fetcher=None, searchers=[], provider=None,
+                         cfg=None, job_id="j", step=lambda t: None, fetch=False)
+    groups = prep._groups([comp("FB1", "Device:FerriteBead_Small", "BLM18PG221SN1D"),
+                           comp("R1", "Device:R", "RC0603FR-0710KL"),
+                           comp("D1", "Diode:BAT54S", "BAT54S"),
+                           comp("U1", "Interface_CAN_LIN:SN65HVD230", "SN65HVD230DR"),
+                           comp("Q1", "Transistor_FET:BSS138", "BSS138")])
+    assert sorted(c.reference for v in groups.values() for c in v) == ["Q1", "U1"]
+
+
+def test_an_external_part_that_differs_says_what_the_circuit_has():
+    """Found in a real-flow run: 「다이오드 1N5824 (Output ~ Ground)」 read as a missing diode; the board had a
+    1N5822 there (the datasheet's figure names one example part)."""
+    from backend.proposals import _external_text
+
+    row = {"kind_label": "다이오드", "value": "1N5824", "endpoints": ["Output", "Ground"], "found": ["D7 1N5822"],
+           "status": "value_differs", "reason": "값이 1N5824가 아닙니다."}
+    assert _external_text(row) == "다이오드 1N5824 (Output ~ Ground): 회로에는 D7 1N5822 (값 다름)"
+    assert _external_text({**row, "found": [], "status": "missing"}) == "다이오드 1N5824 (Output ~ Ground): 회로에 없음"
+    assert _external_text({**row, "value": None, "status": "short", "reason": "2개 필요, 1개 있음"}) == (
+        "다이오드 (Output ~ Ground): 2개 필요, 1개 있음")
+
+
+def test_distributors_are_asked_only_with_the_option_and_their_answer_comes_first(tmp_path):
+    """With distributor keys the step searches by part number (step 3 says so). Found in a real-flow run: a test
+    launcher whose key store answered every name made the app search Mouser for real — so the option, not the
+    presence of a key, is what this test pins down."""
+    from circuit_core.datasheet_sources import make_candidate
+
+    asked = []
+
+    class Distributor:
+        name = "Mouser"
+
+        def search(self, term):
+            asked.append(term)
+            return [make_candidate("mouser", "Mouser", ["https://distributor.example/sn65hvd230dr.pdf"],
+                                   part_number=term)]
+
+    client, _, fetched, board = flow_client(tmp_path, searchers=lambda keys: [Distributor()])
+    off = wait(client, client.post(board + "/ai/design", json={"review": False}).json())
+    assert off["status"] == "succeeded" and asked == [] and fetched == []
+    on = wait(client, client.post(board + "/ai/design", json={"review": False, "datasheets": True}).json())
+    assert on["status"] == "succeeded" and asked == ["SN65HVD230DR"]
+    assert fetched == ["https://distributor.example/sn65hvd230dr.pdf"]  # the exact part's document, tried first

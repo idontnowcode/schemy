@@ -61,7 +61,7 @@ def _no_network(url):
     raise AssertionError(f"a test tried to download {url}")
 
 
-def ai_client(tmp_path, reply=f"```markdown\n{EXAMPLE_MD}```", keystore=None, fetcher=None):
+def ai_client(tmp_path, reply=f"```markdown\n{EXAMPLE_MD}```", keystore=None, fetcher=None, searchers=None):
     created = []
 
     def factory(provider, key, model, timeout):
@@ -76,7 +76,8 @@ def ai_client(tmp_path, reply=f"```markdown\n{EXAMPLE_MD}```", keystore=None, fe
 
     settings = Settings(workspace=tmp_path, token=TOKEN, symbol_dirs=[SYMBOL_DIR], kicad_factory=lambda: None,
                         keystore=keystore or MemoryKeyStore(), ai_provider_factory=factory,
-                        datasheet_fetcher=fetcher or _no_network)
+                        datasheet_fetcher=fetcher or _no_network,
+                        datasheet_searchers=searchers or (lambda keys: []))
     client = TestClient(create_app(settings))
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     return client, created

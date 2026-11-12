@@ -78,6 +78,11 @@ def test_pin_names_match():
     assert pin_names_match("PA0-WKUP/ADC12_IN0", "PA0") and pin_names_match("VSS", "GND")
     assert pin_names_match("Vref", "VREF") and pin_names_match("N.C.", "NC")
     assert not pin_names_match("CANH", "CANL") and not pin_names_match("", "VCC")
+    # Spellings real datasheets use for what the KiCad symbol abbreviates (LM4040, LM2596).
+    assert pin_names_match("K", "Cathode") and pin_names_match("A", "Anode") and pin_names_match("FB", "Feedback")
+    assert pin_names_match("OUT", "Output") and pin_names_match("GND", "Ground")
+    assert pin_names_match("~{ON}/OFF", "ON/OFF#")
+    assert not pin_names_match("A", "K") and not pin_names_match("FB", "EN")
 
 
 def test_symbol_datasheet_links(library):
@@ -197,10 +202,37 @@ def test_package_choice():
     assert choose_package(eight, u1, [u1.footprint_id]) == {
         "chosen": "SOIC-8 (D)", "options": ["SOIC-8 (D)", "VSON-8 (DRB)"],
         "reason": "풋프린트·설명의 패키지 이름이 같음"}
-    # 3) nothing to go on: no guess, the user is asked.
-    undecided = choose_package(eight, u1, [])
+    # 3) same pin count, different pin tables, nothing to go on: no guess, the user is asked.
+    swapped = facts(_with_package("VSON-8 (DRB)", [(soic[0][0], soic[1][1]), (soic[1][0], soic[0][1]), *soic[2:]]))
+    undecided = choose_package(swapped, u1, [])
     assert undecided["chosen"] is None and "고를 수 없습니다" in undecided["reason"]
-    assert choose_package(eight, u1, [], override="VSON-8 (DRB)")["chosen"] == "VSON-8 (DRB)"
+    assert choose_package(swapped, u1, [], override="VSON-8 (DRB)")["chosen"] == "VSON-8 (DRB)"
+    # 4) same pin count and the same pin table: which package it is changes nothing for the pin check.
+    same = choose_package(eight, u1, [])
+    assert same["chosen"] == "SOIC-8 (D)" and "핀 표가 모두 같음" in same["reason"]
+
+
+def test_summaries_of_real_datasheets_match_their_kicad_symbols():
+    """Found in a real-flow run with TI's LM4040-N and LM2596 datasheets: the first compared as 「핀맵 불일치」
+    (Cathode/Anode/* against K/A/NC) and the second as 「확인 불가」 (two packages with one pin table)."""
+    from circuit_core.datasheet_checks import pin_map_check
+
+    def read(name):
+        return import_datasheet_markdown((FIXTURES / "datasheets" / name).read_text(encoding="utf-8")).facts
+
+    ref = read("lm4040-n-summary.md")
+    sot23 = pin_map_check(ref, "SOT-23 (DBZ)", [("1", "K"), ("2", "A"), ("3", "NC")])  # Reference_Voltage:LM4040DBZ-4.1
+    assert sot23["status"] == "match" and sot23["counts"] == {"match": 3}
+
+    buck = read("lm2596-summary.md")
+    u4 = CircuitIR.model_validate({"project_id": "t", "components": [{
+        "id": "u4", "reference": "U4", "value": "LM2596S-5", "symbol_id": "Regulator_Switching:LM2596S-5",
+        "footprint_id": "Package_TO_SOT_SMD:TO-263-5_TabPin3",
+        "pins": [{"number": str(n)} for n in range(1, 6)]}], "nets": []}).component("u4")
+    chosen = choose_package(buck, u4, [u4.footprint_id])
+    assert chosen["chosen"] in ("TO-220 (NDH)", "TO-263 (KTT)")
+    pins = [("1", "VIN"), ("2", "OUT"), ("3", "GND"), ("4", "FB"), ("5", "~{ON}/OFF")]
+    assert pin_map_check(buck, chosen["chosen"], pins)["counts"] == {"match": 5}
 
 
 def test_exposed_pad_pairs_with_numbered_symbol_pin():

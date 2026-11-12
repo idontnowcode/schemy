@@ -19,6 +19,7 @@ from .datasheets import (
     DatasheetFacts,
     DsRating,
     is_ground_name,
+    is_unconnected_name,
     net_ranges,
     net_voltages,
     norm_pin_name,
@@ -64,6 +65,10 @@ def choose_package(facts: DatasheetFacts, component: Component, hints: list[str 
     by_name = [p for p in pool if _pkg_size(p) in sizes]
     if len(by_name) == 1:
         return {**result, "chosen": by_name[0], "reason": "풋프린트·설명의 패키지 이름이 같음"}
+    tables = {tuple(sorted((p.number, norm_pin_name(p.name)) for p in facts.pins_of(pkg))) for pkg in pool}
+    if by_count and len(tables) == 1:
+        # Several packages with one pin table (LM2596: TO-220 and TO-263): which one it is changes nothing here.
+        return {**result, "chosen": pool[0], "reason": f"핀 수가 같은 패키지 {len(pool)}개의 핀 표가 모두 같음"}
     return {**result, "reason": f"패키지를 고를 수 없습니다 ({', '.join(pool)}). 풋프린트를 지정하거나 직접 고르세요."}
 
 
@@ -91,7 +96,9 @@ def pin_map_check(facts: DatasheetFacts, package: str | None, pin_names: PinName
         s_number = pairs.get(number, number)
         s_name = sym.get(s_number)
         if d is not None and s_name is not None:
-            if not s_name or s_name == "~":
+            if is_unconnected_name(d.name) and is_unconnected_name(s_name):
+                status = "match"  # both say "no connection" (LM4040 pin 3: '*' in the datasheet, NC in the symbol)
+            elif not s_name or s_name == "~":
                 status = "no_name"
             else:
                 status = "match" if pin_names_match(s_name, d.name) else "mismatch"

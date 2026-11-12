@@ -64,6 +64,12 @@ class MemoryKeys:
     available = True
 
     def get(self, provider):
+        # An AI key for whichever provider is asked, and nothing else. A distributor key (Mouser, DigiKey) must
+        # read as unset, or the design's datasheet step would send part-number searches to the real services.
+        from backend.datasheet_search import KEY_NAMES
+
+        if any(provider in names for names in KEY_NAMES.values()):
+            return None, None
         return "relay-key-0000", "keyring"
 
     def set(self, provider, key):
