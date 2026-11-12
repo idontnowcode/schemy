@@ -944,7 +944,8 @@ def build_design_router(store: ProjectStore, jobs: JobRunner, service: ProposalS
                     checks = [c for x in review["passes"] for c in x.get("checks") or []]
                     entry.update(passes=len(review["passes"]), checks=len(checks),
                                  unknown=sum(1 for c in checks if c.get("result") == "unknown"),
-                                 unknown_said=[c["item"] for c in checks if c.get("result") == "unknown"][:6])
+                                 unknown_said=[re.sub(r"^\(\d+\)\s*", "", str(c.get("item", "")))
+                                               for c in checks if c.get("result") == "unknown"][:6])
                 if (p.ai or {}).get("not_addressed"):
                     entry["declined"] = [f"{x.get('title')}: {x.get('why')}" for x in p.ai["not_addressed"]][:4]
                 prev = rounds[-1] if rounds else None

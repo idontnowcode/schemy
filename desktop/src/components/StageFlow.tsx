@@ -36,7 +36,7 @@ import { canResume, DesignChoices } from "./DesignChoices";
 import { Icon, type IconName } from "./Icons";
 import type { TabId } from "./ProjectView";
 import { ProposalsTab } from "./ProposalsTab";
-import { ReviewDecisions } from "./ReviewDecisions";
+import { ReviewDecisions, unknownChecks } from "./ReviewDecisions";
 
 export const STEPS = ["아이디어", "요구사항", "설계 준비", "AI 설계", "검토", "확인·승인", "회로도·출력"] as const;
 const LAST = STEPS.length - 1;
@@ -941,6 +941,7 @@ function ApproveStage(p: Common & { target: Proposal | null; revision: number | 
     ...r.external_missing.map((t) => `${r.reference} 외부 부품: ${t}`),
   ]);
   const compared = (ev?.datasheets ?? []).length;
+  const unknown = unknownChecks(x);
   // What the design's datasheet step could not get: said next to the result, or a part nobody compared looks fine.
   const dsMissing = (x.ai?.datasheets?.parts ?? []).filter((r) => r.summary !== "had" && r.summary !== "made");
   const dsMissingText = dsMissing.length
@@ -957,7 +958,9 @@ function ApproveStage(p: Common & { target: Proposal | null; revision: number | 
     { name: "자동 검사", chip: <Chip text={check.text} tone={check.tone} />,
       text: ac && ac.erc_errors != null ? `KiCad ERC 오류 ${ac.erc_errors} · ${ercWarningText(ac.erc_warnings, ac.violations)}${ac.netlist_matches_ir != null ? ` · Netlist ${ac.netlist_matches_ir ? "일치" : "불일치"}` : ""}` : ac?.reason ?? "", stage: "checks" },
     { name: "AI 검토", chip: <Chip text={x.ai?.review ? `수정 필요 ${errors.length} · 권장 ${warnings.length}` : "검토 전"} tone={errors.length ? "bad" : warnings.length ? "warn" : x.ai?.review ? "ok" : "muted"} />,
-      text: [...errors, ...warnings].map((f) => f.title).join(" / ") || (x.ai?.review?.summary ?? ""), stage: "review" },
+      text: [[...errors, ...warnings].map((f) => f.title).join(" / ") || (x.ai?.review?.summary ?? ""),
+        unknown.length ? `AI가 판단하지 못한 확인 항목 ${unknown.length}개 (${unknown.slice(0, 2).map((c) => c.item).join(", ")}${unknown.length > 2 ? " …" : ""})` : "",
+      ].filter(Boolean).join(" · "), stage: "review" },
     { name: "데이터시트",
       chip: <Chip text={ds.length ? `확인 ${ds.length}` : compared ? (dsMissing.length ? `대조 ${compared} · 없음 ${dsMissing.length}` : "문제 없음") : "대조 안 함"}
         tone={ds.length || (compared && dsMissing.length) ? "warn" : compared ? "ok" : "muted"} />,

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ai_engine.design import ResolvedPart
 from circuit_core.datasheets import DatasheetFacts
-from circuit_core.inventory import Inventory, specs_from_stock
+from circuit_core.inventory import Inventory, normalize_mpn, specs_from_stock
 from circuit_core.models import Component
 from circuit_core.parts import package_footprint
 from kicad_adapter import SymbolLibrary, SymbolLibraryError
@@ -75,14 +75,21 @@ class PartResolver:
         specs = None
         how = []
         inv_id = str(part.get("inventory_part_id") or "").strip()
-        if inv_id and self.inventory:
-            stocked = next((p for p in self.inventory.parts if p.id == inv_id), None)
-            if stocked is not None:
-                mpn, maker = stocked.mpn or mpn, stocked.manufacturer or maker
-                footprint = stocked.footprint_id
-                package = stocked.package or package
-                specs = specs_from_stock(stocked)  # 정격·오차 from the stock list come with the part
-                how.append(f"보유 자재 {stocked.mpn or stocked.value}")
+        stocked = None
+        if self.inventory:
+            if inv_id:
+                stocked = next((p for p in self.inventory.parts if p.id == inv_id), None)
+            if stocked is None and mpn:
+                # A part named by a stocked part number is that stocked part: an edit's add_part has no inventory id,
+                # and without this its 정격·오차 stay empty and the reviews cannot judge it.
+                key = normalize_mpn(mpn)
+                stocked = next((p for p in self.inventory.parts if p.mpn and normalize_mpn(p.mpn) == key), None)
+        if stocked is not None:
+            mpn, maker = stocked.mpn or mpn, stocked.manufacturer or maker
+            footprint = stocked.footprint_id
+            package = stocked.package or package
+            specs = specs_from_stock(stocked)  # 정격·오차 from the stock list come with the part
+            how.append(f"보유 자재 {stocked.mpn or stocked.value}")
 
         candidates: list[tuple[str, str]] = []
         guess = str(part.get("kicad_symbol") or "").strip()

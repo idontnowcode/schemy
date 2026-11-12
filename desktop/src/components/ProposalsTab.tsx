@@ -18,7 +18,7 @@ import {
   providerLabel,
   ROW_STATUS,
 } from "../format";
-import type { AiStatus, BoardReview, CircuitIR, DatasheetStep, ErcViolation, Job, Proposal, ProposalDiff, QuickFix, ReviewPass, RevisionInputs } from "../types";
+import type { AiStatus, BoardReview, CircuitIR, DatasheetStep, ErcViolation, Job, Proposal, ProposalDiff, QuickFix, ReviewCheck, ReviewPass, RevisionInputs } from "../types";
 import { Chip } from "./Chip";
 import { ProposalDatasheets } from "./DatasheetFinder";
 import { emptyDraft, GuideChecklistPanel, savedName, saveFindingAsGuide } from "./Guides";
@@ -965,6 +965,18 @@ export function ReviewPasses({ passes }: { passes: ReviewPass[] }) {
       {passes.map((x) => {
         const n = (r: string) => x.checks.filter((c) => c.result === r).length;
         const open = n("issue") + n("unknown") + x.skipped.length > 0 || Boolean(x.error);
+        // What a person has to look at comes first; a long list of "fine" answers is folded below it.
+        const attention = x.checks.filter((c) => c.result === "issue" || c.result === "unknown");
+        const fine = x.checks.filter((c) => c.result !== "issue" && c.result !== "unknown");
+        const row = (c: ReviewCheck, i: number) => (
+          <li key={`${c.result}-${i}`} className={`review-check ${c.result}`}>
+            <Chip text={CHECK_RESULT[c.result]?.text ?? c.result} tone={CHECK_RESULT[c.result]?.tone ?? "muted"} />
+            <span>
+              {c.item}{c.references.length > 0 && <span className="muted"> ({c.references.join(", ")})</span>}
+              {c.note && <span className="small muted"> — {c.note}</span>}
+            </span>
+          </li>
+        );
         return (
           <details key={x.key} className="review-pass" open={open}>
             <summary>
@@ -978,17 +990,13 @@ export function ReviewPasses({ passes }: { passes: ReviewPass[] }) {
             </summary>
             {x.error && <p className="small bad-text">{x.error}</p>}
             {x.summary && <p className="small">{x.summary}</p>}
-            <ul className="review-checks">
-              {x.checks.map((c, i) => (
-                <li key={i} className={`review-check ${c.result}`}>
-                  <Chip text={CHECK_RESULT[c.result]?.text ?? c.result} tone={CHECK_RESULT[c.result]?.tone ?? "muted"} />
-                  <span>
-                    {c.item}{c.references.length > 0 && <span className="muted"> ({c.references.join(", ")})</span>}
-                    {c.note && <span className="small muted"> — {c.note}</span>}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <ul className="review-checks">{attention.map(row)}</ul>
+            {fine.length > 0 && (attention.length === 0 ? <ul className="review-checks">{fine.map(row)}</ul> : (
+              <details className="review-checks-fine">
+                <summary className="small muted">문제없다고 답한 것 {fine.length}개</summary>
+                <ul className="review-checks">{fine.map(row)}</ul>
+              </details>
+            ))}
             {x.skipped.length > 0 && (
               <p className="small warn-text">답하지 않은 확인 항목: {x.skipped.join(" / ")}</p>
             )}

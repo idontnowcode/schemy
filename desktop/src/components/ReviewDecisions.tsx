@@ -1,13 +1,20 @@
 import { useEffect, useState } from "react";
 
 import { api, errorText } from "../api";
-import type { AiFinding, Proposal, ReviewDecision } from "../types";
+import type { AiFinding, Proposal, ReviewCheck, ReviewDecision } from "../types";
 import { Chip } from "./Chip";
 
 /** The 수정 필요/권장 findings still open on a proposal: confirmed by the app and not decided by a person. */
 export function openFindings(p: Proposal | null): AiFinding[] {
   const findings = p?.ai?.review?.findings ?? [];
   return findings.filter((f) => (f.severity === "error" || f.severity === "warning") && f.verified !== false && !f.decided);
+}
+
+/** The checklist items the perspective passes could not judge for lack of material (a rating, a part number, a datasheet). */
+export function unknownChecks(p: Proposal | null): (ReviewCheck & { perspective: string })[] {
+  // Item numbers repeat across passes, so a mixed list names the perspective instead of the number.
+  return (p?.ai?.review?.passes ?? []).flatMap((x) => x.checks.filter((c) => c.result === "unknown")
+    .map((c) => ({ ...c, item: c.item.replace(/^\(\d+\)\s*/, ""), perspective: x.label })));
 }
 
 /**
@@ -28,6 +35,7 @@ export function ReviewDecisions({ pid, bid, proposal, onChanged, onFix }: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const left = openFindings(proposal);
+  const unknown = unknownChecks(proposal);
   const declined = proposal?.ai?.not_addressed ?? [];
 
   const load = () => api.reviewDecisions(pid, bid).then(setDecisions).catch(() => setDecisions([]));
@@ -107,6 +115,24 @@ export function ReviewDecisions({ pid, bid, proposal, onChanged, onFix }: {
           );
         })}
       </ul>
+      {unknown.length > 0 && (
+        <details className="small review-unknown" open={left.length === 0}>
+          <summary>AI가 판단하지 못한 것 {unknown.length}개 — 사람이 확인해야 합니다</summary>
+          <p className="muted">
+            자료가 없어 AI가 맞는지 틀린지 답하지 못한 확인 항목입니다. 지적으로 세지 않았습니다.
+            품번·정격을 넣거나 데이터시트를 받은 뒤 다시 검토하면 판단합니다.
+          </p>
+          <ul>
+            {unknown.map((c, i) => (
+              <li key={i}>
+                <span className="muted">{c.perspective} · </span><b>{c.item}</b>
+                {c.references.length > 0 && <span className="muted"> ({c.references.join(", ")})</span>}
+                {c.note && <> — {c.note}</>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {decisions.length > 0 && (
         <details className="small">
           <summary>사람이 정한 것 {decisions.length}개</summary>

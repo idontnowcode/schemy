@@ -161,7 +161,7 @@ def test_the_loop_adds_passes_to_an_existing_review_and_reviews_revisions_deep(t
     # Round 1 kept the design job's general review and only added the three passes; a pass found what it missed.
     assert seen[:3] == ["요구사항 대조", "전원·보호", "인터페이스·아날로그"]
     assert (first["warnings"], first["said"], first["passes"], first["unknown"]) == (1, ["종단 저항 값 확인"], 3, 1)
-    assert first["unknown_said"] == ["(2) 레벨"] and first["checks"] > 10
+    assert first["unknown_said"] == ["레벨"] and first["checks"] > 10
     # The revision is reviewed by every pass again, told what the revision changed.
     assert (second["warnings"], second["passes"]) == (0, 3) and len(seen) == 6
     assert "[이번 수정안에서 바뀐 것" in state["signal_prompts"][1] and "R1 값" in state["signal_prompts"][1]

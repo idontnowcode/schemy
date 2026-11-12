@@ -77,6 +77,9 @@ test("idea → requirements → design → automatic review → approval → sch
 
   // What is left can be kept as designed, with a reason: then nothing is left for the AI to fix.
   const left = page.getByLabel("남은 의견");
+  // What no pass could judge is listed for a person, by perspective: it is not a finding, and not "fine" either.
+  await expect(left.getByText("AI가 판단하지 못한 것 1개 — 사람이 확인해야 합니다")).toBeVisible();
+  await expect(left.locator(".review-unknown")).toContainText("전원·보호 · ");
   await expect(left.getByRole("heading", { name: "남은 의견 1개" })).toBeVisible();
   await expect(left).toContainText("CAN 라인 TVS 권장");
   await left.getByRole("button", { name: "의도한 설계로 두기" }).click();
@@ -94,6 +97,7 @@ test("idea → requirements → design → automatic review → approval → sch
   // 6 확인·승인: one table; 「자세히」 opens the proposal's own slide; nothing saved before approval.
   await page.getByRole("button", { name: "다음: 확인·승인 →" }).click();
   await expect(page.getByRole("table", { name: "제안 요약" })).toContainText("수정 필요 0 · 권장 0");
+  await expect(page.getByRole("table", { name: "제안 요약" })).toContainText("AI가 판단하지 못한 확인 항목 1개");
   await page.getByRole("button", { name: "AI 검토 자세히" }).click();
   await expect(page.getByText("4 / 7")).toBeVisible();
   await expect(page.getByText("사람이 정함").first()).toBeVisible();
@@ -103,6 +107,9 @@ test("idea → requirements → design → automatic review → approval → sch
   await expect(checked.getByText("요구사항 대조", { exact: true })).toBeVisible();
   await expect(checked.locator(".review-pass").filter({ hasText: "전원·보호" })).toContainText("판단 못 함 1");
   await expect(checked).toContainText("C1의 정격 전압이 적혀 있지 않음");
+  // The answers that need a person come first; the "fine" ones are folded under them.
+  await expect(checked.locator(".review-pass").filter({ hasText: "전원·보호" }).locator(".review-checks-fine > summary"))
+    .toContainText("문제없다고 답한 것");
   await page.getByRole("button", { name: "← 확인·승인(으)로 돌아가기" }).click();
   // The proposal was compared with the datasheet the design step fetched; the summary is the AI's, not yet checked.
   const dsRow = page.getByRole("table", { name: "제안 요약" }).getByRole("row").filter({ hasText: "데이터시트" });

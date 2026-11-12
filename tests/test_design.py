@@ -918,6 +918,25 @@ def test_a_new_value_takes_its_part_number_and_notes_can_be_fixed(tmp_path, reso
     assert problems and "N99" in problems[0]
 
 
+def test_a_part_added_by_stocked_part_number_gets_the_stock_ratings(library, tmp_path):
+    """Found in a real-flow run: a revision added C13 with a stocked part number and no inventory id, so its 정격
+    stayed empty and the review could only guess its voltage rating from a sibling part."""
+    from circuit_core.inventory import Inventory, InventoryPart
+
+    stock = Inventory(source_file="stock.csv", imported_at="2026-01-01T00:00:00Z", parts=[InventoryPart(
+        id="inv-1", category="capacitor", value="100nF", package="0603", mpn="CL10B104KB8NNNC", manufacturer="Samsung",
+        footprint_id="Capacitor_SMD:C_0603_1608Metric", rating="50V", tolerance="10%", stock=500, source_row=2)])
+    stocked = PartResolver(library, symbol_index([SYMBOL_DIR], tmp_path / "idx.json"), stock, None)
+    # Named by its part number alone (written a little differently), it is the stocked part.
+    part, _ = stocked({"ref": "C13", "category": "capacitor", "value": "100nF", "mpn": "cl10b104kb8nnnc"})
+    assert part is not None and part.specs == {"voltage_rating": 50.0, "tolerance": 10.0}
+    assert part.footprint_id == "Capacitor_SMD:C_0603_1608Metric" and part.manufacturer == "Samsung"
+    assert "보유 자재 CL10B104KB8NNNC" in part.how
+    # Another part number is not: nothing is borrowed from the stock list.
+    other, _ = stocked({"ref": "C14", "category": "capacitor", "value": "100nF", "mpn": "GRM188R71H104KA93D"})
+    assert other is not None and other.specs is None and "보유 자재" not in other.how
+
+
 def test_a_three_pin_diode_is_never_a_two_pin_generic(resolver):
     """Found in a real-flow run: SM712 (SOT-23, three pins) named with a wrong symbol became Device:D (two pins)."""
     tvs, _ = resolver({"ref": "D3", "category": "diode", "value": "SM712", "mpn": "SM712.TCT", "package": "SOT-23",

@@ -2220,5 +2220,10 @@ button.back-link {
 .review-pass { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; background: var(--bg-elev-2); }
 .review-pass > summary { cursor: pointer; }
 .review-checks { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.review-checks-fine { margin-top: 8px; }
+.review-checks-fine > summary { cursor: pointer; }
+.review-unknown > summary { cursor: pointer; color: var(--warn, inherit); }
+.review-unknown p { margin: 6px 0; }
+.review-unknown ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .review-check { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; font-size: 13px; }
 .finding-perspective { margin-left: 6px; }

@@ -845,6 +845,14 @@ export interface ProposalAi {
   datasheets?: DatasheetStep | null;
 }
 
+/** One answered checklist item of a perspective pass. `unknown` = the AI had no material to judge it. */
+export interface ReviewCheck {
+  item: string;
+  result: "ok" | "issue" | "unknown" | "na";
+  note: string;
+  references: string[];
+}
+
 /** One perspective pass of a deep review: the checklist items it answered and the findings it raised. */
 export interface ReviewPass {
   key: string;
@@ -853,7 +861,7 @@ export interface ReviewPass {
   asked: number;
   /** Checklist items that were asked and not answered. */
   skipped: string[];
-  checks: { item: string; result: "ok" | "issue" | "unknown" | "na"; note: string; references: string[] }[];
+  checks: ReviewCheck[];
   /** Titles of the review's findings this pass raised. */
   found: string[];
   error?: string;
